@@ -10,16 +10,18 @@ Pick Docker or packages for the servers. Agents can use any method: see
 ## Docker
 
 Images are published for `linux/amd64` and `linux/arm64`:
-`ghcr.io/midnights-ra1n/nyx-{monitor,manager,agent}`.
+`ghcr.io/midnights-ra1n/nyx-{monitor,manager,db,agent}`.
 
 ```sh
 cp .env.example .env   # from packaging/docker/
-# Set NYX_PB_PASSWORD (openssl rand -hex 24) and the public URLs.
+# Set the public URLs.
 docker compose --profile monitor --profile manager up -d
 ```
 
-Use one profile for one role. Each server embeds its own database, so there is nothing
-else to run. Back up the `monitor-data` and `manager-data` volumes.
+Use one profile for one role. A local database needs nothing else to run. For a shared
+one, also set `NYX_DB_PASSWORD` (`openssl rand -hex 24`), add `--profile db`, and enter
+`http://db:8090` at the [first start](#choosing-a-database). Back up the `monitor-data`,
+`manager-data` and `db-data` volumes.
 
 The monitor's compose service sets `net.ipv4.ping_group_range` so ICMP probes work
 as a non-root user. If your platform forbids this sysctl, add `cap_add: [NET_RAW]`
@@ -28,11 +30,32 @@ and run the container as root.
 Updating: `docker compose pull && docker compose up -d`. `NYX_VERSION` in `.env` picks
 the [channel](#release-channels) or a fixed version.
 
+## Choosing a database
+
+The first time you open a server, it asks where to keep its data:
+
+| Choice | Data | Accounts | Needs |
+| --- | --- | --- | --- |
+| **Local** | Inside this server | Its own | Nothing |
+| **Remote** | On a `nyx-db` server | Shared with the other server, if it connects too | `nyx-db`, reachable from the server |
+
+To go remote, install `nyx-db` where the data should live, then enter its URL, email and
+password on both servers: `/etc/nyx/db.env` holds the last two with packages. On a
+public network put it behind an HTTPS reverse proxy, because the screen refuses plain
+HTTP to a public address. The second server finds the accounts already there and shows
+the sign-in page. Passkeys stay bound to the address they were created on.
+
+Upgrade `nyx-db` first: it applies new schema changes that the servers rely on.
+
+The choice is saved in `database.json` in the data directory. To skip the screen, as with
+Ansible, set [variables](configuration.md#servers). Changing it later does not move any
+data, see [troubleshooting](troubleshooting.md#a-server-does-not-start-after-a-database-was-chosen).
+
 ## Monitor and manager on separate machines
 
 The monitor and the manager are two programs with two web interfaces, and they do not
-have to be in the same place. Each one has its own embedded database, on one machine or
-two. Nothing is shared, including accounts: each interface has its own login.
+have to be in the same place. With local databases nothing is shared, including
+accounts: each interface has its own login. With a shared database they have one login.
 
 [Linking them](#linking-manager-and-monitor) is optional.
 
@@ -54,6 +77,7 @@ Debian, Ubuntu, RHEL, Fedora and Alma, on x86_64 and arm64. Download from the
 | `nyx-base` | `nyx-notify`, the updater. Required by both servers |
 | `nyx-monitor` | The monitor with its database, and agent binaries for both architectures |
 | `nyx-manager` | The manager with its database |
+| `nyx-db` | The optional shared database, on its own |
 | `nyx-agent` | The agent alone |
 
 ```sh
@@ -62,7 +86,7 @@ sudo dnf install ./nyx-base-*.rpm ./nyx-monitor-*.rpm      # RHEL, Fedora, Alma
 ```
 
 The first install creates the `nyx` user, a random database password in
-`/etc/nyx/server.env`, and starts the services. Data lives in `/var/lib/nyx`.
+`/etc/nyx/db.env` for `nyx-db`, and starts the services. Data lives in `/var/lib/nyx`.
 
 Set the public URL, then restart:
 
@@ -125,13 +149,15 @@ Creating a new token replaces the old one.
 ## Backups
 
 Everything durable is in each server's data directory: back up `/var/lib/nyx/monitor`
-and `/var/lib/nyx/manager`, or the `monitor-data` and `manager-data` volumes. Stop the
-server first, or use a tool that can copy a live SQLite database.
+and `/var/lib/nyx/manager`, or `/var/lib/nyx/db` on the `nyx-db` host, or the matching
+volumes. Stop the server first, or use a tool that can copy a live SQLite database.
 
 ## Upgrading from a release with a separate database
 
 Before embedding, one PocketBase served both roles. Each server now starts from a full
-copy of that database, so accounts and settings carry over and then evolve separately.
+copy of that database, as a local one, so accounts and settings carry over and then
+evolve separately. The existing `NYX_PB_*` credentials keep it that way, with no choice
+to make.
 
 With packages this is automatic, and `/var/lib/nyx/pb` stays until you delete it.
 
@@ -154,4 +180,5 @@ docker compose up -d --remove-orphans
 | --- | --- | --- |
 | 8081 | Monitor | Users and agents |
 | 8082 | Manager | Users, and Git forges for webhooks |
-| Random, loopback only | Embedded database | Its own server |
+| Random, loopback only | Local database | Its own server |
+| 8090 | `nyx-db` | The servers only. Private network or HTTPS |

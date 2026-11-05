@@ -74,16 +74,21 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
     res
 }
 
-/// Serve until SIGINT/SIGTERM, with TLS when a certificate is configured.
+/// Serve until SIGINT/SIGTERM.
 pub async fn serve(router: Router, env: &crate::Env) -> anyhow::Result<()> {
+    serve_until(router, env, std::time::Duration::from_secs(5), nyx_db::shutdown_signal()).await
+}
+
+/// Serve until `stop` resolves, with TLS when a certificate is configured.
+pub async fn serve_until(router: Router, env: &crate::Env, grace: std::time::Duration, stop: impl Future<Output = ()> + Send + 'static) -> anyhow::Result<()> {
     let addr: SocketAddr = env.bind.parse()?;
     let router = router.layer(axum::middleware::from_fn(security_headers));
     println!("listening on {addr} (public URL {})", env.public_url);
     let handle = axum_server::Handle::new();
     let stopper = handle.clone();
     tokio::spawn(async move {
-        shutdown_signal().await;
-        stopper.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
+        stop.await;
+        stopper.graceful_shutdown(Some(grace));
     });
     let app = router.into_make_service();
     match (&env.tls_cert, &env.tls_key) {
@@ -95,15 +100,6 @@ pub async fn serve(router: Router, env: &crate::Env) -> anyhow::Result<()> {
         _ => axum_server::bind(addr).handle(handle).serve(app).await?,
     }
     Ok(())
-}
-
-async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut term = signal(SignalKind::terminate()).expect("signal handler");
-    tokio::select! {
-        _ = term.recv() => {}
-        _ = tokio::signal::ctrl_c() => {}
-    }
 }
 
 /// Run `f` every `period`, logging failures rather than dying.

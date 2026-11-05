@@ -1,0 +1,22 @@
+[Unit]
+Description=Nyx shared database
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nyx
+EnvironmentFile=/etc/nyx/db.env
+Environment=NYX_DATA_DIR=/var/lib/nyx/db
+ExecStart=/usr/bin/nyx-db
+# The server stops its database cleanly: signal only the server.
+KillMode=mixed
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nyx/db
+
+[Install]
+WantedBy=multi-user.target

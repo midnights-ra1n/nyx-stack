@@ -1,13 +1,15 @@
 # Nyx with Docker. Copy .env.example to .env, fill it, then:
 #   docker compose --profile monitor --profile manager up -d
-# Keep one profile to run a single role. Each role embeds its own database.
+# Keep one profile to run a single role. Each server asks at its first start whether to
+# use its own database or a shared one: add `--profile db` for the latter.
 x-server: &server
   restart: unless-stopped
   init: true
 
+# Only set by installs older than the first-start choice.
 x-credentials: &pb
-  NYX_PB_EMAIL: ${NYX_PB_EMAIL:?set it in .env}
-  NYX_PB_PASSWORD: ${NYX_PB_PASSWORD:?set it in .env}
+  NYX_PB_EMAIL: ${NYX_PB_EMAIL:-}
+  NYX_PB_PASSWORD: ${NYX_PB_PASSWORD:-}
 
 services:
   monitor:
@@ -39,6 +41,20 @@ services:
     volumes:
       - manager-data:/data
 
+  # From the servers of this file, its address is http://db:8090.
+  db:
+    <<: *server
+    profiles: [db]
+    image: ghcr.io/midnights-ra1n/nyx-db:${NYX_VERSION:-latest}
+    environment:
+      NYX_PB_EMAIL: ${NYX_DB_EMAIL:-nyx@localhost.invalid}
+      NYX_PB_PASSWORD: ${NYX_DB_PASSWORD:-}
+    # Publish it only behind HTTPS or on a private network.
+    ports:
+      - 8090:8090
+    volumes:
+      - db-data:/data
+
   # Prefer the systemd agent: inside a container it cannot apply system updates.
   agent:
     profiles: [agent]
@@ -61,3 +77,4 @@ services:
 volumes:
   monitor-data:
   manager-data:
+  db-data:

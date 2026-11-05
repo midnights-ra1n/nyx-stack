@@ -1,7 +1,7 @@
 # Data model
 
-All durable data lives in PocketBase, which each server embeds, so the monitor and the
-manager have one database each. The schema is in `pb/pb_migrations`, and new changes go
+All durable data lives in PocketBase. By default each server embeds its own, and with
+a [shared database](deployment.md#choosing-a-database) both use the one in `nyx-db`. The schema is in `pb/pb_migrations`, and new changes go
 in a new migration file, applied when the server starts. Every collection is reachable by the superuser
 only: browsers talk to Nyx, never to PocketBase.
 
@@ -19,6 +19,7 @@ and are rebuilt from agents and rollups after a restart.
 | `notif_channels` | Shoutrrr URL and templates | Always |
 | `notif_rules` | Events, channel, schedule, last send and last error | Always |
 | `notif_events` | Everything that could be notified | 40 days |
+| `notif_claims` | On a shared database, which server sends a digest | 10 minutes |
 
 ## Monitor
 

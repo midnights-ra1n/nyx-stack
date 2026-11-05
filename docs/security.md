@@ -52,8 +52,22 @@ Status pages and wall displays are served without an account, so:
 - Drafts and unknown addresses give the same 404.
 - Texts are shown as text, never as HTML. Logos must be embedded images.
 
+## First start
+
+Until a database is chosen, the choice is open to anyone who can reach the port, as the
+first account already is. Open a new server's port to yourself only, or skip the screen
+with [variables](configuration.md#servers).
+
+## Shared database
+
+`nyx-db` is PocketBase with its superuser login exposed, and that login reads everything.
+Keep its port on a private network or behind an HTTPS reverse proxy. The first-start
+screen refuses plain HTTP to a public address, because the password and the token travel
+with every request. Packages generate a long password, and with Docker you set it.
+
 ## Secrets at rest
 
+- `database.json`, mode 0600, holds the database password.
 - PocketBase holds channel URLs, integration passwords and deploy keys in clear, in
   collections only the superuser can read. Protect `/var/lib/nyx` and its backups.
 - Deploy keys and webhook secrets are withheld from the generic API. The site details

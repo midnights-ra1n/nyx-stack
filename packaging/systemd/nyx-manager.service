@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 User=nyx
-EnvironmentFile=/etc/nyx/server.env
+# Only beta installs have it. Without it, the server asks for a database at first start.
+EnvironmentFile=-/etc/nyx/server.env
 EnvironmentFile=-/etc/nyx/manager.env
 Environment=NYX_NOTIFIER_BIN=/usr/libexec/nyx/nyx-notify NYX_UPDATE_DIR=/var/lib/nyx/update NYX_AGENT_DIR=/usr/share/nyx/agents NYX_DATA_DIR=/var/lib/nyx/manager
 ExecStart=/usr/bin/nyx-manager

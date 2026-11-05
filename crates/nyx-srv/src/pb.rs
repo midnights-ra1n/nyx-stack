@@ -31,15 +31,19 @@ pub fn pb_date(t: DateTime<Utc>) -> String {
 }
 
 impl Pb {
-    /// Waits for PocketBase, which usually starts alongside us.
-    pub async fn connect(url: &str, email: &str, password: &str) -> anyhow::Result<Self> {
-        let pb = Self {
+    pub fn new(url: &str, email: &str, password: &str) -> anyhow::Result<Self> {
+        Ok(Self {
             http: Client::builder().timeout(Duration::from_secs(30)).build()?,
             url: url.into(),
             email: email.into(),
             password: password.into(),
             token: RwLock::default(),
-        };
+        })
+    }
+
+    /// Waits for PocketBase, which usually starts alongside us.
+    pub async fn connect(url: &str, email: &str, password: &str) -> anyhow::Result<Self> {
+        let pb = Self::new(url, email, password)?;
         let mut last = anyhow!("no attempt");
         for _ in 0..30 {
             match pb.login().await {
@@ -51,7 +55,7 @@ impl Pb {
         Err(last.context(format!("cannot reach PocketBase at {url}")))
     }
 
-    async fn login(&self) -> anyhow::Result<()> {
+    pub async fn login(&self) -> anyhow::Result<()> {
         let v: Value = self
             .http
             .post(format!("{}/api/collections/_superusers/auth-with-password", self.url))

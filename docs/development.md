@@ -12,7 +12,7 @@ Run a stack locally:
 
 ```sh
 pocketbase serve --http 127.0.0.1:8090 --dir ./pb_data --migrationsDir pb/pb_migrations &
-export NYX_PB_EMAIL=admin@nyx.local NYX_PB_PASSWORD=dev-password-123
+export NYX_PB_URL=http://127.0.0.1:8090 NYX_PB_EMAIL=admin@nyx.local NYX_PB_PASSWORD=dev-password-123
 cargo run -p nyx-monitor &
 cd web && pnpm dev:monitor             # hot reload, proxies the API to :8081
 ```
@@ -23,6 +23,7 @@ Development builds use the PocketBase you started above. To embed it as release 
 do, point `NYX_PB_BIN` at the executable when building, for the platform you build for:
 
 ```sh
+unset NYX_PB_URL NYX_PB_EMAIL NYX_PB_PASSWORD   # to see the first-start choice
 NYX_PB_BIN=$(command -v pocketbase) cargo run -p nyx-monitor   # data in ./nyx-data
 ```
 
@@ -38,7 +39,8 @@ NYX_PB_BIN=$(command -v pocketbase) cargo run -p nyx-monitor   # data in ./nyx-d
 | `crates/nyx-monitor/src/pages.rs` | Status pages and wall displays |
 | `crates/nyx-manager/src/ipam.rs`, `map.rs` | Pure logic, with most of the tests |
 | `crates/nyx-manager/src/sites.rs`, `nextcloud.rs` | Deploys and CalDAV |
-| `crates/nyx-srv/src/` | Auth, CRUD, notifications, MCP, updates |
+| `crates/nyx-srv/src/` | Auth, CRUD, notifications, MCP, updates, database choice |
+| `crates/nyx-db/src/` | PocketBase embedding, and the `nyx-db` program |
 | `web/src/ui/` | Shared components, shell, settings |
 | `web/src/monitor/display/` | Page model, panels, viewer, editor |
 

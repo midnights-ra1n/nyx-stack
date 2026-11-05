@@ -29,7 +29,7 @@ else
 fi
 
 curl -fsSL "$BASE/$TAG/SHA256SUMS" -o "$TMP/SHA256SUMS"
-for p in nyx-base nyx-monitor nyx-manager nyx-agent; do
+for p in nyx-base nyx-monitor nyx-manager nyx-agent nyx-db; do
   if installed "$p"; then
     f="$(file "$p")"
     curl -fsSL "$BASE/$TAG/$f" -o "$TMP/$f"

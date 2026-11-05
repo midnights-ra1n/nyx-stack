@@ -8,8 +8,8 @@
         └──┬───────┬──┘    bearer token    └──────┬──────┘
            │       │                              │
         ┌──▼───────▼──┐                    ┌──────▼──────┐
-        │ PocketBase  │  embedded in each  │ PocketBase  │
-        └─────────────┘                    └─────────────┘
+        │ PocketBase  │  embedded in each, │ PocketBase  │
+        └─────────────┘  or one in nyx-db  └─────────────┘
            │ HTTPS, signed, agent-initiated
    ┌───────▲────────┐
    │ nyx-agent (N)  │
@@ -22,19 +22,21 @@
 | --- | --- | --- |
 | `crates/nyx-proto` | Rust | Types and signatures shared by agent and monitor |
 | `crates/nyx-agent` | Rust | Host agent, synchronous, no async runtime |
-| `crates/nyx-srv` | Rust | Shared server code: auth, CRUD, notifications, MCP, updates |
+| `crates/nyx-srv` | Rust | Shared server code: auth, CRUD, notifications, MCP, updates, database choice |
+| `crates/nyx-db` | Rust | PocketBase embedding, and the optional shared database program |
 | `crates/nyx-monitor` | Rust | Monitoring server |
 | `crates/nyx-manager` | Rust | Management server |
 | `notifier` | Go | `nyx-notify`, a small wrapper around Shoutrrr |
 | `pb/pb_migrations` | JS | PocketBase schema, embedded in both servers |
 | `web` | React, Tailwind | One codebase, built once per server and embedded in its binary |
 
-PocketBase is a Go program, so it cannot be linked into a Rust binary as a library. Each
-server carries the unmodified executable and the schema instead. At start it unpacks
-them into its data directory, rewriting them only after an upgrade, then runs PocketBase
-on a random loopback port. It restarts PocketBase if it dies, and stops it last, after
-the final flush. Installing a server is therefore one package or image, with one
-systemd unit, at the cost of about 33 MB per binary.
+PocketBase is a Go program, so it cannot be linked into a Rust binary as a library. The
+`nyx-db` crate carries the unmodified executable and the schema instead. It unpacks them
+into the data directory, rewriting them only after an upgrade, then runs PocketBase. It
+restarts PocketBase if it dies, and stops it last, after the final flush. Each server
+uses this library for its local database, on a random loopback port, and the `nyx-db`
+program uses it to serve a shared one. A server is therefore one package or image, with
+one systemd unit, at the cost of about 33 MB per binary.
 
 Our own Go is confined to `nyx-notify` because Shoutrrr is a Go library. The server starts one
 short-lived process per delivery, so nothing Go-related stays in memory.
@@ -124,9 +126,21 @@ visitors. Daily uptime lives in RAM and is updated by the existing five-minute f
 so public pages add no write.
 See [status-pages.md](status-pages.md).
 
+## Local or shared database
+
+A server decides its database before anything else starts. Variables win, then the
+choice saved in `database.json`. Without either, it serves only the UI and the choice,
+then continues as a normal start, so no other code runs without a database.
+
+On a shared database the two servers use the same tables, which is why they have one set
+of accounts, and only one thing changes: both run the notification loop, so each digest
+is claimed first by creating a row under a unique key built from the rule and its last
+send. One server wins and the other skips it. A failed send gives the claim back, and a
+claim left by a crash expires. Local databases skip this, and its writes with it.
+
 ## Role separation
 
 Monitor and manager share no code path at runtime. Each has its own binary, web
-interface, port and embedded database. The optional
+interface and port, and by default its own database. The optional
 link is a read API plus a deploy endpoint on the monitor, protected by a token you
 create there. See [separate machines](deployment.md#monitor-and-manager-on-separate-machines).

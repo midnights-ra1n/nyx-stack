@@ -36,7 +36,7 @@ const COLLECTIONS: &[crud::Spec] = &[
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let env = Env::load("0.0.0.0:8081")?;
-    let core = Core::start(env, COLLECTIONS).await?;
+    let core = Core::start::<Ui>(env, COLLECTIONS).await?;
     let app = Arc::new(App::load(core.clone()).await?);
     notify::spawn(core.clone());
     spawn_loops(app.clone());

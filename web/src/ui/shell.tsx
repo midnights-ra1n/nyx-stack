@@ -1,7 +1,7 @@
 import { ArrowPathIcon, Cog6ToothIcon, EllipsisHorizontalIcon, MagnifyingGlassIcon, PencilSquareIcon, ChevronRightIcon, ChevronUpDownIcon } from "@heroicons/react/24/outline"
 import { createRoot } from "react-dom/client"
 import { type ReactNode, createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
-import { Button, ErrorNote, type Icon, Input } from "./components"
+import { Button, ErrorNote, type Icon, Input, Tabs } from "./components"
 import { api, AUTH_LOST, setRefresh, useApi, useOnline, useRefresh } from "./lib"
 
 // Router: the app has few, flat routes; history API is all it needs.
@@ -178,6 +178,48 @@ function Gate({ setup, passkeys, onDone, name }: { setup: boolean; passkeys: boo
   )
 }
 
+/** First start: where this server keeps its data. It restarts on the chosen database. */
+function DatabaseChoice({ name, embedded, onDone }: { name: string; embedded: boolean; onDone: () => void }) {
+  const [mode, setMode] = useState(embedded ? "local" : "remote")
+  const [url, setUrl] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setError("")
+    setBusy(true)
+    try {
+      await api("/api/database", { body: mode === "local" ? { mode } : { mode, url, email, password } })
+      for (let i = 0; i < 90; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        if (await api("/api/auth/status").then((s) => !s.database_setup, () => false)) return onDone()
+      }
+      setError("The server did not come back. Check its logs.")
+    } catch (e) { setError((e as Error).message) }
+    setBusy(false)
+  }
+  return (
+    <main className="flex min-h-full items-center justify-center p-5">
+      <form className="flex w-full max-w-sm flex-col gap-4 rounded-panel border border-line bg-surface p-6" onSubmit={(e) => { e.preventDefault(); submit() }}>
+        <div className="flex items-center gap-3"><Logo /><h1 className="text-lg font-medium">{name}</h1></div>
+        <p className="text-fg2">Where should {name} keep its data?</p>
+        {embedded && <Tabs tabs={[{ id: "local", label: "Local" }, { id: "remote", label: "Remote" }]} value={mode} onChange={setMode} />}
+        {mode === "local"
+          ? <p className="text-fg2">On this server, with its own accounts. Nothing else to install.</p>
+          : <>
+              <p className="text-fg2">On a nyx-db server. The monitor and the manager share the same accounts when both connect to it.</p>
+              <Input label="Database URL" type="url" required placeholder="https://db.example.com" value={url} onChange={(e) => setUrl(e.target.value)} hint="Plain HTTP only works on a private network." />
+              <Input label="Email" type="email" autoComplete="off" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input label="Password" type="password" autoComplete="off" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </>}
+        <ErrorNote>{error}</ErrorNote>
+        <Button variant="primary" type="submit" disabled={busy}>{busy ? "Starting…" : "Continue"}</Button>
+      </form>
+    </main>
+  )
+}
+
 function OfflineNote() {
   return useOnline() ? null : (
     <p role="status" className="mb-5 rounded-panel border border-line2 bg-off-soft px-5 py-3 text-fg2">You are offline. Figures below are from your last connection.</p>
@@ -213,6 +255,7 @@ export function App({ name, useNav, route, customizable }: { name: string; useNa
     return () => removeEventListener(AUTH_LOST, reload)
   }, [name, reload])
   if (!status) return error ? <main className="flex min-h-full items-center justify-center p-5"><div className="flex flex-col items-center gap-4 text-fg2"><Logo /><p>Cannot reach {name}.</p><Button onClick={reload}>Try again</Button></div></main> : null
+  if (status.database_setup) return <DatabaseChoice name={name} embedded={status.embedded} onDone={reload} />
   if (!status.authenticated) return <Gate setup={status.needs_setup} passkeys={status.passkeys} onDone={reload} name={name} />
   return <Authed useNav={useNav} route={route} customizable={customizable} />
 }

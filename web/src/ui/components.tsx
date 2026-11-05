@@ -300,7 +300,7 @@ export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: str
   return (
     <div role="tablist" className="flex flex-wrap gap-2">
       {tabs.map((t) => (
-        <button key={t.id} role="tab" aria-selected={t.id === value} onClick={() => onChange(t.id)} className={`h-10 rounded-control px-3 ${t.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t.label}</button>
+        <button key={t.id} type="button" role="tab" aria-selected={t.id === value} onClick={() => onChange(t.id)} className={`h-10 rounded-control px-3 ${t.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t.label}</button>
       ))}
     </div>
   )

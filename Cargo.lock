@@ -1700,6 +1700,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nyx-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "rust-embed",
+ "tokio",
+]
+
+[[package]]
 name = "nyx-manager"
 version = "0.1.0"
 dependencies = [
@@ -1758,9 +1768,9 @@ dependencies = [
  "axum-server",
  "chrono",
  "getrandom 0.3.4",
- "libc",
  "mime_guess",
  "minijinja",
+ "nyx-db",
  "nyx-proto",
  "openssl",
  "reqwest",

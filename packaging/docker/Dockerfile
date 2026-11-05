@@ -5,7 +5,7 @@ FROM alpine:3.22 AS base
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 nyx
 COPY LICENSE THIRD-PARTY.md licenses/UFL-1.0.txt /usr/share/doc/nyx/
 
-# The database is embedded in the server binaries and lives in this volume.
+# PocketBase is embedded in these binaries, and its data lives in this volume.
 FROM base AS server
 ENV NYX_DATA_DIR=/data
 RUN install -d -o nyx /data
@@ -28,6 +28,14 @@ COPY dist/linux-${TARGETARCH}/nyx-notify /usr/local/bin/
 USER nyx
 EXPOSE 8082
 ENTRYPOINT ["nyx-manager"]
+
+# The optional shared database. See docs/deployment.md before publishing its port.
+FROM server AS db
+ARG TARGETARCH
+COPY dist/linux-${TARGETARCH}/nyx-db /usr/local/bin/
+USER nyx
+EXPOSE 8090
+ENTRYPOINT ["nyx-db"]
 
 # Runs as root with host namespaces: see docs/deployment.md.
 FROM base AS agent

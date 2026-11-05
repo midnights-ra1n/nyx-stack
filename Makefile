@@ -18,11 +18,11 @@ test:
 web:
 	cd web && pnpm install --frozen-lockfile && pnpm vite build --mode monitor && pnpm vite build --mode manager
 
-# Run `make pocketbase` first: the servers embed it.
+# Run `make pocketbase` first: the servers and nyx-db embed it.
 bins:
-	NYX_PB_BIN="$(CURDIR)/dist/pb/$(ARCH)/pocketbase" cargo build --release -p nyx-agent -p nyx-monitor -p nyx-manager
+	NYX_PB_BIN="$(CURDIR)/dist/pb/$(ARCH)/pocketbase" cargo build --release -p nyx-agent -p nyx-monitor -p nyx-manager -p nyx-db
 	mkdir -p dist/linux-$(ARCH)
-	cp target/release/nyx-agent target/release/nyx-monitor target/release/nyx-manager dist/linux-$(ARCH)/
+	cp target/release/nyx-agent target/release/nyx-monitor target/release/nyx-manager target/release/nyx-db dist/linux-$(ARCH)/
 
 notifier:
 	cd notifier && CGO_ENABLED=0 GOARCH=$(ARCH) go build -trimpath -ldflags '-s -w' -o ../dist/linux-$(ARCH)/nyx-notify .
@@ -37,7 +37,7 @@ pocketbase:
 
 packages:
 	mkdir -p dist/packages
-	for p in base monitor manager agent; do \
+	for p in base monitor manager agent db; do \
 	  sed 's/$${ARCH}/$(ARCH)/g; s/$${LICENSE}/$(LICENSE)/g' packaging/nfpm/$$p.yaml > dist/nfpm-$$p.yaml; \
 	  VERSION=$(VERSION) ARCH=$(ARCH) $(NFPM) pkg --config dist/nfpm-$$p.yaml --packager deb --target dist/packages/nyx-$$p'_$(VERSION)-1_$(ARCH).deb' || exit 1; \
 	  VERSION=$(VERSION) ARCH=$(ARCH) $(NFPM) pkg --config dist/nfpm-$$p.yaml --packager rpm --target dist/packages/nyx-$$p-$(VERSION)-1.$(RPMARCH).rpm || exit 1; \

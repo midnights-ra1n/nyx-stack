@@ -116,6 +116,10 @@ fn parse_date(v: &Value) -> Option<DateTime<Utc>> {
 /// Periodic pass: send every digest that is due.
 pub async fn tick(core: &Core) -> anyhow::Result<()> {
     let now = Local::now();
+    if core.shared {
+        // Older than any delivery: only a server that died while sending leaves one behind.
+        core.pb.prune("notif_claims", "created", now.to_utc() - Duration::minutes(10)).await?;
+    }
     for rule in core.pb.list("notif_rules", "", "").await? {
         let timing: Timing = serde_json::from_value(rule.clone()).unwrap_or_default();
         let last = parse_date(&rule["last_sent"]);
@@ -139,7 +143,19 @@ pub async fn tick(core: &Core) -> anyhow::Result<()> {
             }
             continue;
         }
+        // Both servers run this loop on a shared database. The key is unique, and
+        // `last_sent` changes with each digest, so exactly one of them sends this one.
+        let claim = if core.shared {
+            let key = format!("{id}:{}", rule["last_sent"].as_str().unwrap_or_default());
+            let Ok(claim) = core.pb.create("notif_claims", &json!({"key": key})).await else { continue };
+            Some(claim)
+        } else {
+            None
+        };
         let result = send_digest(core, &rule, &events).await;
+        if let (Err(_), Some(claim)) = (&result, &claim) {
+            core.pb.delete("notif_claims", claim["id"].as_str().unwrap_or_default()).await?;
+        }
         // On failure last_sent stays put, so the same events go out on a later tick.
         let patch = match &result {
             Ok(()) => json!({"last_sent": sent_at, "last_error": ""}),

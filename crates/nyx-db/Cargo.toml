@@ -1,0 +1,12 @@
+[package]
+name = "nyx-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PocketBase, packaged for Nyx: a library for the servers and a standalone shared database"
+
+[dependencies]
+anyhow.workspace = true
+libc = "0.2"
+rust-embed = "8"
+tokio = { version = "1", features = ["macros", "rt", "time", "signal", "process", "sync"] }

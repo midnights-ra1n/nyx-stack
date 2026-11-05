@@ -13,6 +13,12 @@ The server unpacks its database program into `NYX_DATA_DIR` and runs it from the
 that directory must be writable and must not be mounted `noexec`. The reason is in the
 same log, on the lines just before.
 
+## A server does not start after a database was chosen
+
+To choose again, stop the server, delete `database.json` from its data directory and
+start it. No data is deleted or moved. With a shared database, also check that `nyx-db`
+is reachable and not older than the server.
+
 ## A host stays offline
 
 - `systemctl status nyx-agent` on the host.

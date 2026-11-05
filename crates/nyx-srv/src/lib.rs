@@ -4,7 +4,7 @@
 
 pub mod auth;
 pub mod crud;
-pub mod embedded;
+pub mod database;
 pub mod mcp;
 pub mod notify;
 pub mod pb;
@@ -19,11 +19,11 @@ use std::sync::{Arc, Mutex};
 /// Runtime configuration, all from the environment.
 pub struct Env {
     pub bind: String,
-    /// Set to use an external PocketBase instead of the embedded one.
+    /// With the two below, skips the first-start choice: see [`database`].
     pub pb_url: Option<String>,
     pub data_dir: std::path::PathBuf,
-    pub pb_email: String,
-    pub pb_password: String,
+    pub pb_email: Option<String>,
+    pub pb_password: Option<String>,
     pub public_url: String,
     pub tls_cert: Option<String>,
     pub tls_key: Option<String>,
@@ -33,13 +33,12 @@ pub struct Env {
 impl Env {
     pub fn load(default_bind: &str) -> anyhow::Result<Self> {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let need = |k: &str| var(k).ok_or_else(|| anyhow::anyhow!("{k} must be set"));
         Ok(Self {
             bind: var("NYX_BIND").unwrap_or_else(|| default_bind.into()),
             pb_url: var("NYX_PB_URL").map(|u| u.trim_end_matches('/').into()),
             data_dir: var("NYX_DATA_DIR").unwrap_or_else(|| "nyx-data".into()).into(),
-            pb_email: need("NYX_PB_EMAIL")?,
-            pb_password: need("NYX_PB_PASSWORD")?,
+            pb_email: var("NYX_PB_EMAIL"),
+            pb_password: var("NYX_PB_PASSWORD"),
             public_url: var("NYX_PUBLIC_URL").unwrap_or_else(|| format!("http://{}", default_bind.replace("0.0.0.0", "localhost"))).trim_end_matches('/').into(),
             tls_cert: var("NYX_TLS_CERT"),
             tls_key: var("NYX_TLS_KEY"),
@@ -51,7 +50,9 @@ impl Env {
 /// State shared by every shared route; roles keep their own state next to it.
 pub struct Core {
     pub pb: Pb,
-    db: Option<embedded::Database>,
+    db: Option<nyx_db::Database>,
+    /// On a shared `nyx-db`, next to the other server.
+    pub shared: bool,
     pub env: Env,
     pub secret: String,
     pub crud: &'static [crud::Spec],
@@ -61,15 +62,19 @@ pub struct Core {
 }
 
 impl Core {
-    pub async fn start(env: Env, crud: &'static [crud::Spec]) -> anyhow::Result<Arc<Self>> {
-        let (db, pb_url) = match env.pb_url.clone() {
-            None if !embedded::POCKETBASE.is_empty() => {
-                let (db, url) = embedded::start(&env.data_dir)?;
-                (Some(db), url)
+    /// `U` is the server's UI, shown by the first-start choice.
+    pub async fn start<U: rust_embed::Embed + Send + Sync + 'static>(env: Env, crud: &'static [crud::Spec]) -> anyhow::Result<Arc<Self>> {
+        let conn = database::resolve::<U>(&env).await?;
+        let shared = conn.url.is_some();
+        let (db, pb_url) = match conn.url {
+            Some(url) => (None, url),
+            None => {
+                anyhow::ensure!(!nyx_db::POCKETBASE.is_empty(), "built without NYX_PB_BIN: set NYX_PB_URL");
+                let addr = nyx_db::loopback()?;
+                (Some(nyx_db::start(&env.data_dir, addr, &conn.email, &conn.password)?), format!("http://{addr}"))
             }
-            url => (None, url.unwrap_or_else(|| "http://127.0.0.1:8090".into())),
         };
-        let pb = Pb::connect(&pb_url, &env.pb_email, &env.pb_password).await?;
+        let pb = Pb::connect(&pb_url, &conn.email, &conn.password).await?;
         let secret = match pb.setting("session_secret").await? {
             Some(v) => v.as_str().unwrap_or_default().to_string(),
             None => {
@@ -82,6 +87,7 @@ impl Core {
         Ok(Arc::new(Self {
             pb,
             db,
+            shared,
             env,
             secret,
             crud,

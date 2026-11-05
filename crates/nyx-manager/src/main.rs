@@ -42,7 +42,7 @@ pub struct App {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let env = Env::load("0.0.0.0:8082")?;
-    let core = Core::start(env, COLLECTIONS).await?;
+    let core = Core::start::<Ui>(env, COLLECTIONS).await?;
     let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
     let app = Arc::new(App { core: core.clone(), http, ctag: Default::default() });
     notify::spawn(core.clone());

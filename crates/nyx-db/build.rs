@@ -1,5 +1,5 @@
 //! Bakes the PocketBase executable named by `NYX_PB_BIN` into the server. Without it
-//! the embedded copy is empty, and the server needs an external PocketBase.
+//! the embedded copy is empty: such a build can only reach a remote database.
 
 use std::{env, fs, path::Path};
 

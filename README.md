@@ -54,6 +54,8 @@ release, [build it from source](docs/development.md).
   when you come back to the tab and stops polling while hidden.
 - **Long history, small database:** keep 30 to 365 days. Past a week, history is stored
   hour by hour, so a year takes about 3 MB per host.
+- **Local or shared database:** each server has its own built in. Or pick a shared
+  `nyx-db` at first start, and the monitor and the manager use one set of accounts.
 - **Low disk writes:** live metrics stay in RAM. PocketBase gets one batch every five
   minutes, plus state changes when they happen.
 - **Low memory:** about 10 MB for an idle server, plus 43 MB for PocketBase. With 200
