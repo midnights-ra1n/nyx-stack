@@ -6,16 +6,13 @@ release: 1
 maintainer: nyx-stack contributors
 homepage: https://github.com/midnights-ra1n/nyx-stack
 license: ${LICENSE}
-description: Database, notifier and updater shared by the Nyx servers
+description: Notifier and updater shared by the Nyx servers
 contents:
   - { src: "LICENSE", dst: "/usr/share/doc/nyx-base/copyright" }
   - { src: "THIRD-PARTY.md", dst: "/usr/share/doc/nyx-base/THIRD-PARTY.md" }
   - { src: "licenses/UFL-1.0.txt", dst: "/usr/share/doc/nyx-base/UFL-1.0.txt" }
-  - { src: "dist/linux-${ARCH}/pocketbase", dst: "/usr/libexec/nyx/pocketbase", file_info: { mode: 0o755 } }
   - { src: "dist/linux-${ARCH}/nyx-notify", dst: "/usr/libexec/nyx/nyx-notify", file_info: { mode: 0o755 } }
   - { src: "packaging/update.sh", dst: "/usr/libexec/nyx/update.sh", file_info: { mode: 0o755 } }
-  - { src: "pb/pb_migrations/*", dst: "/usr/share/nyx/pb_migrations/"}
-  - { src: "packaging/systemd/nyx-pocketbase.service", dst: "/usr/lib/systemd/system/nyx-pocketbase.service"}
   - { src: "packaging/systemd/nyx-update.service", dst: "/usr/lib/systemd/system/nyx-update.service"}
   - { src: "packaging/systemd/nyx-update.path", dst: "/usr/lib/systemd/system/nyx-update.path"}
 scripts:

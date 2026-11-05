@@ -10,7 +10,7 @@ Pick Docker or packages for the servers. Agents can use any method: see
 ## Docker
 
 Images are published for `linux/amd64` and `linux/arm64`:
-`ghcr.io/midnights-ra1n/nyx-{monitor,manager,pocketbase,agent}`.
+`ghcr.io/midnights-ra1n/nyx-{monitor,manager,agent}`.
 
 ```sh
 cp .env.example .env   # from packaging/docker/
@@ -18,10 +18,8 @@ cp .env.example .env   # from packaging/docker/
 docker compose --profile monitor --profile manager up -d
 ```
 
-Use one profile for one role. To give each role its own database, run two copies of
-the file as two compose projects, as described in
-[separate machines](#monitor-and-manager-on-separate-machines). Back up the `pb-data`
-volume.
+Use one profile for one role. Each server embeds its own database, so there is nothing
+else to run. Back up the `monitor-data` and `manager-data` volumes.
 
 The monitor's compose service sets `net.ipv4.ping_group_range` so ICMP probes work
 as a non-root user. If your platform forbids this sysctl, add `cap_add: [NET_RAW]`
@@ -33,8 +31,8 @@ the [channel](#release-channels) or a fixed version.
 ## Monitor and manager on separate machines
 
 The monitor and the manager are two programs with two web interfaces, and they do not
-have to be in the same place. Give each one its own PocketBase, on its own machine.
-Nothing is shared then, including accounts: each interface has its own login.
+have to be in the same place. Each one has its own embedded database, on one machine or
+two. Nothing is shared, including accounts: each interface has its own login.
 
 [Linking them](#linking-manager-and-monitor) is optional.
 
@@ -53,9 +51,9 @@ Debian, Ubuntu, RHEL, Fedora and Alma, on x86_64 and arm64. Download from the
 
 | Package | Contents |
 | --- | --- |
-| `nyx-base` | PocketBase, `nyx-notify`, the updater. Required by both servers |
-| `nyx-monitor` | The monitor, with agent binaries for both architectures |
-| `nyx-manager` | The manager |
+| `nyx-base` | `nyx-notify`, the updater. Required by both servers |
+| `nyx-monitor` | The monitor with its database, and agent binaries for both architectures |
+| `nyx-manager` | The manager with its database |
 | `nyx-agent` | The agent alone |
 
 ```sh
@@ -126,9 +124,29 @@ Creating a new token replaces the old one.
 
 ## Backups
 
-Everything durable is in PocketBase: back up `/var/lib/nyx/pb` or the `pb-data` volume.
-PocketBase also has its own backup tool, on port 8090, reachable only from the host
-when installed from packages.
+Everything durable is in each server's data directory: back up `/var/lib/nyx/monitor`
+and `/var/lib/nyx/manager`, or the `monitor-data` and `manager-data` volumes. Stop the
+server first, or use a tool that can copy a live SQLite database.
+
+## Upgrading from a release with a separate database
+
+Before embedding, one PocketBase served both roles. Each server now starts from a full
+copy of that database, so accounts and settings carry over and then evolve separately.
+
+With packages this is automatic, and `/var/lib/nyx/pb` stays until you delete it.
+
+With Docker, copy the old volume before the first start. The `nyx` prefix is your compose
+project name:
+
+```sh
+docker compose stop
+for role in monitor manager; do
+  docker volume create nyx_$role-data
+  docker run --rm -v nyx_pb-data:/from -v nyx_$role-data:/to alpine \
+    sh -c 'cp -a /from /to/pb_data && chown -R 10001 /to'
+done
+docker compose up -d --remove-orphans
+```
 
 ## Ports
 
@@ -136,4 +154,4 @@ when installed from packages.
 | --- | --- | --- |
 | 8081 | Monitor | Users and agents |
 | 8082 | Manager | Users, and Git forges for webhooks |
-| 8090 | PocketBase | The servers only. Never publish it |
+| Random, loopback only | Embedded database | Its own server |

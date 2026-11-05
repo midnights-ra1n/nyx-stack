@@ -9,7 +9,8 @@ Servers read environment variables. With packages, put them in
 | --- | --- | --- |
 | `NYX_PB_EMAIL` | required | PocketBase superuser email. The first migration creates it |
 | `NYX_PB_PASSWORD` | required | PocketBase superuser password |
-| `NYX_PB_URL` | `http://127.0.0.1:8090` | PocketBase address |
+| `NYX_DATA_DIR` | `nyx-data` in the working directory | Where the embedded database lives. Set by the systemd units and the images |
+| `NYX_PB_URL` | unset | External PocketBase address, instead of the embedded one. Required by a build without it, where it defaults to `http://127.0.0.1:8090` |
 | `NYX_BIND` | `0.0.0.0:8081` monitor, `0.0.0.0:8082` manager | Listen address |
 | `NYX_PUBLIC_URL` | `http://localhost:<port>` | The URL users and agents reach. Must be `https://` for MCP, passkeys and Secure cookies |
 | `NYX_TLS_CERT`, `NYX_TLS_KEY` | unset | PEM files, to serve HTTPS without a reverse proxy |

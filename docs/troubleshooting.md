@@ -3,9 +3,15 @@
 Read the logs first:
 
 ```sh
-journalctl -u nyx-monitor -n 50     # or nyx-manager, nyx-agent, nyx-pocketbase
+journalctl -u nyx-monitor -n 50     # or nyx-manager, nyx-agent
 docker compose logs monitor         # with Docker
 ```
+
+## A server says "cannot reach PocketBase"
+
+The server unpacks its database program into `NYX_DATA_DIR` and runs it from there, so
+that directory must be writable and must not be mounted `noexec`. The reason is in the
+same log, on the lines just before.
 
 ## A host stays offline
 

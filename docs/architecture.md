@@ -7,9 +7,9 @@
         │ nyx-monitor │◄───────────────────│ nyx-manager │
         └──┬───────┬──┘    bearer token    └──────┬──────┘
            │       │                              │
-           │   ┌───▼──────────────────────────────▼──┐
-           │   │ PocketBase (one or two instances)   │
-           │   └─────────────────────────────────────┘
+        ┌──▼───────▼──┐                    ┌──────▼──────┐
+        │ PocketBase  │  embedded in each  │ PocketBase  │
+        └─────────────┘                    └─────────────┘
            │ HTTPS, signed, agent-initiated
    ┌───────▲────────┐
    │ nyx-agent (N)  │
@@ -26,10 +26,17 @@
 | `crates/nyx-monitor` | Rust | Monitoring server |
 | `crates/nyx-manager` | Rust | Management server |
 | `notifier` | Go | `nyx-notify`, a small wrapper around Shoutrrr |
-| `pb/pb_migrations` | JS | PocketBase schema |
+| `pb/pb_migrations` | JS | PocketBase schema, embedded in both servers |
 | `web` | React, Tailwind | One codebase, built once per server and embedded in its binary |
 
-Go is confined to `nyx-notify` because Shoutrrr is a Go library. The server starts one
+PocketBase is a Go program, so it cannot be linked into a Rust binary as a library. Each
+server carries the unmodified executable and the schema instead. At start it unpacks
+them into its data directory, rewriting them only after an upgrade, then runs PocketBase
+on a random loopback port. It restarts PocketBase if it dies, and stops it last, after
+the final flush. Installing a server is therefore one package or image, with one
+systemd unit, at the cost of about 33 MB per binary.
+
+Our own Go is confined to `nyx-notify` because Shoutrrr is a Go library. The server starts one
 short-lived process per delivery, so nothing Go-related stays in memory.
 
 ## Why it stays light
@@ -120,6 +127,6 @@ See [status-pages.md](status-pages.md).
 ## Role separation
 
 Monitor and manager share no code path at runtime. Each has its own binary, web
-interface and port, and they can use one PocketBase instance or one each. The optional
+interface, port and embedded database. The optional
 link is a read API plus a deploy endpoint on the monitor, protected by a token you
 create there. See [separate machines](deployment.md#monitor-and-manager-on-separate-machines).

@@ -8,7 +8,7 @@ links. The full dependency lists are in `Cargo.lock`, `web/pnpm-lock.yaml` and
 
 | Software | Licence | Use |
 | --- | --- | --- |
-| [PocketBase](https://github.com/pocketbase/pocketbase) | MIT | Database, redistributed in packages and images as a separate program |
+| [PocketBase](https://ganigeorgiev.com/pocketbase/pocketbase) | MIT | Database. Its unmodified executable is embedded in `nyx-monitor` and `nyx-manager` and runs as a child process |
 | [Shoutrrr](https://github.com/nicholas-fedor/shoutrrr), maintained fork | MIT | Notification delivery, in the separate `nyx-notify` program |
 | [Ubuntu font](https://design.ubuntu.com/font), through `@fontsource` | Ubuntu Font Licence 1.0 | UI typeface, served by Nyx. See below |
 | [Heroicons](https://github.com/tailwindlabs/heroicons) | MIT | UI icons |

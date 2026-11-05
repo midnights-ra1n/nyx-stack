@@ -83,7 +83,7 @@ jobs:
           password: ${{ github.token }}
       - name: Push images
         run: |
-          for target in monitor manager agent pocketbase; do
+          for target in monitor manager agent; do
             image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/nyx-$target"
             tags="-t $image:$VERSION -t $image:$CHANNEL"
             if [ "$CHANNEL" = stable ]; then tags="$tags -t $image:latest"; fi

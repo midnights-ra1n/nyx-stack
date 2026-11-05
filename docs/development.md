@@ -19,6 +19,15 @@ cd web && pnpm dev:monitor             # hot reload, proxies the API to :8081
 
 Use `pnpm dev:manager` and `-p nyx-manager` for the manager, on port 8082.
 
+Development builds use the PocketBase you started above. To embed it as release builds
+do, point `NYX_PB_BIN` at the executable when building, for the platform you build for:
+
+```sh
+NYX_PB_BIN=$(command -v pocketbase) cargo run -p nyx-monitor   # data in ./nyx-data
+```
+
+`make pocketbase bins` does this for Linux, with the version set in the `Makefile`.
+
 ## Where things are
 
 | Path | Contents |

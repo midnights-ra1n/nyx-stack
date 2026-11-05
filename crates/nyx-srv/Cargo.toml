@@ -15,6 +15,7 @@ axum-server = { version = "0.8", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["macros", "rt", "time", "signal", "process", "io-util", "sync"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 rust-embed = "8"
+libc = "0.2"
 minijinja = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 getrandom = "0.3"

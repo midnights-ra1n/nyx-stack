@@ -1,21 +1,23 @@
 [Unit]
 Description=Nyx monitoring server
-After=network-online.target nyx-pocketbase.service
-Wants=network-online.target nyx-pocketbase.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 User=nyx
 EnvironmentFile=/etc/nyx/server.env
 EnvironmentFile=-/etc/nyx/monitor.env
-Environment=NYX_NOTIFIER_BIN=/usr/libexec/nyx/nyx-notify NYX_UPDATE_DIR=/var/lib/nyx/update NYX_AGENT_DIR=/usr/share/nyx/agents
+Environment=NYX_NOTIFIER_BIN=/usr/libexec/nyx/nyx-notify NYX_UPDATE_DIR=/var/lib/nyx/update NYX_AGENT_DIR=/usr/share/nyx/agents NYX_DATA_DIR=/var/lib/nyx/monitor
 ExecStart=/usr/bin/nyx-monitor
+# The server flushes to its embedded database, then stops it: signal only the server.
+KillMode=mixed
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/nyx/update
+ReadWritePaths=/var/lib/nyx/update /var/lib/nyx/monitor
 AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW
 

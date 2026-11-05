@@ -1,9 +1,10 @@
 //! Plumbing shared by `nyx-monitor` and `nyx-manager`, so that each role can run
-//! alone: PocketBase access, sessions, passkeys, generic CRUD, notifications,
-//! the MCP endpoint and static UI serving.
+//! alone: the embedded database and access to it, sessions, passkeys, generic CRUD,
+//! notifications, the MCP endpoint and static UI serving.
 
 pub mod auth;
 pub mod crud;
+pub mod embedded;
 pub mod mcp;
 pub mod notify;
 pub mod pb;
@@ -18,7 +19,9 @@ use std::sync::{Arc, Mutex};
 /// Runtime configuration, all from the environment.
 pub struct Env {
     pub bind: String,
-    pub pb_url: String,
+    /// Set to use an external PocketBase instead of the embedded one.
+    pub pb_url: Option<String>,
+    pub data_dir: std::path::PathBuf,
     pub pb_email: String,
     pub pb_password: String,
     pub public_url: String,
@@ -33,7 +36,8 @@ impl Env {
         let need = |k: &str| var(k).ok_or_else(|| anyhow::anyhow!("{k} must be set"));
         Ok(Self {
             bind: var("NYX_BIND").unwrap_or_else(|| default_bind.into()),
-            pb_url: var("NYX_PB_URL").unwrap_or_else(|| "http://127.0.0.1:8090".into()).trim_end_matches('/').into(),
+            pb_url: var("NYX_PB_URL").map(|u| u.trim_end_matches('/').into()),
+            data_dir: var("NYX_DATA_DIR").unwrap_or_else(|| "nyx-data".into()).into(),
             pb_email: need("NYX_PB_EMAIL")?,
             pb_password: need("NYX_PB_PASSWORD")?,
             public_url: var("NYX_PUBLIC_URL").unwrap_or_else(|| format!("http://{}", default_bind.replace("0.0.0.0", "localhost"))).trim_end_matches('/').into(),
@@ -47,6 +51,7 @@ impl Env {
 /// State shared by every shared route; roles keep their own state next to it.
 pub struct Core {
     pub pb: Pb,
+    db: Option<embedded::Database>,
     pub env: Env,
     pub secret: String,
     pub crud: &'static [crud::Spec],
@@ -57,7 +62,14 @@ pub struct Core {
 
 impl Core {
     pub async fn start(env: Env, crud: &'static [crud::Spec]) -> anyhow::Result<Arc<Self>> {
-        let pb = Pb::connect(&env.pb_url, &env.pb_email, &env.pb_password).await?;
+        let (db, pb_url) = match env.pb_url.clone() {
+            None if !embedded::POCKETBASE.is_empty() => {
+                let (db, url) = embedded::start(&env.data_dir)?;
+                (Some(db), url)
+            }
+            url => (None, url.unwrap_or_else(|| "http://127.0.0.1:8090".into())),
+        };
+        let pb = Pb::connect(&pb_url, &env.pb_email, &env.pb_password).await?;
         let secret = match pb.setting("session_secret").await? {
             Some(v) => v.as_str().unwrap_or_default().to_string(),
             None => {
@@ -69,6 +81,7 @@ impl Core {
         let webauthn = auth::build_webauthn(&env.public_url);
         Ok(Arc::new(Self {
             pb,
+            db,
             env,
             secret,
             crud,
@@ -76,6 +89,13 @@ impl Core {
             passkey_flows: Mutex::default(),
             limiter: Mutex::default(),
         }))
+    }
+
+    /// Stops the embedded database, if any. The last thing a server does.
+    pub async fn stop_db(&self) {
+        if let Some(db) = &self.db {
+            db.stop().await;
+        }
     }
 
     /// Passkeys and MCP are refused unless the instance is really served over HTTPS.

@@ -1,7 +1,8 @@
 # Data model
 
-All durable data lives in PocketBase. The schema is in `pb/pb_migrations`, and new
-changes go in a new migration file. Every collection is reachable by the superuser
+All durable data lives in PocketBase, which each server embeds, so the monitor and the
+manager have one database each. The schema is in `pb/pb_migrations`, and new changes go
+in a new migration file, applied when the server starts. Every collection is reachable by the superuser
 only: browsers talk to Nyx, never to PocketBase.
 
 Live metrics, logs, open alert texts, daily uptime and the fleet-wide chart are in RAM,

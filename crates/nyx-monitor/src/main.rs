@@ -66,7 +66,9 @@ async fn main() -> anyhow::Result<()> {
         .layer(from_fn_with_state(core.clone(), auth::inject));
 
     web::serve(router, &core.env).await?;
-    app.flush().await // keep the last partial rollup across restarts
+    let flushed = app.flush().await; // keep the last partial rollup across restarts
+    core.stop_db().await;
+    flushed
 }
 
 fn spawn_loops(app: Arc<App>) {

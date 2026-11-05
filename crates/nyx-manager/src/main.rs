@@ -57,7 +57,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(mcp::router(core.clone(), api::mcp_tools(app.clone())))
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
-    web::serve(router, &core.env).await
+    let served = web::serve(router, &core.env).await;
+    core.stop_db().await;
+    served
 }
 
 fn spawn_loops(app: Arc<App>) {
