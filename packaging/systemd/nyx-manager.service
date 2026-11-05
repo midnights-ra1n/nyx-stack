@@ -1,0 +1,21 @@
+[Unit]
+Description=Nyx management server
+After=network-online.target nyx-pocketbase.service
+Wants=network-online.target nyx-pocketbase.service
+
+[Service]
+User=nyx
+EnvironmentFile=/etc/nyx/server.env
+EnvironmentFile=-/etc/nyx/manager.env
+Environment=NYX_NOTIFIER_BIN=/usr/libexec/nyx/nyx-notify NYX_UPDATE_DIR=/var/lib/nyx/update NYX_AGENT_DIR=/usr/share/nyx/agents
+ExecStart=/usr/bin/nyx-manager
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nyx/update
+
+[Install]
+WantedBy=multi-user.target

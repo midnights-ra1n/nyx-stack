@@ -1,0 +1,4 @@
+- name: Restart nyx-agent
+  ansible.builtin.systemd_service:
+    name: nyx-agent
+    state: restarted

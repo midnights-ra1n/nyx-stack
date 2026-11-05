@@ -1,0 +1,12 @@
+# ansible-playbook -i inventory playbook.example.yml
+# Keep tokens and keys in Ansible Vault, one per host: each comes from "Add host".
+- hosts: nyx_hosts
+  become: true
+  roles:
+    - role: nyx_agent
+      vars:
+        nyx_agent_url: https://monitor.example.com
+        nyx_agent_token: "{{ vault_nyx_token }}"
+        nyx_agent_key: "{{ vault_nyx_key }}"
+        nyx_agent_kind: vm # vm, physical, proxmox or vps
+        nyx_agent_ct_autoinstall: false # proxmox only

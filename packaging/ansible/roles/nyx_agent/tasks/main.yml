@@ -1,0 +1,28 @@
+- name: Check the required variables
+  ansible.builtin.assert:
+    that:
+      - nyx_agent_url is defined
+      - nyx_agent_token is defined
+      - nyx_agent_key is defined
+      - nyx_agent_kind in ['vm', 'physical', 'proxmox', 'vps']
+
+- name: Install the agent
+  ansible.builtin.shell: >-
+    curl -fsSL {{ nyx_agent_url | quote }}/install.sh | sh -s --
+    --url {{ nyx_agent_url | quote }} --token {{ nyx_agent_token | quote }}
+    --key {{ nyx_agent_key | quote }} --kind {{ nyx_agent_kind | quote }}
+    {{ '--ct-autoinstall' if nyx_agent_ct_autoinstall else '' }}
+  args:
+    creates: /usr/local/bin/nyx-agent
+  no_log: true
+
+# Changing nyx_agent_kind here changes the host type without reinstalling.
+- name: Write the agent configuration
+  ansible.builtin.template:
+    src: agent.conf.j2
+    dest: /etc/nyx/agent.conf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart nyx-agent

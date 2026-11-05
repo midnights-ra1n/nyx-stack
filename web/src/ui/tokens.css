@@ -1,0 +1,85 @@
+/* Nyx design tokens, from Nyx-DA-guide.pdf. Fonts are bundled: no third-party request. */
+@import "tailwindcss";
+@import "@fontsource/ubuntu/400.css";
+@import "@fontsource/ubuntu/500.css";
+@import "@fontsource/ubuntu/700.css";
+@import "@fontsource/ubuntu-mono/400.css";
+
+@source "../";
+
+@theme {
+  --color-bg: #121110;
+  --color-sidebar: #161513;
+  --color-surface: #1c1a18;
+  --color-raised: #252321;
+  --color-line: #2c2926;
+  --color-line2: #3a3632;
+  --color-fg: #e7e3dd;
+  --color-fg2: #b3aca2;
+  --color-fg3: #958e84;
+  --color-accent: #e38b4f;
+  --color-accent-hover: #ec9d68;
+  --color-accent-soft: #382a20;
+  --color-accent-ink: #1b1209;
+  --color-ok: #6cc4a1;
+  --color-ok-soft: #27322b;
+  --color-warn: #ddb95a;
+  --color-warn-soft: #373021;
+  --color-crit: #e8717b;
+  --color-crit-soft: #392626;
+  --color-info: #73a9e6;
+  --color-info-soft: #282e35;
+  /* The guide flags #8f897f at 4.1:1 on its background; lightened to reach 4.5:1. */
+  --color-off: #9c958a;
+  --color-off-soft: #2c2a26;
+  --color-s1: #e38b4f;
+  --color-s2: #73a9e6;
+  --color-s3: #a99de3;
+  --color-s4: #c8b89b;
+  --font-sans: Ubuntu, system-ui, sans-serif;
+  --font-mono: "Ubuntu Mono", ui-monospace, monospace;
+  --radius-control: 4px;
+  --radius-panel: 6px;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: 400 14px/20px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; overscroll-behavior-y: none; }
+
+* { transition-duration: 150ms; transition-timing-function: ease-out; }
+
+:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* Status pages and wall displays: a 24-column grid, like Grafana. */
+.dash { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 8px; }
+.dash > * { grid-column: calc(var(--x) + 1) / span var(--w); grid-row: calc(var(--y) + 1) / span var(--h); min-width: 0; min-height: 0; }
+.fit { container-type: size; }
+
+@media (max-width: 639px) {
+  .dash { display: flex; flex-direction: column; height: auto !important; }
+  .dash > * { order: var(--o); height: calc(var(--h) * 44px); }
+  .dash > .dash-flow { height: auto; }
+}
+
+/* Phones: every table becomes a list of labelled lines. */
+@media (max-width: 639px) {
+  .rt thead { display: none; }
+  .rt, .rt tbody, .rt tr { display: block; width: 100%; }
+  .rt td { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: auto; min-height: 36px; padding: 6px 20px; text-align: right; overflow-wrap: anywhere; }
+  .rt td::before { content: attr(data-label); flex-shrink: 0; color: var(--color-fg3); font-size: 12px; font-weight: 400; font-family: var(--font-sans); }
+  .rt td:first-child { min-height: 44px; font-size: 15px; text-align: left; }
+  .rt td:first-child::before, .rt td[data-label=""]::before { display: none; }
+  .rt td:empty { display: none; }
+}

@@ -1,0 +1,19 @@
+name: nyx-agent
+version: ${VERSION}
+arch: ${ARCH}
+platform: linux
+release: 1
+maintainer: nyx-stack contributors
+homepage: https://github.com/midnights-ra1n/nyx-stack
+license: ${LICENSE}
+description: Nyx host agent
+recommends: [smartmontools]
+contents:
+  - { src: "LICENSE", dst: "/usr/share/doc/nyx-agent/copyright" }
+  - { src: "THIRD-PARTY.md", dst: "/usr/share/doc/nyx-agent/THIRD-PARTY.md" }
+  - { src: "licenses/UFL-1.0.txt", dst: "/usr/share/doc/nyx-agent/UFL-1.0.txt" }
+  - { src: "dist/linux-${ARCH}/nyx-agent", dst: "/usr/bin/nyx-agent", file_info: { mode: 0o755 } }
+  - { src: "packaging/systemd/nyx-agent.service", dst: "/usr/lib/systemd/system/nyx-agent.service"}
+scripts:
+  postinstall: packaging/nfpm/scripts/agent-post.sh
+  preremove: packaging/nfpm/scripts/agent-pre-rm.sh

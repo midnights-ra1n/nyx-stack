@@ -1,0 +1,22 @@
+[package]
+name = "nyx-manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Nyx management server"
+
+[dependencies]
+nyx-proto.workspace = true
+nyx-srv.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+rust-embed = "8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ipnet = "2"
+ssh-key = { version = "0.6", features = ["ed25519", "rand_core", "std"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+roxmltree = "0.20"

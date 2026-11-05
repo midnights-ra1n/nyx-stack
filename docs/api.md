@@ -1,0 +1,102 @@
+# HTTP API
+
+The web UI uses this API. It is not versioned yet, so expect changes before 1.0. For
+scripts and AI assistants, the read-only [MCP server](integrations.md#mcp-server) is the
+stable way in.
+
+Answers are JSON. Errors look like `{"error": "message"}`.
+
+| Access | Meaning |
+| --- | --- |
+| Public | No authentication |
+| Session | Signed-in session cookie |
+| Agent | Signed by the host's key: see [security.md](security.md#agent-traffic) |
+| Link | `Authorization: Bearer <link token>` |
+| Signature | Forge webhook signature |
+| Token | MCP token |
+| Key | Published, with an `X-Nyx-Page-Key` header for wall displays |
+
+## Both servers
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/health` | Public | Liveness |
+| GET | `/api/auth/status` | Public | Session state, whether HTTPS and passkeys are on |
+| POST | `/api/auth/setup` | Public | Create the first account, once |
+| POST | `/api/auth/login` | Public | Sign in, rate limited |
+| POST | `/api/auth/logout` | Session | Sign out |
+| POST | `/api/auth/passkey/login/start`, `/finish` | Public | Passkey sign-in |
+| POST | `/api/auth/passkey/register/start`, `/finish` | Session | Add a passkey |
+| GET | `/api/auth/passkeys` | Session | List passkeys |
+| DELETE | `/api/auth/passkeys/{id}` | Session | Remove a passkey |
+| GET, POST | `/api/c/{coll}` | Session | List or create records |
+| PATCH, DELETE | `/api/c/{coll}/{id}` | Session | Change or delete a record |
+| GET, PUT | `/api/settings/{key}` | Session | Read or write an allowed setting |
+| POST | `/api/notify/preview` | Session | Render templates with sample events |
+| POST | `/api/notify/test/{id}` | Session | Send a test through a channel |
+| GET | `/api/system/version` | Session | Version and install type |
+| POST | `/api/system/check` | Session | Ask GitHub for the latest release, on the chosen channel |
+| POST | `/api/system/update` | Session | Request a package upgrade |
+| POST | `/api/mcp/tokens` | Session | Create an MCP token |
+| POST | `/mcp`, `/mcp/{token}` | Token, HTTPS | MCP endpoint |
+
+`/api/c/{coll}` reaches an allow-list of collections per server, and hides secret fields.
+It accepts `sort`, `filter`, `page` and `perPage`.
+
+Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`,
+`proxmox` and `updates` on the monitor. `link`, `nextcloud`, `proxmox` and `updates` on
+the manager. `updates` holds `{"beta": true}` to include beta versions.
+
+## Monitor
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/overview` | Session | Fleet summary |
+| GET, POST | `/api/hosts` | Session | List hosts, or add one |
+| GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it |
+| GET | `/api/hosts/{id}/install` | Session | Generated install line |
+| POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
+| GET | `/api/series` | Session | CPU and memory history, of a host with `?host=`, else the fleet average. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
+| GET | `/api/containers` | Session | Docker containers across hosts |
+| GET | `/api/storage` | Session | Disks and SMART across hosts |
+| GET | `/api/logs` | Session | Recent log lines |
+| GET | `/api/probes` | Session | Probes and latest results |
+| POST | `/api/probes/reload` | Session | Apply probe changes now |
+| GET | `/api/probes/{id}/series` | Session | Latency or SNMP history, `?metric=&range=` |
+| GET | `/api/integrations/tempo` | Session | EDF Tempo days |
+| GET | `/api/integrations/power` | Session | Meross power |
+| GET, POST | `/api/pages` | Session | List pages, or create one |
+| PATCH, DELETE | `/api/pages/{id}` | Session | Change or delete a page |
+| POST | `/api/pages/{id}/key` | Session | Replace a wall's private link |
+| POST | `/api/pages/preview` | Session | Render an unsaved page |
+| GET | `/api/public/pages/{slug}` | Key | Filtered page data |
+| GET | `/status/{slug}` | Public | The status page itself, framable if the page allows it |
+| POST | `/api/link/token` | Session | Create the manager link token |
+| GET | `/api/link/hosts` | Link | Hosts for the manager |
+| POST | `/api/link/hosts/{id}/deploy` | Link | Queue a deploy |
+| GET | `/api/link/results/{id}` | Link | Result of a command |
+| GET | `/install.sh` | Public | Agent installer |
+| GET | `/agent/v1/binary/{name}` | Public | Agent binary. Signed for agents |
+| POST | `/agent/v1/report` | Agent | Metrics up, commands down |
+
+Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
+or `set_kind` with `kind` and `ct_autoinstall`.
+
+## Manager
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/overview` | Session | Inventory summary |
+| GET | `/api/ipam/report` | Session | Usage and conflicts |
+| GET | `/api/ipam/next/{subnet}` | Session | Next free address |
+| POST | `/api/ipam/simulate` | Session | Trace a route, `{"from", "destination"}` |
+| GET | `/api/map/export/{format}` | Session | `svg`, `drawio`, `mermaid`, `dot` or `json` |
+| POST | `/api/map/import` | Session | Add monitored hosts to the map |
+| GET, POST | `/api/tasks` | Session | List tasks, or create one |
+| PATCH, DELETE | `/api/tasks/{id}` | Session | Change or delete a task. Syncs to Nextcloud |
+| POST | `/api/sync` | Session | Sync Nextcloud and the monitor now |
+| GET | `/api/monitor/hosts` | Session | Hosts from the linked monitor |
+| POST | `/api/sites` | Session | Create a site and its deploy key |
+| POST | `/api/sites/{id}/deploy` | Session | Deploy now |
+| GET | `/api/sites/{id}/details` | Session | Public key, webhook URL and secret |
+| POST | `/hooks/git/{id}` | Signature | Git forge webhook |

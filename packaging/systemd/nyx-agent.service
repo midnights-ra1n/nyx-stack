@@ -1,0 +1,19 @@
+[Unit]
+Description=Nyx host agent
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/nyx/agent.conf
+
+[Service]
+ExecStart=/usr/bin/nyx-agent run
+Restart=always
+RestartSec=10
+RuntimeDirectory=nyx-agent
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=20
+# A system upgrade started by the agent must survive the agent restarting.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

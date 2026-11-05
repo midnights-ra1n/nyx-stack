@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 12 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: notifier/go.mod, cache-dependency-path: notifier/go.sum }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: make web
+      - run: cd web && pnpm exec tsc --noEmit
+      - run: make test

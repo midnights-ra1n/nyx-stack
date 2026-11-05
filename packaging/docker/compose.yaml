@@ -1,0 +1,67 @@
+# Nyx with Docker. Copy .env.example to .env, fill it, then:
+#   docker compose --profile monitor --profile manager up -d
+# Keep one profile to run a single role. Both roles can also have their own database.
+x-server: &server
+  restart: unless-stopped
+  init: true
+  depends_on: [pocketbase]
+
+services:
+  pocketbase:
+    image: ghcr.io/midnights-ra1n/nyx-pocketbase:${NYX_VERSION:-latest}
+    restart: unless-stopped
+    init: true
+    environment: &pb
+      NYX_PB_EMAIL: ${NYX_PB_EMAIL:?set it in .env}
+      NYX_PB_PASSWORD: ${NYX_PB_PASSWORD:?set it in .env}
+    volumes:
+      - pb-data:/data
+
+  monitor:
+    <<: *server
+    profiles: [monitor]
+    image: ghcr.io/midnights-ra1n/nyx-monitor:${NYX_VERSION:-latest}
+    environment:
+      <<: *pb
+      NYX_PB_URL: http://pocketbase:8090
+      NYX_BIND: 0.0.0.0:8081
+      NYX_PUBLIC_URL: ${NYX_MONITOR_URL:?set it in .env}
+    ports:
+      - 8081:8081
+    sysctls:
+      # Unprivileged ICMP probes.
+      net.ipv4.ping_group_range: 0 2147483647
+
+  manager:
+    <<: *server
+    profiles: [manager]
+    image: ghcr.io/midnights-ra1n/nyx-manager:${NYX_VERSION:-latest}
+    environment:
+      <<: *pb
+      NYX_PB_URL: http://pocketbase:8090
+      NYX_BIND: 0.0.0.0:8082
+      NYX_PUBLIC_URL: ${NYX_MANAGER_URL:?set it in .env}
+    ports:
+      - 8082:8082
+
+  # Prefer the systemd agent: inside a container it cannot apply system updates.
+  agent:
+    profiles: [agent]
+    image: ghcr.io/midnights-ra1n/nyx-agent:${NYX_VERSION:-latest}
+    restart: unless-stopped
+    init: true
+    pid: host
+    network_mode: host
+    privileged: true # smartctl needs raw disk access
+    environment:
+      NYX_URL: ${NYX_AGENT_URL:-}
+      NYX_TOKEN: ${NYX_AGENT_TOKEN:-}
+      NYX_KEY: ${NYX_AGENT_KEY:-}
+      NYX_KIND: ${NYX_AGENT_KIND:-vm}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
+
+volumes:
+  pb-data:

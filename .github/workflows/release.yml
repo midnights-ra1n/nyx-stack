@@ -1,0 +1,99 @@
+# Every push to `beta` or `stable` publishes a release of everything: binaries,
+# .deb and .rpm packages, and multi-arch images. Beta releases are pre-releases.
+name: Release
+on:
+  push:
+    branches: [beta, stable]
+
+# Two quick pushes must not compute the same version.
+concurrency:
+  group: release-${{ github.ref_name }}
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    needs: test
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, fetch-tags: true }
+      - id: next
+        run: echo "version=$(sh packaging/next-version.sh "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      # Binaries report this version, and agents compare it to pick up updates.
+      - run: sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
+      - uses: pnpm/action-setup@v4
+        with: { version: 12 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: notifier/go.mod, cache-dependency-path: notifier/go.sum }
+      - run: make web notifier pocketbase ARCH=${{ matrix.arch }}
+      # Run by hand in Alpine: JavaScript actions cannot run in Alpine containers on arm64 runners.
+      - run: >-
+          docker run --rm -v "$PWD:/src" -w /src rust:1-alpine sh -c
+          "apk add --no-cache make perl musl-dev linux-headers && make bins ARCH=${{ matrix.arch }} && chown -R $(id -u):$(id -g) dist"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: dist/linux-${{ matrix.arch }}
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      CHANNEL: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: dist-amd64, path: dist/linux-amd64 }
+      - uses: actions/download-artifact@v4
+        with: { name: dist-arm64, path: dist/linux-arm64 }
+      - run: chmod +x dist/linux-*/* # artifacts lose the executable bit
+      - uses: actions/setup-go@v5
+        with: { go-version: stable, cache: false }
+      - run: make packages ARCH=amd64 VERSION="$VERSION" && make packages ARCH=arm64 VERSION="$VERSION"
+      - run: cd dist/packages && sha256sum * > SHA256SUMS
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push images
+        run: |
+          for target in monitor manager agent pocketbase; do
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/nyx-$target"
+            tags="-t $image:$VERSION -t $image:$CHANNEL"
+            if [ "$CHANNEL" = stable ]; then tags="$tags -t $image:latest"; fi
+            docker buildx build . -f packaging/docker/Dockerfile --target "$target" \
+              --platform linux/amd64,linux/arm64 --push $tags
+          done
+      # Last, because it creates the tag: a failed run then reuses its version.
+      - name: Publish the release
+        run: |
+          if [ "$CHANNEL" = stable ]; then kind="--latest"; else kind="--prerelease --latest=false"; fi
+          gh release create "v$VERSION" dist/packages/* --target "$GITHUB_SHA" --title "Nyx $VERSION" --generate-notes $kind
+        env:
+          GH_TOKEN: ${{ github.token }}

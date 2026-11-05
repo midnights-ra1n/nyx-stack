@@ -1,0 +1,7 @@
+[Unit]
+Description=Upgrade the Nyx packages
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/nyx/update.sh
