@@ -94,6 +94,10 @@ jobs:
       - name: Publish the release
         run: |
           if [ "$CHANNEL" = stable ]; then kind="--latest"; else kind="--prerelease --latest=false"; fi
-          gh release create "v$VERSION" dist/packages/* --target "$GITHUB_SHA" --title "Nyx $VERSION" --generate-notes $kind
+          # Job logs need a login, annotations do not: keep the reason readable by anyone.
+          if ! out=$(gh release create "v$VERSION" dist/packages/* --target "$GITHUB_SHA" --title "Nyx $VERSION" --generate-notes $kind 2>&1); then
+            echo "::error title=gh release create::${out//$'\n'/%0A}"
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
