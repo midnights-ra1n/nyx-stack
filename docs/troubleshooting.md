@@ -19,6 +19,17 @@ To choose again, stop the server, delete `database.json` from its data directory
 start it. No data is deleted or moved. With a shared database, also check that `nyx-db`
 is reachable and not older than the server.
 
+## The EDF Tempo panel shows an error
+
+The panel and **Test the connection**, in **Settings, Integrations**, give RTE's reason.
+
+| Message | What to do |
+| --- | --- |
+| RTE refused the client ID or secret | Copy both again from your application on the RTE portal |
+| Not subscribed to the Tempo Like Supply Contract API | Subscribe your application to it, on the portal. Valid keys are not enough |
+| RTE is limiting requests | Wait a few minutes |
+| Cannot reach RTE | The monitor cannot get out: check its DNS, firewall or proxy |
+
 ## A host stays offline
 
 - `systemctl status nyx-agent` on the host.

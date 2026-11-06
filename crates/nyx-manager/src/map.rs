@@ -25,21 +25,21 @@ pub fn svg(nodes: &[Value], links: &[Value]) -> String {
     let xy = |n: &Value| (n["x"].as_f64().unwrap_or(0.0), n["y"].as_f64().unwrap_or(0.0));
     let right = nodes.iter().map(|n| xy(n).0).fold(0.0, f64::max) + W + 40.0;
     let bottom = nodes.iter().map(|n| xy(n).1).fold(0.0, f64::max) + H + 40.0;
-    let mut out = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{right}" height="{bottom}" viewBox="0 0 {right} {bottom}" font-family="Ubuntu, sans-serif"><rect width="100%" height="100%" fill="#121110"/>"##);
+    let mut out = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{right}" height="{bottom}" viewBox="0 0 {right} {bottom}" font-family="Ubuntu, sans-serif"><rect width="100%" height="100%" fill="#141a22"/>"##);
     for l in links {
         if let (Some(a), Some(b)) = (name_of(nodes, s(l, "source")), name_of(nodes, s(l, "target"))) {
             let ((ax, ay), (bx, by)) = (xy(a), xy(b));
             let (x1, y1, x2, y2) = (ax + W / 2.0 + 20.0, ay + H / 2.0 + 20.0, bx + W / 2.0 + 20.0, by + H / 2.0 + 20.0);
-            out += &format!(r##"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#3a3632"/>"##);
+            out += &format!(r##"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#6e7d8f"/>"##);
             if !s(l, "label").is_empty() {
-                out += &format!(r##"<text x="{}" y="{}" font-size="12" fill="#958e84" text-anchor="middle">{}</text>"##, (x1 + x2) / 2.0, (y1 + y2) / 2.0 - 4.0, xml(s(l, "label")));
+                out += &format!(r##"<text x="{}" y="{}" font-size="12" fill="#9aa6b5" text-anchor="middle">{}</text>"##, (x1 + x2) / 2.0, (y1 + y2) / 2.0 - 4.0, xml(s(l, "label")));
             }
         }
     }
     for n in nodes {
         let (x, y) = xy(n);
         let (x, y) = (x + 20.0, y + 20.0);
-        out += &format!(r##"<rect x="{x}" y="{y}" width="{W}" height="{H}" rx="6" fill="#1c1a18" stroke="#3a3632"/><text x="{}" y="{}" font-size="14" fill="#e7e3dd" text-anchor="middle">{}</text><text x="{}" y="{}" font-size="12" fill="#b3aca2" text-anchor="middle">{}</text>"##,
+        out += &format!(r##"<rect x="{x}" y="{y}" width="{W}" height="{H}" rx="16" fill="#1b232d" stroke="#6e7d8f"/><text x="{}" y="{}" font-size="14" fill="#edf1f6" text-anchor="middle">{}</text><text x="{}" y="{}" font-size="12" fill="#bcc6d2" text-anchor="middle">{}</text>"##,
             x + W / 2.0, y + 24.0, xml(s(n, "name")), x + W / 2.0, y + 42.0, xml(s(n, "ip")));
     }
     out + "</svg>"

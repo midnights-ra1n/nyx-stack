@@ -77,7 +77,7 @@ export function CrudPage({ title, singular, collection, cols, sort = "name", cru
         {extra}
         <Panel title={`${data?.items.length ?? 0} ${title.toLowerCase()}`} flush>
           <ErrorNote>{error}</ErrorNote>
-          {data?.items.length === 0 ? <div className="px-5 pb-5"><Empty>Nothing here yet.</Empty></div> : (
+          {data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>Nothing here yet.</Empty></div> : (
             <Table head={[...shown.map((c) => c.label), ""]}>
               {data?.items.map((row: any) => (
                 <tr key={row.id}>

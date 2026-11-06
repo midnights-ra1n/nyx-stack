@@ -23,16 +23,40 @@ Any other Shoutrrr service works too.
 
 ## Templates
 
-Titles and bodies are Jinja-style templates, with a live preview in the form.
-Variables: `count`, and `events`, each with `type`, `severity`, `title`, `message`,
-`host` and `created`.
+Titles and bodies are Jinja-style templates. Leave them empty for the default, which
+uses emojis and gives each event its own line:
+
+```text
+🔴 Nyx: 5 events
+
+🔴 📡 backup-01 is not responding · No report for 5 minutes
+🟠 💽 /dev/sda: 8 bad sectors (nas-01) · Plan a replacement
+🔵 📦 12 updates available (docker-01) · 3 security updates
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `count` | Number of events |
+| `icon` | Emoji of the worst severity in the message |
+| `events` | The list, each with the fields below |
+| `e.icon` | 🔴 critical, 🟠 warning, 🔵 information, 🟢 resolved |
+| `e.type_icon` | 📡 state, 📦 update, 💽 SMART, 🌡️ temperature, 📋 task |
+| `e.type`, `e.severity`, `e.title`, `e.message`, `e.host`, `e.created` | The event itself |
+
+Any emoji can also be typed straight into a template:
 
 ```jinja
-{% for e in events %}[{{ e.severity }}] {{ e.title }} {{ e.message }}
+{% for e in events %}{{ e.icon }} {{ e.title }}{% if e.message %}: {{ e.message }}{% endif %}
 {% endfor %}
 ```
 
-Tick **HTML message** for styled email. Values are escaped automatically in HTML.
+The preview beside the form uses sample events and picks the look of the service in the
+URL. The buttons above it show the same message as an email, in Discord, Slack, Telegram,
+Teams or Matrix, or as a phone notification. It is an approximation: each app has the
+last word. Discord shows each line as a separate block, so one line per event reads best.
+
+Tick **HTML message** for styled email: it fills in a ready-made design if the body is
+empty. Values are escaped automatically in HTML.
 
 ## Rules
 

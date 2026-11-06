@@ -1,8 +1,10 @@
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { BarGauge, Empty, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
+import { BarGauge, Empty, ErrorNote, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
 import { fmt, type Level, levelSoft, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
+import { DiskHealth } from "./disks"
+import { RecentLogs } from "./logs"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
@@ -27,8 +29,8 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
         {hosts.map((h) => (
           <li key={h.id}>
             <Link to={`/hosts/${h.id}`} className="grid h-[68px] grid-cols-[1fr_auto] items-stretch">
-              <span className="flex flex-col justify-center px-5"><span className="font-medium">{h.name}</span><Mono className="text-fg2">{h.ip || "—"}</Mono></span>
-              <span className={`flex flex-col items-end justify-center px-5 ${levelSoft[hostLevel(h.status)]}`}>
+              <span className="flex flex-col justify-center px-4"><span className="font-medium">{h.name}</span><Mono className="text-fg2">{h.ip || "—"}</Mono></span>
+              <span className={`flex flex-col items-end justify-center px-4 ${levelSoft[hostLevel(h.status)]}`}>
                 <Status cell level={hostLevel(h.status)} />
                 <span className="text-xs text-fg2">CPU {fmt.pct(h.cpu)} · Mem. {fmt.pct(h.mem)}</span>
               </span>
@@ -37,6 +39,26 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
         ))}
       </ul>
     </>
+  )
+}
+
+/** Block of the overview. It fetches its own data, so that it costs nothing while hidden. */
+function Probes({ edit }: { edit: any }) {
+  const { data } = useApi<any[]>("/api/probes")
+  return (
+    <Panel title="Probes" edit={edit} actions={[{ label: "Network", onClick: () => navigate("/network") }]}>
+      {data?.length ? <ul className="divide-y divide-line">{data.map((p) => <li key={p.id} className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 truncate">{p.name}</span><Status cell level={p.up == null ? "off" : p.up ? "ok" : "crit"} label={p.up ? `${p.latency_ms.toFixed(0)} ms` : p.up == null ? "Pending" : "Down"} /></li>)}</ul> : <Empty>No probes yet.</Empty>}
+    </Panel>
+  )
+}
+
+function StoppedContainers({ edit }: { edit: any }) {
+  const { data } = useApi<any[]>("/api/containers")
+  const stopped = data?.filter((c) => c.state !== "running") ?? []
+  return (
+    <Panel title="Stopped containers" edit={edit} actions={[{ label: "All containers", onClick: () => navigate("/containers") }]}>
+      {stopped.length ? <ul className="divide-y divide-line">{stopped.map((c) => <li key={c.host_id + c.name} className="flex justify-between gap-3 py-2"><Mono>{c.name}</Mono><span className="text-fg3">{c.host}</span></li>)}</ul> : <Empty>Everything is running.</Empty>}
+    </Panel>
   )
 }
 
@@ -59,6 +81,7 @@ export function Overview() {
   const mem = selected ? selected.mem ?? 0 : o?.mem ?? 0
   const offline = o ? o.hosts_total - o.hosts_online : 0
   const stopped = o ? o.containers_total - o.containers_running : 0
+  const pending = (hosts.data ?? []).filter((h) => h.updates > 0)
 
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
@@ -111,7 +134,16 @@ export function Overview() {
         <Stat label="Total draw" value={`${(power.data?.total ?? 0).toFixed(0)} W`} sub={`${power.data?.plugs.length ?? 0} plugs`} />
       </Panel>
     ) },
-    { id: "tempo", title: "EDF Tempo", render: (edit: any) => <TempoPanel edit={edit} tempo={tempo.data} /> },
+    { id: "tempo", title: "EDF Tempo", render: (edit: any) => <TempoPanel edit={edit} tempo={tempo.data} error={tempo.error} /> },
+    { id: "disks", title: "Disk health", render: (edit: any) => <DiskHealth edit={edit} /> },
+    { id: "logs", title: "Recent logs", render: (edit: any) => <RecentLogs edit={edit} /> },
+    { id: "probes", title: "Probes", render: (edit: any) => <Probes edit={edit} /> },
+    { id: "containers", title: "Stopped containers", render: (edit: any) => <StoppedContainers edit={edit} /> },
+    { id: "updates", title: "Pending updates", render: (edit: any) => (
+      <Panel title="Pending updates" edit={edit}>
+        {pending.length ? <ul className="divide-y divide-line">{pending.map((h) => <li key={h.id} className="flex justify-between gap-3 py-2"><Link to={`/hosts/${h.id}`}>{h.name}</Link><span className="text-fg2">{h.updates}</span></li>)}</ul> : <Empty>Every host is up to date.</Empty>}
+      </Panel>
+    ) },
   ]
 
   return (
@@ -127,8 +159,8 @@ export function Overview() {
       <Board
         id="overview"
         panels={panels}
-        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo"] }}
-        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo"] }}
+        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "disks", "logs", "probes", "containers", "updates"] }}
+        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "disks", "logs", "probes", "containers", "updates"] }}
       />
     </>
   )
@@ -136,11 +168,11 @@ export function Overview() {
 
 const TEMPO: Record<string, { label: string; level: Level }> = { BLUE: { label: "Blue", level: "info" }, WHITE: { label: "White", level: "off" }, RED: { label: "Red", level: "crit" } }
 
-function TempoPanel({ tempo, edit }: { tempo: any; edit: any }) {
+function TempoPanel({ tempo, error, edit }: { tempo: any; error?: string; edit: any }) {
   const day = (c?: string) => (c ? <Status level={TEMPO[c].level} label={TEMPO[c].label} /> : <span className="text-fg3">Not published</span>)
   return (
     <Panel title="EDF Tempo" edit={edit}>
-      {!tempo?.configured ? <Empty>Add your RTE API keys in Settings.</Empty> : (
+      {error ? <ErrorNote>{error}</ErrorNote> : !tempo ? <Empty>Loading…</Empty> : !tempo.configured ? <Empty>Add your RTE API keys in Settings.</Empty> : (
         <div className="flex flex-col gap-3">
           <div className="flex justify-between"><span className="text-fg2">Today</span>{day(tempo.today)}</div>
           <div className="flex justify-between"><span className="text-fg2">Tomorrow</span>{day(tempo.tomorrow)}</div>

@@ -17,8 +17,28 @@ use std::{process::Stdio, sync::Arc};
 use tokio::io::AsyncWriteExt;
 
 pub const EVENT_TYPES: [&str; 5] = ["state", "update", "smart", "temperature", "task"];
-pub const DEFAULT_TITLE: &str = "[Nyx] {{ count }} event{{ 's' if count != 1 }}";
-pub const DEFAULT_BODY: &str = "{% for e in events %}[{{ e.severity }}] {{ e.title }}{% if e.host %} ({{ e.host }}){% endif %}\n{% endfor %}";
+pub const DEFAULT_TITLE: &str = "{{ icon }} Nyx: {{ count }} event{{ 's' if count != 1 }}";
+// One line per event: Discord turns each line into its own embed.
+pub const DEFAULT_BODY: &str = "{% for e in events %}{{ e.icon }} {{ e.type_icon }} {{ e.title }}{% if e.host and e.host not in e.title %} ({{ e.host }}){% endif %}{% if e.message %} · {{ e.message }}{% endif %}\n{% endfor %}";
+
+fn severity_icon(severity: &str) -> &'static str {
+    match severity {
+        "crit" => "🔴",
+        "warn" => "🟠",
+        "ok" => "🟢",
+        _ => "🔵",
+    }
+}
+
+fn type_icon(kind: &str) -> &'static str {
+    match kind {
+        "state" => "📡",
+        "update" => "📦",
+        "smart" => "💽",
+        "temperature" => "🌡️",
+        _ => "📋",
+    }
+}
 
 /// Record an event. Failures are logged, not fatal: monitoring must keep going.
 pub async fn emit(core: &Core, kind: &str, severity: &str, title: &str, message: &str, host: &str) {
@@ -80,7 +100,20 @@ pub fn is_due<Tz: TimeZone>(t: &Timing, now: &DateTime<Tz>, last_sent: Option<Da
 pub fn render(title_tpl: &str, body_tpl: &str, html: bool, events: &[Value]) -> anyhow::Result<(String, String)> {
     let mut env = Environment::new();
     env.set_auto_escape_callback(move |_| if html { minijinja::AutoEscape::Html } else { minijinja::AutoEscape::None });
-    let ctx = context! { events => events, count => events.len() };
+    let worst = ["crit", "warn", "info"].into_iter().find(|s| events.iter().any(|e| e["severity"] == *s)).unwrap_or("ok");
+    let events: Vec<Value> = events
+        .iter()
+        .cloned()
+        .map(|mut e| {
+            if let Some(o) = e.as_object_mut() {
+                let (icon, kind) = (severity_icon(o.get("severity").and_then(Value::as_str).unwrap_or_default()), type_icon(o.get("type").and_then(Value::as_str).unwrap_or_default()));
+                o.insert("icon".into(), icon.into());
+                o.insert("type_icon".into(), kind.into());
+            }
+            e
+        })
+        .collect();
+    let ctx = context! { events => events, count => events.len(), icon => severity_icon(worst) };
     let title_tpl = if title_tpl.is_empty() { DEFAULT_TITLE } else { title_tpl };
     let body_tpl = if body_tpl.is_empty() { DEFAULT_BODY } else { body_tpl };
     Ok((env.render_str(title_tpl, &ctx)?, env.render_str(body_tpl, &ctx)?))
@@ -190,7 +223,9 @@ fn sample_events() -> Vec<Value> {
     vec![
         json!({"type": "state", "severity": "crit", "title": "backup-01 is not responding", "message": "No report for 5 minutes", "host": "backup-01", "created": "2026-11-05 14:32:00.000Z"}),
         json!({"type": "smart", "severity": "warn", "title": "/dev/sda: 8 bad sectors", "message": "Plan a replacement", "host": "nas-01", "created": "2026-11-05 14:20:00.000Z"}),
+        json!({"type": "temperature", "severity": "warn", "title": "pve-01: CPU at 84 °C", "message": "", "host": "pve-01", "created": "2026-11-05 13:05:00.000Z"}),
         json!({"type": "update", "severity": "info", "title": "12 updates available", "message": "3 security updates", "host": "docker-01", "created": "2026-11-05 04:00:00.000Z"}),
+        json!({"type": "state", "severity": "ok", "title": "Resolved: web-01 is responding", "message": "", "host": "web-01", "created": "2026-11-05 03:12:00.000Z"}),
     ]
 }
 
@@ -276,9 +311,20 @@ mod tests {
         let ev = [json!({"title": "<b>x</b>", "severity": "crit", "host": ""})];
         let (_, plain) = render("", "{{ events[0].title }}", false, &ev).unwrap();
         let (title, html) = render("", "{{ events[0].title }}", true, &ev).unwrap();
-        assert_eq!((plain.as_str(), title.as_str()), ("<b>x</b>", "[Nyx] 1 event"));
+        assert_eq!((plain.as_str(), title.as_str()), ("<b>x</b>", "🔴 Nyx: 1 event"));
         assert!(html.contains("&lt;b&gt;"));
         assert!(render("{{", "", false, &ev).is_err());
+    }
+
+    #[test]
+    fn default_body_has_one_line_per_event_and_does_not_repeat_the_host() {
+        let ev = [
+            json!({"type": "smart", "severity": "warn", "title": "nas: /dev/sda failing", "message": "Replace it", "host": "nas"}),
+            json!({"type": "update", "severity": "info", "title": "12 updates", "message": "", "host": "web"}),
+        ];
+        let (title, body) = render("", "", false, &ev).unwrap();
+        assert_eq!(title, "🟠 Nyx: 2 events");
+        assert_eq!(body, "🟠 💽 nas: /dev/sda failing · Replace it\n🔵 📦 12 updates (web)\n");
     }
 
     #[test]

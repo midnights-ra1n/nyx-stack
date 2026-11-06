@@ -21,10 +21,11 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/health` | Public | Liveness |
-| GET | `/api/auth/status` | Public | Session state, whether HTTPS and passkeys are on |
+| GET | `/api/auth/status` | Public | Session state, signed-in email, whether HTTPS, passkeys and a shared database are on |
 | POST | `/api/auth/setup` | Public | Create the first account, once |
 | POST | `/api/auth/login` | Public | Sign in, rate limited |
 | POST | `/api/auth/logout` | Session | Sign out |
+| POST | `/api/auth/password` | Session | Change the password: `{"current", "password"}`, rate limited |
 | POST | `/api/auth/passkey/login/start`, `/finish` | Public | Passkey sign-in |
 | POST | `/api/auth/passkey/register/start`, `/finish` | Session | Add a passkey |
 | GET | `/api/auth/passkeys` | Session | List passkeys |
@@ -44,8 +45,8 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 It accepts `sort`, `filter`, `page` and `perPage`.
 
 Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`,
-`proxmox` and `updates` on the monitor. `link`, `nextcloud`, `proxmox` and `updates` on
-the manager. `updates` holds `{"beta": true}` to include beta versions.
+`proxmox` and `updates` on the monitor. `link`, `nextcloud`, `proxmox`, `updates` and
+`reminders` (`task_days`, `warranty_days`) on the manager. `updates` holds `{"beta": true}` to include beta versions.
 
 ## Monitor
 
@@ -54,16 +55,18 @@ the manager. `updates` holds `{"beta": true}` to include beta versions.
 | GET | `/api/overview` | Session | Fleet summary |
 | GET, POST | `/api/hosts` | Session | List hosts, or add one |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it |
-| GET | `/api/hosts/{id}/install` | Session | Generated install line |
+| GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
+| GET | `/api/hosts/{id}/logs/live` | Session | Live log lines after `?after=<seq>`, with the new `seq` and whether the agent is `connected`. Each request keeps the live view running for 15 seconds |
 | GET | `/api/series` | Session | CPU and memory history, of a host with `?host=`, else the fleet average. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
 | GET | `/api/containers` | Session | Docker containers across hosts |
 | GET | `/api/storage` | Session | Disks and SMART across hosts |
-| GET | `/api/logs` | Session | Recent log lines |
+| GET | `/api/logs` | Session | Recent log lines, `?host=&q=`. A line reads `<epoch> <<priority>> <service>: <message>` |
 | GET | `/api/probes` | Session | Probes and latest results |
 | POST | `/api/probes/reload` | Session | Apply probe changes now |
 | GET | `/api/probes/{id}/series` | Session | Latency or SNMP history, `?metric=&range=` |
 | GET | `/api/integrations/tempo` | Session | EDF Tempo days |
+| POST | `/api/integrations/tempo/calendar` | Session | Send the season's Tempo days to the Nextcloud calendar. Returns `{"sent": n}` |
 | GET | `/api/integrations/power` | Session | Meross power |
 | GET, POST | `/api/pages` | Session | List pages, or create one |
 | PATCH, DELETE | `/api/pages/{id}` | Session | Change or delete a page |
@@ -78,6 +81,7 @@ the manager. `updates` holds `{"beta": true}` to include beta versions.
 | GET | `/install.sh` | Public | Agent installer |
 | GET | `/agent/v1/binary/{name}` | Public | Agent binary. Signed for agents |
 | POST | `/agent/v1/report` | Agent | Metrics up, commands down |
+| POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 
 Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
 or `set_kind` with `kind` and `ct_autoinstall`.

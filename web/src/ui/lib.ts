@@ -16,6 +16,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   return data
 }
 
+export const REFRESH: [number, string][] = [[5000, "5 s"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [0, "Off"]]
+
 // Global auto-refresh, set by the control bar. 0 turns it off.
 let refreshMs = Number(globalThis.localStorage?.getItem("nyx.refresh") ?? 15000)
 const listeners = new Set<() => void>()

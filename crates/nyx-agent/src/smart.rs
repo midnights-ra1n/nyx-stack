@@ -39,6 +39,10 @@ pub fn parse(device: &str, j: &Value) -> SmartDisk {
         .map(|used| 100u64.saturating_sub(used) as u8)
         .or_else(|| WEAR_ATTRS.iter().find_map(|&id| attr(j, id, "value")).map(|v| v.min(100) as u8));
     let raw = |id| j["ata_smart_attributes"]["table"].as_array()?.iter().find(|a| a["id"] == id)?["raw"]["value"].as_u64();
+    let kind = if !nvme.is_null() { "NVMe" } else if j["rotation_rate"].as_u64().is_some_and(|r| r > 0) { "HDD" } else if j["rotation_rate"].is_u64() { "SSD" } else { "" };
+    let block = j["logical_block_size"].as_u64().unwrap_or(512);
+    // An NVMe data unit is 1000 sectors of 512 bytes, whatever the drive's block size.
+    let written_bytes = nvme["data_units_written"].as_u64().map(|u| u * 512_000).or_else(|| raw(241).map(|lbas| lbas * block));
     let bad_sectors = raw(5).unwrap_or(0) + raw(197).unwrap_or(0) + raw(198).unwrap_or(0);
     let critical_warning = nvme["critical_warning"].as_u64().unwrap_or(0);
     let passed = j["smart_status"]["passed"].as_bool().unwrap_or(true);
@@ -65,6 +69,12 @@ pub fn parse(device: &str, j: &Value) -> SmartDisk {
         temp_c: j["temperature"]["current"].as_i64().map(|t| t as i32),
         power_on_hours: j["power_on_time"]["hours"].as_u64(),
         reason,
+        kind: kind.to_string(),
+        serial: j["serial_number"].as_str().unwrap_or_default().to_string(),
+        capacity: j["user_capacity"]["bytes"].as_u64(),
+        bad_sectors,
+        power_cycles: j["power_cycle_count"].as_u64(),
+        written_bytes,
     }
 }
 
@@ -79,6 +89,19 @@ mod tests {
             "power_on_time":{"hours":1200},"nvme_smart_health_information_log":{"percentage_used":15,"critical_warning":0}});
         let d = parse("/dev/nvme0", &j);
         assert_eq!((d.health, d.life_left_pct, d.temp_c, d.power_on_hours), (Health::Ok, Some(85), Some(38), Some(1200)));
+    }
+
+    #[test]
+    fn drive_details_are_read_for_each_kind() {
+        let nvme = json!({"smart_status":{"passed":true},"serial_number":"S1","user_capacity":{"bytes":1000},"power_cycle_count":7,
+            "nvme_smart_health_information_log":{"percentage_used":1,"data_units_written":2}});
+        let d = parse("/dev/nvme0", &nvme);
+        assert_eq!((d.kind.as_str(), d.serial.as_str(), d.capacity, d.power_cycles, d.written_bytes), ("NVMe", "S1", Some(1000), Some(7), Some(1_024_000)));
+        let table = json!([{"id":241,"value":100,"raw":{"value":10}}]);
+        let hdd = parse("/dev/sda", &json!({"smart_status":{"passed":true},"rotation_rate":7200,"logical_block_size":4096,"ata_smart_attributes":{"table":table}}));
+        assert_eq!((hdd.kind.as_str(), hdd.written_bytes), ("HDD", Some(40960)));
+        assert_eq!(parse("/dev/sdb", &json!({"smart_status":{"passed":true},"rotation_rate":0})).kind, "SSD");
+        assert_eq!(parse("/dev/sdc", &json!({"smart_status":{"passed":true}})).kind, "");
     }
 
     #[test]

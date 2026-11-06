@@ -16,17 +16,20 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 6] = ["thresholds", "maintenance", "tempo", "meross", "proxmox", "updates"];
+const SETTINGS: [&str; 7] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "updates"];
 const MAX_POINTS: usize = 400;
 
-fn summary(h: &Host, now: i64, th: &crate::state::Thresholds) -> Value {
+fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
+    let th = &st.thresholds;
     let live = h.live.as_ref();
+    let parent = st.hosts.get(&h.parent).and_then(|p| p.live.as_ref());
     let r = live.map(|l| &l.report);
     json!({
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
         "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node,
         "ct_autoinstall": h.ct_autoinstall, "last_seen": h.last_seen, "status": host_status(h, now, th),
         "installed": h.last_seen > 0,
+        "oci": parent.is_some_and(|p| p.guests.iter().any(|g| g.vmid == h.vmid && g.oci)),
         "cpu": r.map(|r| r.cpu_pct), "mem": r.map(|r| pct(r.mem_used, r.mem_total)),
         "swap": r.map(|r| pct(r.swap_used, r.swap_total)), "uptime_s": r.map(|r| r.uptime_s), "temp": r.and_then(|r| r.temp_c),
         "rx": r.map(|r| r.net_rx_bps), "tx": r.map(|r| r.net_tx_bps),
@@ -42,7 +45,7 @@ pub fn hosts_json(app: &App) -> Vec<Value> {
     let st = app.lock();
     let mut v: Vec<&Host> = st.hosts.values().collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
-    v.iter().map(|h| summary(h, now, &st.thresholds)).collect()
+    v.iter().map(|h| summary(h, now, &st)).collect()
 }
 
 async fn hosts(_: Session, State(app): State<Arc<App>>) -> Json<Vec<Value>> {
@@ -86,7 +89,7 @@ pub fn host_json(app: &App, id: &str) -> Option<Value> {
     let now = Utc::now().timestamp();
     let st = app.lock();
     let h = st.hosts.get(id)?;
-    let mut v = summary(h, now, &st.thresholds);
+    let mut v = summary(h, now, &st);
     if let Some(l) = &h.live {
         v["disks"] = json!(l.report.disks);
         v["containers"] = json!(l.containers);
@@ -134,10 +137,27 @@ async fn add_host(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewHost
     Ok(Json(info))
 }
 
-async fn install_line(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+#[derive(Deserialize)]
+struct InstallQuery {
+    url: Option<String>,
+}
+
+/// The address ends up in a shell command, so it may only hold what a URL needs.
+fn agent_url(given: Option<&str>, default: &str) -> ApiResult<String> {
+    let Some(url) = given.map(|u| u.trim().trim_end_matches('/')).filter(|u| !u.is_empty()) else { return Ok(default.into()) };
+    let safe = url.chars().all(|c| c.is_ascii_alphanumeric() || "-._~:/[]%".contains(c));
+    let parsed = reqwest::Url::parse(url).ok().filter(|u| ["http", "https"].contains(&u.scheme()) && u.host().is_some());
+    if !safe || parsed.is_none() {
+        return Err(ApiError::bad_request("enter a full address, such as https://monitor.example.org"));
+    }
+    Ok(url.into())
+}
+
+async fn install_line(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Query(q): Query<InstallQuery>) -> ApiResult<Json<Value>> {
+    let url = agent_url(q.url.as_deref(), &app.core.env.public_url)?;
     let st = app.lock();
     let h = st.hosts.get(&id).ok_or_else(ApiError::not_found)?;
-    Ok(Json(install_info(&app.core.env.public_url, &h.token, &h.key, &h.kind, h.ct_autoinstall)))
+    Ok(Json(install_info(&url, &h.token, &h.key, &h.kind, h.ct_autoinstall)))
 }
 
 async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
@@ -271,9 +291,24 @@ async fn logs(_: Session, State(app): State<Arc<App>>, Query(q): Query<LogQuery>
         .flat_map(|(h, l)| l.logs.iter().map(|line| (h.name.as_str(), line.as_str())))
         .filter(|(_, line)| needle.is_empty() || line.to_lowercase().contains(&needle))
         .collect();
-    lines.sort_by(|a, b| b.1.cmp(a.1)); // lines start with an ISO timestamp
+    lines.sort_by(|a, b| b.1.cmp(a.1)); // lines start with a timestamp
     lines.truncate(500);
     Json(json!(lines.iter().map(|(h, l)| json!({"host": h, "line": l})).collect::<Vec<_>>()))
+}
+
+#[derive(Deserialize)]
+struct LiveQuery {
+    after: Option<u64>,
+}
+
+/// Asking is what keeps the agent sending: it stops soon after the last request.
+async fn live_logs(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Query(q): Query<LiveQuery>) -> ApiResult<Json<Value>> {
+    let now = Utc::now().timestamp();
+    let mut st = app.lock();
+    let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
+    h.watched_until = now + crate::state::LIVE_WATCH_S;
+    let lines = h.tail.since(q.after.unwrap_or(0));
+    Ok(Json(json!({"seq": h.tail.seq, "lines": lines, "connected": now - h.tail_seen <= crate::state::LIVE_WATCH_S})))
 }
 
 async fn probes(_: Session, State(app): State<Arc<App>>) -> Json<Vec<Value>> {
@@ -322,6 +357,9 @@ async fn get_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
 async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<String>, Json(v): Json<Value>) -> ApiResult<Json<Value>> {
     check_setting(&key)?;
     app.core.pb.set_setting(&key, &v).await?;
+    if key == "tempo" {
+        *app.tempo_cache.lock().unwrap() = None; // New keys must be tried right away.
+    }
     app.reload_settings().await?;
     Ok(Json(Value::Null))
 }
@@ -333,6 +371,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/hosts/{id}", get(host).delete(delete_host))
         .route("/api/hosts/{id}/install", get(install_line))
         .route("/api/hosts/{id}/command", post(command))
+        .route("/api/hosts/{id}/logs/live", get(live_logs))
         .route("/api/series", get(series))
         .route("/api/containers", get(containers))
         .route("/api/storage", get(storage))
@@ -372,5 +411,22 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                 }
             })
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn install_address_is_a_url_and_nothing_a_shell_would_run() {
+        let url = |u: &str| agent_url(Some(u), "http://default:8081").ok();
+        assert_eq!(url(" https://monitor.example.org:8443/ ").as_deref(), Some("https://monitor.example.org:8443"));
+        assert_eq!(url("http://[fd00::1]:8081").as_deref(), Some("http://[fd00::1]:8081"));
+        assert_eq!(url("").as_deref(), Some("http://default:8081"));
+        assert_eq!(agent_url(None, "http://default:8081").ok().as_deref(), Some("http://default:8081"));
+        for bad in ["monitor.example.org", "ftp://host", "http://", "http://a;reboot", "http://$(id)", "http://a b", "http://a|sh", "http://a'b"] {
+            assert!(url(bad).is_none(), "{bad}");
+        }
     }
 }

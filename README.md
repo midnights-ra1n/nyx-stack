@@ -21,10 +21,10 @@ the manager fills its inventory from the agents and deploys sites through them.
 ## Project status
 
 Nyx is pre-release software. The code builds and its tests pass, and the servers have
-been exercised on macOS with real processes and a browser. No version has been released
-yet, so the images and packages named below are not published, and the Docker, Linux
-package, SMART and Proxmox paths have not been run on real systems. Until the first
-release, [build it from source](docs/development.md).
+been exercised on macOS with real processes and a browser. Beta images and packages are
+published, but there is no stable release yet, and the Docker, Linux package, SMART and
+Proxmox paths have not been run on real systems. You can also
+[build it from source](docs/development.md).
 
 ## Features
 
@@ -43,13 +43,17 @@ release, [build it from source](docs/development.md).
 - **Wall displays:** full-screen supervision boards for a screen in a room, up to 4K,
   with a private link and no account. Long lists page by themselves.
 - **Notifications:** email, Discord, Matrix, Slack, Gotify, Ntfy, Telegram, Teams and
-  more through Shoutrrr. Custom templates with a live preview, and grouping into
-  daily, weekly or monthly digests.
+  more through Shoutrrr. Custom templates with emojis, a live preview that looks like
+  the app receiving them, and grouping into daily, weekly or monthly digests.
 - **Node.js platform:** detects running apps, deploys from Git with a deploy key, and
   redeploys on push through a signed webhook.
 - **Integrations:** Nextcloud tasks and calendar, EDF Tempo (RTE), Proxmox noVNC
   console, Meross power plugs, an MCP server for AI assistants, and passkeys.
 - **Update channels:** stable releases by default, or opt in to beta from the settings.
+- **Your pages, your layout:** nearly every page is made of blocks. Slide them, hide
+  them, choose up to four columns, on each device. Arrows do the same from the keyboard.
+- **Logs you can read:** time, level, service and message, repeats folded, and a live
+  view of any host that stores nothing and costs nothing when nobody watches.
 - **Works on a phone:** every page is responsive and installable as a PWA. It refreshes
   when you come back to the tab and stops polling while hidden.
 - **Long history, small database:** keep 30 to 365 days. Past a week, history is stored
@@ -75,13 +79,17 @@ For a large screen in a room. A panel too long for the screen pages through its 
 
 ### Monitor
 
-| **Hosts**, nested under their Proxmox node | **Host detail**, with SMART and updates |
+| **Hosts**, nested under their Proxmox node | **Host detail**, made of blocks |
 | --- | --- |
 | <a href="docs/images/hosts.png"><img src="docs/images/hosts.png" alt="Host list as a tree"></a> | <a href="docs/images/host-detail.png"><img src="docs/images/host-detail.png" alt="Detail page of a storage server"></a> |
 | **Containers** | **Network probes** |
 | <a href="docs/images/containers.png"><img src="docs/images/containers.png" alt="Docker containers across hosts"></a> | <a href="docs/images/network.png"><img src="docs/images/network.png" alt="Probe list with latency and history"></a> |
 | **Storage and disk health** | **Alerts** |
 | <a href="docs/images/storage.png"><img src="docs/images/storage.png" alt="File systems and SMART state"></a> | <a href="docs/images/alerts.png"><img src="docs/images/alerts.png" alt="Open and resolved alerts"></a> |
+| **Physical disks**, SMART in plain words | **Customize** any page |
+| <a href="docs/images/physical-disks.png"><img src="docs/images/physical-disks.png" alt="One card per disk with health, life left and temperature"></a> | <a href="docs/images/customize.png"><img src="docs/images/customize.png" alt="Host page with its blocks being rearranged"></a> |
+| **Logs**, readable and folded | **Live logs** of a host |
+| <a href="docs/images/logs.png"><img src="docs/images/logs.png" alt="Logs with levels, services and a summary"></a> | <a href="docs/images/logs-live.png"><img src="docs/images/logs-live.png" alt="Lines of a host arriving live"></a> |
 | **Public status page** | **Page editor** |
 | <a href="docs/images/status-page.png"><img src="docs/images/status-page.png" alt="Status page with 30 days of uptime"></a> | <a href="docs/images/page-editor.png"><img src="docs/images/page-editor.png" alt="Editor of a wall display"></a> |
 
@@ -114,19 +122,17 @@ Both interfaces work as installable web apps.
 
 ## Quick start with Docker
 
-Once the first version is released:
-
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/main/packaging/docker/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/main/packaging/docker/.env.example
-# Fill in .env, then:
+curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/.env.example
+# Set NYX_VERSION=beta and your two URLs in .env, then:
 docker compose --profile monitor --profile manager up -d
 ```
 
 Open port 8081 or 8082 and create your account. In the monitor, choose **Add host**
 and run the generated line on the machine to monitor.
 
-Packages, HTTPS and reverse proxies are covered in the
+Each step, packages for Debian and RHEL, HTTPS, backups, updates and removal are in the
 [deployment guide](docs/deployment.md).
 
 ## Documentation

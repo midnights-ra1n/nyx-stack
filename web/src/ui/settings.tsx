@@ -1,7 +1,9 @@
 import { PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
-import { useEffect, useState } from "react"
-import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, Select, Status, Table, Td, TextArea } from "./components"
-import { api, fmt, useApi } from "./lib"
+import { type ReactNode, useEffect, useState } from "react"
+import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Select, Status, Table, Td, TextArea } from "./components"
+import { api, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
+import { MessagePreview } from "./preview"
+import { PageHeader } from "./shell"
 
 const SERVICES: Record<string, string> = {
   Email: "smtp://user:password@mail.example.com:587/?from=nyx@example.com&to=you@example.com",
@@ -16,9 +18,15 @@ const SERVICES: Record<string, string> = {
 const EVENTS = [["state", "State changes"], ["update", "Updates detected"], ["smart", "SMART health"], ["temperature", "High temperature"], ["task", "Task and deployment reminders"]]
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-const HTML_SAMPLE = `<div style="font-family:sans-serif;background:#121110;color:#e7e3dd;padding:24px">
-  <h2 style="color:#e38b4f">{{ count }} events</h2>
-  {% for e in events %}<p><strong>{{ e.title }}</strong><br>{{ e.message }}</p>{% endfor %}
+const HTML_SAMPLE = `<div style="font-family:system-ui,sans-serif;background:#141a22;color:#edf1f6;padding:32px 16px">
+  <div style="max-width:560px;margin:auto;background:#1b232d;border-radius:24px;padding:28px">
+    <h2 style="margin:0;font-size:20px">{{ icon }} Nyx</h2>
+    <p style="margin:4px 0 20px;color:#bcc6d2">{{ count }} event{{ 's' if count != 1 }}</p>
+    {% for e in events %}<div style="background:#27313e;border-radius:16px;padding:12px 16px;margin-top:8px">
+      <strong>{{ e.icon }} {{ e.type_icon }} {{ e.title }}</strong>
+      {% if e.message %}<div style="margin-top:4px;color:#bcc6d2;font-size:14px">{{ e.message }}</div>{% endif %}
+    </div>{% endfor %}
+  </div>
 </div>`
 
 function ChannelEditor({ row, onDone }: { row: any | null; onDone: () => void }) {
@@ -42,23 +50,18 @@ function ChannelEditor({ row, onDone }: { row: any | null; onDone: () => void })
   }
   return (
     <Modal title={row ? "Edit channel" : "Add channel"} onClose={onDone} wide>
-      <div className="grid grid-cols-2 gap-5 max-md:grid-cols-1">
+      <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         <div className="flex flex-col gap-4">
           <Input label="Name" required value={f.name} onChange={(e) => set("name", e.target.value)} />
           <Select label="Service" value="" onChange={(e) => e.target.value && set("url", SERVICES[e.target.value])} options={[{ value: "", label: "Fill URL from a template…" }, ...Object.keys(SERVICES).map((s) => ({ value: s, label: s }))]} />
           <Input label="Shoutrrr URL" required value={f.url} onChange={(e) => set("url", e.target.value)} className="font-mono" hint="Any Shoutrrr service URL works." />
-          <Input label="Title template" value={f.title_tpl} placeholder="[Nyx] {{ count }} events" onChange={(e) => set("title_tpl", e.target.value)} />
-          <TextArea label="Body template" rows={8} value={f.body_tpl} onChange={(e) => set("body_tpl", e.target.value)} placeholder="{% for e in events %}[{{ e.severity }}] {{ e.title }}&#10;{% endfor %}" hint="Variables: count, events (type, severity, title, message, host, created)." />
+          <Input label="Title template" value={f.title_tpl} placeholder="{{ icon }} Nyx: {{ count }} events" onChange={(e) => set("title_tpl", e.target.value)} />
+          <TextArea label="Body template" rows={8} value={f.body_tpl} onChange={(e) => set("body_tpl", e.target.value)} placeholder="{% for e in events %}{{ e.icon }} {{ e.type_icon }} {{ e.title }}&#10;{% endfor %}" hint="Variables: count, icon (worst severity), events (type, severity, icon, type_icon, title, message, host, created). Paste any emoji you like." />
           <Check label="HTML message (email)" checked={f.html} onChange={(e) => setF({ ...f, html: e.target.checked, body_tpl: e.target.checked && !f.body_tpl ? HTML_SAMPLE : f.body_tpl })} />
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           <div className="text-[13px] text-fg2">Preview</div>
-          <div className="rounded-panel border border-line2 bg-bg p-4">
-            <div className="mb-3 font-medium">{preview?.title}</div>
-            {f.html
-              ? <iframe title="Message preview" sandbox="" srcDoc={preview?.body ?? ""} className="h-80 w-full rounded-control bg-white" />
-              : <pre className="font-sans whitespace-pre-wrap text-fg2">{preview?.body}</pre>}
-          </div>
+          <MessagePreview url={f.url} title={preview?.title ?? ""} body={preview?.body ?? ""} html={f.html} />
         </div>
       </div>
       <ErrorNote>{error}</ErrorNote>
@@ -134,7 +137,7 @@ export function NotificationSettings() {
               </tr>
             ))}
           </Table>
-        ) : <div className="px-5"><Empty>No channels yet.</Empty></div>}
+        ) : <div className="px-4"><Empty>No channels yet.</Empty></div>}
         <div className="flex items-center gap-3 p-5"><Button onClick={() => setChannel(null)}><PlusIcon className="size-5" aria-hidden />Add channel</Button><span className="text-[13px] text-fg2">{note}</span></div>
       </Panel>
       <Panel title="Rules" flush>
@@ -153,7 +156,7 @@ export function NotificationSettings() {
               </tr>
             ))}
           </Table>
-        ) : <div className="px-5"><Empty>No rules: nothing is sent until you add one.</Empty></div>}
+        ) : <div className="px-4"><Empty>No rules: nothing is sent until you add one.</Empty></div>}
         <div className="p-5"><Button disabled={!channels.data?.items.length} onClick={() => setRule(null)}><PlusIcon className="size-5" aria-hidden />Add rule</Button></div>
       </Panel>
       {channel !== undefined && <ChannelEditor row={channel} onDone={() => { setChannel(undefined); channels.reload() }} />}
@@ -238,7 +241,7 @@ export function McpSettings() {
 }
 
 /** Small JSON-backed settings form. */
-export function SettingForm({ title, setting, fields, children }: { title: string; setting: string; fields: { key: string; label: string; type?: string; hint?: string }[]; children?: React.ReactNode }) {
+export function SettingForm({ title, setting, fields, needs, children }: { title: string; setting: string; fields: { key: string; label: string; type?: string; hint?: string }[]; needs?: string[]; children?: ReactNode }) {
   const { data, reload } = useApi(`/api/settings/${setting}`, { poll: false })
   const [form, setForm] = useState<any>()
   const [note, setNote] = useState("")
@@ -247,7 +250,7 @@ export function SettingForm({ title, setting, fields, children }: { title: strin
     try { await api(`/api/settings/${setting}`, { method: "PUT", body: { ...data, ...value } }); setNote("Saved."); reload() } catch (e) { setNote((e as Error).message) }
   }
   return (
-    <Panel title={title}>
+    <Panel title={title} badge={needs && data && <Status level={needs.every((k) => data[k]) ? "ok" : "off"} label={needs.every((k) => data[k]) ? "Configured" : "Not configured"} />}>
       <div className="flex flex-col gap-4">
         {children}
         {fields.map((f) => f.type === "checkbox"
@@ -286,6 +289,99 @@ export function SystemUpdates({ agents }: { agents?: boolean }) {
         </div>
       </div>
     </Panel>
+  )
+}
+
+export function AboutPanel() {
+  const { data: status } = useApi("/api/auth/status", { poll: false })
+  const { data: system } = useApi("/api/system/version", { poll: false })
+  const rows: [string, ReactNode][] = [
+    ["Version", system?.version ?? "—"],
+    ["Installed with", system ? (system.managed ? "Packages" : "Docker or by hand") : "—"],
+    ["Public URL", <Mono key="url">{status?.public_url ?? "—"}</Mono>],
+    ["HTTPS", status?.https ? "On: passkeys and MCP are available" : "Off: passkeys and MCP need an https:// NYX_PUBLIC_URL"],
+    ["Database", status?.shared_database ? "Shared nyx-db" : "Local to this server"],
+  ]
+  return (
+    <Panel title="This server">
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2">
+        {rows.map(([k, v]) => <div key={k} className="contents"><dt className="text-fg2">{k}</dt><dd className="break-words">{v}</dd></div>)}
+      </dl>
+    </Panel>
+  )
+}
+
+/** Kept on this device, like the layouts it resets. */
+export function AppearanceSettings() {
+  const ms = useRefresh()
+  const [note, setNote] = useState("")
+  const reset = () => {
+    Object.keys(localStorage).filter((k) => k.startsWith("nyx.layout.")).forEach((k) => localStorage.removeItem(k))
+    setNote("Every page is back to its default layout.")
+  }
+  return (
+    <Panel title="Appearance on this device">
+      <div className="flex flex-col gap-4">
+        <Select label="Auto-refresh" value={String(ms)} onChange={(e) => setRefresh(Number(e.target.value))} options={REFRESH.map(([v, l]) => ({ value: String(v), label: l }))} hint="Pages stop refreshing while their tab is hidden." />
+        <div className="flex flex-wrap items-center gap-3"><Button onClick={reset}>Reset all page layouts</Button><span className="text-[13px] text-fg2">{note}</span></div>
+      </div>
+    </Panel>
+  )
+}
+
+export function AccountSettings() {
+  const { data: status } = useApi("/api/auth/status", { poll: false })
+  const [current, setCurrent] = useState("")
+  const [password, setPassword] = useState("")
+  const [note, setNote] = useState("")
+  const [error, setError] = useState("")
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(""); setNote("")
+    try {
+      await api("/api/auth/password", { body: { current, password } })
+      setCurrent(""); setPassword(""); setNote("Password changed.")
+    } catch (err) { setError((err as Error).message) }
+  }
+  return (
+    <Panel title="Account">
+      <form className="flex flex-col gap-4" onSubmit={save}>
+        <p className="text-fg2">Signed in as <Mono>{status?.email ?? "—"}</Mono>.{status?.shared_database ? " This account is shared with the other server." : ""}</p>
+        <Input label="Current password" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
+        <Input label="New password" type="password" autoComplete="new-password" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} hint="At least 10 characters. Other browsers stay signed in for up to 7 days." />
+        <ErrorNote>{error}</ErrorNote>
+        <div className="flex items-center gap-3"><Button type="submit">Change password</Button><span className="text-[13px] text-fg2">{note}</span></div>
+      </form>
+    </Panel>
+  )
+}
+
+export interface SettingsSection { id: string; label: string; icon: Icon; description: string; body: ReactNode }
+
+/** One section at a time. The address keeps it, so a reload or a link lands on the same one. */
+export function SettingsPage({ sections }: { sections: SettingsSection[] }) {
+  const [id, setId] = useState(location.hash.slice(1))
+  const shown = sections.find((s) => s.id === id) ?? sections[0]
+  const open = (next: string) => { setId(next); history.replaceState(null, "", `#${next}`) }
+  return (
+    <>
+      <PageHeader title="Settings" actions={<SignOut />} />
+      <div className="grid items-start gap-8 lg:grid-cols-[216px_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="flex gap-1 lg:sticky lg:top-6 lg:flex-col max-lg:overflow-x-auto">
+          {sections.map((s) => {
+            const I = s.icon
+            return <button key={s.id} type="button" aria-current={s === shown ? "page" : undefined} onClick={() => open(s.id)} className={`flex h-10 shrink-0 items-center gap-3 rounded-control px-4 text-left whitespace-nowrap ${s === shown ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}><I className="size-5" aria-hidden />{s.label}</button>
+          })}
+        </nav>
+        <div className="flex max-w-4xl min-w-0 flex-col gap-4">
+          <div>
+            <h2 className="text-lg font-medium">{shown.label}</h2>
+            <p className="text-[13px] text-fg2">{shown.description}</p>
+          </div>
+          {shown.body}
+        </div>
+      </div>
+    </>
   )
 }
 

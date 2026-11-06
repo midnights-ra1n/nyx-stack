@@ -18,6 +18,7 @@ const SMART: Duration = Duration::from_secs(1800);
 const MAX_LOG_BACKLOG: usize = 200;
 const MAX_LOG_LINE: usize = 500;
 const JOURNAL_CURSOR: &str = "/run/nyx-agent/journal.cursor";
+const LIVE_CURSOR: &str = "/run/nyx-agent/live.cursor";
 
 /// Runs at most once per period; `reset` makes it due on the next check.
 struct Every(Duration, Option<Instant>);
@@ -146,7 +147,7 @@ impl Collector {
 
         if self.slow.due() {
             r.containers = changed(&mut self.containers, docker_containers());
-            r.logs.extend(journal_lines());
+            r.logs.extend(journal("warning", "100", JOURNAL_CURSOR));
         }
         if self.rare.due() {
             let node = self.node_info();
@@ -266,22 +267,58 @@ fn parse_containers(body: &str) -> Option<Vec<Container>> {
     Some(out)
 }
 
-/// New warning-or-worse journal entries since the last call. The cursor sits in
-/// tmpfs, so the agent adds no disk writes of its own.
+/// Everything from info up since the last call, for someone watching this host.
+pub fn live_lines() -> Vec<String> {
+    journal("info", "200", LIVE_CURSOR)
+}
+
+/// The next live view starts from the latest lines, not from where this one stopped.
+pub fn forget_live_logs() {
+    let _ = std::fs::remove_file(LIVE_CURSOR);
+}
+
+/// New journal entries since the last call. The cursor sits in tmpfs, so the agent
+/// adds no disk writes of its own.
 // shortcut: journald only, add a syslog file tailer if non-systemd hosts matter.
-fn journal_lines() -> Vec<String> {
-    let cursor = format!("--cursor-file={JOURNAL_CURSOR}");
-    let args = ["-p", "warning", "-o", "short-iso", "-q", "--no-pager", "-n", "100", cursor.as_str()];
+fn journal(priority: &str, limit: &str, cursor: &str) -> Vec<String> {
+    let cursor = format!("--cursor-file={cursor}");
+    let fields = "--output-fields=PRIORITY,MESSAGE,SYSLOG_IDENTIFIER,_SYSTEMD_UNIT";
+    let args = ["-p", priority, "-o", "json", fields, "-q", "--no-pager", "-n", limit, cursor.as_str()];
     let Ok(out) = Command::new("journalctl").args(args).output() else { return vec![] };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.chars().take(MAX_LOG_LINE).collect())
-        .collect()
+    out.stdout.split(|&b| b == b'\n').filter_map(log_line).collect()
+}
+
+/// One journal entry as `<epoch seconds> <<priority>> <service>: <message>`, on one line.
+fn log_line(entry: &[u8]) -> Option<String> {
+    let e: serde_json::Value = serde_json::from_slice(entry).ok()?;
+    let secs = e["__REALTIME_TIMESTAMP"].as_str()?.parse::<u64>().ok()? / 1_000_000;
+    let message = match &e["MESSAGE"] {
+        serde_json::Value::String(s) => s.clone(),
+        // journald stores a message that is not valid UTF-8 as an array of bytes.
+        serde_json::Value::Array(bytes) => String::from_utf8_lossy(&bytes.iter().filter_map(|b| b.as_u64()).map(|b| b as u8).collect::<Vec<_>>()).into_owned(),
+        _ => return None,
+    };
+    let service = e["SYSLOG_IDENTIFIER"].as_str().or(e["_SYSTEMD_UNIT"].as_str().map(|u| u.trim_end_matches(".service"))).unwrap_or("system");
+    let priority = e["PRIORITY"].as_str().unwrap_or("4");
+    let line = format!("{secs} <{priority}> {service}: {}", message.split_whitespace().collect::<Vec<_>>().join(" "));
+    Some(line.chars().take(MAX_LOG_LINE).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn journal_entries_become_one_short_line() {
+        let entry = br#"{"__REALTIME_TIMESTAMP":"1793000000123456","PRIORITY":"3","SYSLOG_IDENTIFIER":"sshd","MESSAGE":"bad  key\n  from 10.0.0.2"}"#;
+        assert_eq!(log_line(entry).unwrap(), "1793000000 <3> sshd: bad key from 10.0.0.2");
+        let bytes = br#"{"__REALTIME_TIMESTAMP":"1793000000000000","_SYSTEMD_UNIT":"nginx.service","MESSAGE":[104,105,255]}"#;
+        assert_eq!(log_line(bytes).unwrap(), "1793000000 <4> nginx: hi\u{fffd}");
+        let long = format!(r#"{{"__REALTIME_TIMESTAMP":"1000000","MESSAGE":"{}"}}"#, "x".repeat(900));
+        assert_eq!(log_line(long.as_bytes()).unwrap().chars().count(), MAX_LOG_LINE);
+        assert!(log_line(b"").is_none());
+        assert!(log_line(br#"{"__REALTIME_TIMESTAMP":"1000000","MESSAGE":null}"#).is_none());
+    }
 
     #[test]
     fn containers_parse_sorted_and_trimmed() {

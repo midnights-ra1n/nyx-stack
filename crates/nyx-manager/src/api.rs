@@ -14,7 +14,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 4] = ["link", "nextcloud", "proxmox", "updates"];
+const SETTINGS: [&str; 5] = ["link", "nextcloud", "proxmox", "updates", "reminders"];
+
+/// Days from the `reminders` setting, kept above zero so a blank field keeps the default.
+async fn lead_days(app: &App, key: &str, default: i64) -> anyhow::Result<i64> {
+    Ok(app.core.pb.setting("reminders").await?.and_then(|s| s[key].as_i64()).filter(|d| *d > 0).unwrap_or(default))
+}
 
 async fn ipam_data(app: &App) -> anyhow::Result<(Vec<Value>, Vec<Value>, Vec<Value>)> {
     let pb = &app.core.pb;
@@ -85,7 +90,7 @@ async fn overview(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Val
     let soon = pb_date(Utc::now() + Duration::days(7));
     let tasks = pb.list_page("tasks", &[("filter", &format!("done = false && due != '' && due <= {}", pb_quote(&soon))), ("sort", "due"), ("perPage", "6")]).await?;
     let deployments = pb.list_page("deployments", &[("sort", "-created"), ("perPage", "6")]).await?;
-    let warranty = pb.list_page("hardware", &[("filter", &format!("warranty_until != '' && warranty_until <= {}", pb_quote(&pb_date(Utc::now() + Duration::days(60))))), ("perPage", "6")]).await?;
+    let warranty = pb.list_page("hardware", &[("filter", &format!("warranty_until != '' && warranty_until <= {}", pb_quote(&pb_date(Utc::now() + Duration::days(lead_days(&app, "warranty_days", 60).await?))))), ("perPage", "6")]).await?;
     Ok(Json(json!({
         "hardware": count("hardware", "").await?, "virtual": count("virtual_assets", "").await?, "sites": count("sites", "").await?,
         "open_tasks": count("tasks", "done = false").await?,
@@ -165,11 +170,11 @@ async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
     Ok(Json(Value::Null))
 }
 
-/// One reminder a day ahead, for tasks and planned deployments.
+/// One reminder ahead of time, for tasks and planned deployments.
 pub async fn reminders(app: &App) -> anyhow::Result<()> {
     let pb = &app.core.pb;
     let now = pb_date(Utc::now());
-    let soon = pb_quote(&pb_date(Utc::now() + Duration::days(1)));
+    let soon = pb_quote(&pb_date(Utc::now() + Duration::days(lead_days(app, "task_days", 1).await?)));
     for t in pb.list("tasks", &format!("done = false && due != '' && due <= {soon} && reminded_at = ''"), "").await? {
         notify::emit(&app.core, "task", "info", &format!("Task due: {}", t["title"].as_str().unwrap_or_default()), t["due"].as_str().unwrap_or_default(), "").await;
         pb.update("tasks", t["id"].as_str().unwrap_or_default(), &json!({"reminded_at": now})).await?;

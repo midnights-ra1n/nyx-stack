@@ -1,31 +1,45 @@
 import { PlusIcon, TrashIcon, PencilSquareIcon } from "@heroicons/react/24/outline"
-import { useEffect, useState } from "react"
-import { Button, Check, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, Panel, RangeSelect, Select, StateCell, Status, Table, Td, TextArea, TimeSeries, Variable } from "../ui/components"
-import { api, fmt, type Level, levelOf, useApi } from "../ui/lib"
+import { useState } from "react"
+import { Board, CustomizeButton } from "../ui/board"
+import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TextArea, TimeSeries, Variable } from "../ui/components"
+import { api, fmt, type Level, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { PRESETS } from "./snmp-presets"
 
 export function Containers() {
   const { data, reload } = useApi<any[]>("/api/containers")
   const rows = [...(data ?? [])].sort((a, b) => a.host.localeCompare(b.host) || a.name.localeCompare(b.name))
+  const running = rows.filter((c) => c.state === "running").length
+  const table = (list: any[], empty: string) => (list.length === 0 ? <div className="px-4 pb-4"><Empty>{empty}</Empty></div> : (
+    <Table head={["Name", "Host", "Image", "Status", "State"]}>
+      {list.map((c) => (
+        <tr key={c.host_id + c.name}>
+          <Td mono>{c.name}</Td>
+          <Td className="font-medium"><Link to={`/hosts/${c.host_id}`}>{c.host}</Link></Td>
+          <Td mono>{c.image}</Td>
+          <Td className="text-fg2">{c.status}</Td>
+          <StateCell level={c.state === "running" ? "ok" : c.state === "restarting" ? "warn" : "off"} label={c.state} />
+        </tr>
+      ))}
+    </Table>
+  ))
+  const panels = [
+    { id: "summary", title: "Summary", render: (edit: any) => (
+      <Panel title="Summary" edit={edit}>
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="Running" value={running} level="ok" />
+          <Stat label="Stopped" value={rows.length - running} level={rows.length > running ? "warn" : "ok"} />
+          <Stat label="Hosts" value={new Set(rows.map((c) => c.host_id)).size} />
+        </div>
+      </Panel>
+    ) },
+    { id: "stopped", title: "Not running", render: (edit: any) => <Panel title="Not running" flush edit={edit}>{table(rows.filter((c) => c.state !== "running"), "Everything is running.")}</Panel> },
+    { id: "all", title: "Docker containers", render: (edit: any) => <Panel title="Docker containers" flush edit={edit}>{table(rows, "No containers reported.")}</Panel> },
+  ]
   return (
     <>
-      <PageHeader title="Containers" subtitle={`${rows.filter((c) => c.state === "running").length} of ${rows.length} running`} onRefresh={reload} />
-      <Panel title="Docker containers" flush>
-        {rows.length === 0 ? <div className="px-5 pb-5"><Empty>No containers reported.</Empty></div> : (
-          <Table head={["Name", "Host", "Image", "Status", "State"]}>
-            {rows.map((c) => (
-              <tr key={c.host_id + c.name}>
-                <Td mono>{c.name}</Td>
-                <Td className="font-medium"><Link to={`/hosts/${c.host_id}`}>{c.host}</Link></Td>
-                <Td mono>{c.image}</Td>
-                <Td className="text-fg2">{c.status}</Td>
-                <StateCell level={c.state === "running" ? "ok" : c.state === "restarting" ? "warn" : "off"} label={c.state} />
-              </tr>
-            ))}
-          </Table>
-        )}
-      </Panel>
+      <PageHeader title="Containers" subtitle={`${running} of ${rows.length} running`} onRefresh={reload} actions={<CustomizeButton />} />
+      <Board id="containers" panels={panels} desktop={{ cols: [["summary", "all"]], hidden: ["stopped"] }} phone={{ cols: [["summary", "all"]], hidden: ["stopped"] }} />
     </>
   )
 }
@@ -39,7 +53,7 @@ const TARGET_HINT: Record<string, string> = {
 }
 
 function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
-  const [f, setF] = useState<any>(row ?? { name: "", type: "ping", target: "", interval_s: 60, enabled: true, dns_server: "", expect_status: 0, warn_days: 21 })
+  const [f, setF] = useState<any>(row ?? { name: "", type: "ping", target: "", interval_s: 60, enabled: true, dns_server: "", expect_status: 0, warn_days: 21, watch_cert: false })
   const [snmp, setSnmp] = useState<any>(row?.snmp?.items ? row.snmp : { version: "v2c", community: "public", items: PRESETS["Generic device"] })
   const [items, setItems] = useState(JSON.stringify(snmp.items, null, 2))
   const [error, setError] = useState("")
@@ -62,7 +76,8 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Input label="Interval (seconds)" type="number" min={10} value={f.interval_s} onChange={(e) => set("interval_s", Number(e.target.value))} />
         {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the system resolver." onChange={(e) => set("dns_server", e.target.value)} />}
         {f.type === "http" && <Input label="Expected status" type="number" value={f.expect_status || ""} hint="Empty accepts any 2xx or 3xx." onChange={(e) => set("expect_status", Number(e.target.value))} />}
-        {f.type === "cert" && <Input label="Warn this many days before expiry" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
+        {f.type === "http" && f.target.startsWith("https://") && <Check label="Also watch the HTTPS certificate" checked={f.watch_cert} onChange={(e) => set("watch_cert", e.target.checked)} />}
+        {(f.type === "cert" || (f.watch_cert && f.target.startsWith("https://"))) && <Input label="Warn this many days before expiry" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
         {f.type === "snmp" && <>
           <Select label="Equipment" value="" options={[{ value: "", label: "Load a profile…" }, ...Object.keys(PRESETS).map((p) => ({ value: p, label: p }))]} onChange={(e) => e.target.value && setItems(JSON.stringify(PRESETS[e.target.value], null, 2))} />
           <Select label="Version" value={snmp.version} onChange={(e) => s("version", e.target.value)} options={["v2c", "v3", "v1"]} />
@@ -86,7 +101,7 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
 function History({ values }: { values: boolean[] }) {
   return (
     <span className="flex h-5 items-stretch gap-px" role="img" aria-label={`${values.filter(Boolean).length} of ${values.length} checks up`}>
-      {values.slice(-40).map((v, i) => <span key={i} className={`w-1 rounded-[1px] ${v ? "bg-ok" : "bg-crit"}`} />)}
+      {values.slice(-40).map((v, i) => <span key={i} className={`w-1 rounded-full ${v ? "bg-ok" : "bg-crit"}`} />)}
     </span>
   )
 }
@@ -105,7 +120,7 @@ function ProbeDetail({ probe, onClose }: { probe: any; onClose: () => void }) {
       {probe.readings.length > 0 && (
         <ul className="divide-y divide-line">
           {probe.readings.map((r: any) => (
-            <li key={r.label} className="flex min-h-11 items-center justify-between gap-3">
+            <li key={r.label} className="flex min-h-9 max-sm:min-h-11 items-center justify-between gap-3">
               <span className="text-fg2">{r.label}</span>
               {r.level === "ok" ? <span className="text-right font-medium">{r.value != null ? `${+r.value.toFixed(2)} ${r.unit}` : r.text || "—"}</span> : <Status level={r.level} label={`${+r.value.toFixed(2)} ${r.unit}`} />}
             </li>
@@ -128,19 +143,35 @@ export function Network() {
   const [detail, setDetail] = useState<string>()
   const done = async () => { setEdit(undefined); await api("/api/probes/reload", { method: "POST" }); defs.reload(); live.reload() }
   const state = (id: string) => live.data?.find((p) => p.id === id)
-  const level = (p: any): Level => (p?.up == null ? "off" : !p.up ? "crit" : p.readings.some((r: any) => r.level === "crit") ? "crit" : p.readings.some((r: any) => r.level === "warn") || (p.cert_days != null && p.cert_days <= 21) ? "warn" : "ok")
+  const level = (p: any): Level => (p?.up == null ? "off" : !p.up ? "crit" : p.readings.some((r: any) => r.level === "crit") ? "crit" : p.readings.some((r: any) => r.level === "warn") || (p.cert_days != null && p.cert_days <= p.warn_days) ? "warn" : "ok")
   const open = detail ? state(detail) : undefined
-  return (
-    <>
-      <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button>} />
-      <Panel title="Probes" flush>
-        {defs.data?.items.length === 0 ? <div className="px-5 pb-5"><Empty>No probes yet.</Empty></div> : (
+  const up = live.data?.filter((p) => p.up).length ?? 0
+  const latencies = live.data?.filter((p) => p.up).map((p) => p.latency_ms) ?? []
+  const certs = live.data?.filter((p) => p.cert_days != null).sort((a, b) => a.cert_days - b.cert_days) ?? []
+  const panels = [
+    { id: "summary", title: "Summary", render: (edit: any) => (
+      <Panel title="Summary" edit={edit}>
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="Up" value={`${up} / ${live.data?.length ?? 0}`} level={up === live.data?.length ? "ok" : "warn"} />
+          <Stat label="Average latency" value={latencies.length ? `${(latencies.reduce((a, b) => a + b) / latencies.length).toFixed(0)} ms` : "—"} />
+          <Stat label="Next certificate" value={certs.length ? `${certs[0].cert_days} d` : "—"} level={certs[0]?.cert_days <= certs[0]?.warn_days ? "warn" : undefined} sub={certs[0]?.name} />
+        </div>
+      </Panel>
+    ) },
+    { id: "certs", title: "Certificates", render: (edit: any) => (
+      <Panel title="Certificates" edit={edit}>
+        {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>No certificate probes.</Empty>}
+      </Panel>
+    ) },
+    { id: "probes", title: "Probes", render: (edit: any) => (
+      <Panel title="Probes" flush edit={edit}>
+        {defs.data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No probes yet.</Empty></div> : (
           <Table head={["Name", "Type", "Target", "Latency", "Result", "History", "State", ""]}>
             {defs.data?.items.map((d: any) => {
               const p = state(d.id)
               return (
                 <tr key={d.id}>
-                  <Td className="font-medium">{p ? <button className="min-h-11 text-left hover:text-accent" onClick={() => setDetail(d.id)}>{d.name}</button> : d.name}</Td>
+                  <Td className="font-medium">{p ? <button className="min-h-9 max-sm:min-h-11 text-left hover:text-accent" onClick={() => setDetail(d.id)}>{d.name}</button> : d.name}</Td>
                   <Td className="text-fg2">{d.type}</Td>
                   <Td mono>{d.target}</Td>
                   <Td className="text-fg2">{p?.up ? `${p.latency_ms.toFixed(0)} ms` : "—"}</Td>
@@ -157,62 +188,14 @@ export function Network() {
           </Table>
         )}
       </Panel>
-      {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
-      {open && <ProbeDetail probe={open} onClose={() => setDetail(undefined)} />}
-    </>
-  )
-}
-
-export function Storage() {
-  const { data, reload } = useApi("/api/storage")
-  const hosts = useApi<any[]>("/api/hosts", { poll: false })
-  const [host, setHost] = useState("")
-  const th = data?.thresholds
-  const mine = (d: any) => !host || d.host_id === host
-  const disks = (data?.disks ?? []).filter(mine).sort((a: any, b: any) => b.pct - a.pct)
-  const smart = (data?.smart ?? []).filter(mine)
+    ) },
+  ]
   return (
     <>
-      <PageHeader title="Storage" subtitle="Fullest file systems first" onRefresh={reload}
-        variables={<Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />} />
-      <Section>
-        <Panel title="File systems" flush>
-          {disks.length ? (
-            <Table head={["Host", "Mount point", "Type", "Device", "Used", "Free", "Size", "Usage", "State"]}>
-              {disks.map((d: any) => (
-                <tr key={d.host_id + d.mount}>
-                  <Td className="font-medium"><Link to={`/hosts/${d.host_id}`}>{d.host}</Link></Td>
-                  <Td mono>{d.mount}</Td>
-                  <Td className="text-fg2">{d.fs || "—"}</Td>
-                  <Td mono>{d.device || "—"}</Td>
-                  <Td className="text-fg2 whitespace-nowrap">{fmt.bytes(d.used)}</Td>
-                  <Td className="text-fg2 whitespace-nowrap">{fmt.bytes(d.total - d.used)}</Td>
-                  <Td className="text-fg2 whitespace-nowrap">{fmt.bytes(d.total)}</Td>
-                  <Td className="min-w-44"><div className="grid grid-cols-[1fr_3rem] items-center gap-3"><Meter pct={d.pct} warn={th.warn} crit={th.crit} /><span className="text-right text-fg2">{d.pct.toFixed(0)} %</span></div></Td>
-                  <StateCell level={d.online ? levelOf(d.pct, th.warn, th.crit) : "off"} />
-                </tr>
-              ))}
-            </Table>
-          ) : <div className="px-5 pb-5"><Empty>No file system reported yet.</Empty></div>}
-        </Panel>
-        <Panel title="Disk health" flush>
-          {smart.length ? (
-            <Table head={["Host", "Disk", "Model", "Life left", "Temp.", "Powered on", "State"]}>
-              {smart.map((d: any) => (
-                <tr key={d.host_id + d.device}>
-                  <Td className="font-medium"><Link to={`/hosts/${d.host_id}`}>{d.host}</Link></Td>
-                  <Td mono>{d.device}</Td>
-                  <Td className="text-fg2">{d.model}</Td>
-                  <Td className="text-fg2">{d.life_left_pct == null ? "—" : `${d.life_left_pct} %`}</Td>
-                  <Td className="text-fg2">{fmt.temp(d.temp_c)}</Td>
-                  <Td className="text-fg2">{d.power_on_hours == null ? "—" : `${Math.round(d.power_on_hours / 24)} d`}</Td>
-                  <StateCell level={d.health as Level} label={d.reason || undefined} />
-                </tr>
-              ))}
-            </Table>
-          ) : <div className="px-5 pb-5"><Empty>SMART data comes from physical hosts.</Empty></div>}
-        </Panel>
-      </Section>
+      <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
+      <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes"]], hidden: ["certs"] }} />
+      {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
+      {open && <ProbeDetail probe={open} onClose={() => setDetail(undefined)} />}
     </>
   )
 }
@@ -228,42 +211,22 @@ export function Alerts() {
       <StateCell level={resolved ? "ok" : a.severity} label={resolved ? "Resolved" : undefined} />
     </tr>
   )
-  return (
-    <>
-      <PageHeader title="Alerts" subtitle={`${open.data?.items.length ?? 0} open`} onRefresh={open.reload} />
-      <Section>
-        <Panel title="Open" flush>
-          {open.data?.items.length ? <Table head={["Alert", "Host", "Since", "State"]}>{open.data.items.map((a: any) => row(a, false))}</Table> : <div className="px-5 pb-5"><Empty>Nothing is wrong.</Empty></div>}
-        </Panel>
-        <Panel title="Resolved" flush>
-          {past.data?.items.length ? <Table head={["Alert", "Host", "Resolved", "State"]}>{past.data.items.map((a: any) => row(a, true))}</Table> : <div className="px-5 pb-5"><Empty>No history yet.</Empty></div>}
-        </Panel>
-      </Section>
-    </>
-  )
-}
-
-export function Logs() {
-  const hosts = useApi<any[]>("/api/hosts", { poll: false })
-  const [host, setHost] = useState("")
-  const [q, setQ] = useState("")
-  const [needle, setNeedle] = useState("")
-  useEffect(() => { const id = setTimeout(() => setNeedle(q), 300); return () => clearTimeout(id) }, [q])
-  const { data, reload } = useApi<any[]>(`/api/logs?host=${host}&q=${encodeURIComponent(needle)}`)
-  return (
-    <>
-      <PageHeader title="Logs" subtitle="Warnings and errors, the last 500 lines per host" onRefresh={reload}
-        variables={<>
-          <Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />
-          <div className="w-72 max-sm:w-full"><Input label="Filter" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        </>} />
-      <Panel title="Journal">
-        {data?.length ? (
-          <div className="overflow-x-auto font-mono text-[13px] text-fg2">
-            {data.map((l, i) => <div key={i} className="whitespace-pre"><span className="text-accent">{l.host}</span> {l.line}</div>)}
-          </div>
-        ) : <Empty>No matching lines.</Empty>}
+  const panels = [
+    { id: "open", title: "Open", render: (edit: any) => (
+      <Panel title="Open" flush edit={edit}>
+        {open.data?.items.length ? <Table head={["Alert", "Host", "Since", "State"]}>{open.data.items.map((a: any) => row(a, false))}</Table> : <div className="px-4 pb-4"><Empty>Nothing is wrong.</Empty></div>}
       </Panel>
+    ) },
+    { id: "resolved", title: "Resolved", render: (edit: any) => (
+      <Panel title="Resolved" flush edit={edit}>
+        {past.data?.items.length ? <Table head={["Alert", "Host", "Resolved", "State"]}>{past.data.items.map((a: any) => row(a, true))}</Table> : <div className="px-4 pb-4"><Empty>No history yet.</Empty></div>}
+      </Panel>
+    ) },
+  ]
+  return (
+    <>
+      <PageHeader title="Alerts" subtitle={`${open.data?.items.length ?? 0} open`} onRefresh={open.reload} actions={<CustomizeButton />} />
+      <Board id="alerts" panels={panels} desktop={{ cols: [["open", "resolved"]], hidden: [] }} phone={{ cols: [["open", "resolved"]], hidden: [] }} />
     </>
   )
 }

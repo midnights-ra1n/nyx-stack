@@ -17,6 +17,9 @@ pub const RAM_POINTS: usize = 240;
 /// Logs are kept in RAM only, so collecting them costs the server no disk I/O.
 pub const LOG_LINES: usize = 500;
 pub const REPORT_INTERVAL_S: u64 = 15;
+/// Lines of a live view kept in memory, and how long one request keeps it running.
+pub const TAIL_LINES: usize = 1000;
+pub const LIVE_WATCH_S: i64 = 15;
 /// Points (percent or °C) a metric must recede before an alert eases.
 const HYSTERESIS: f32 = 3.0;
 
@@ -111,6 +114,34 @@ pub struct Live {
     pub series: VecDeque<Point>,
 }
 
+/// Log lines of a host someone is watching. In memory only, dropped when they leave.
+#[derive(Default)]
+pub struct Tail {
+    lines: VecDeque<String>,
+    pub seq: u64,
+}
+
+impl Tail {
+    pub fn push(&mut self, lines: Vec<String>) {
+        for line in lines {
+            if self.lines.len() == TAIL_LINES { self.lines.pop_front(); }
+            self.lines.push_back(line);
+            self.seq += 1;
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.lines.clear();
+    }
+
+    /// Lines after position `after`. A position past the end means the monitor restarted.
+    pub fn since(&self, after: u64) -> Vec<&str> {
+        let after = if after > self.seq { 0 } else { after };
+        let skip = self.lines.len().saturating_sub((self.seq - after) as usize);
+        self.lines.iter().skip(skip).map(String::as_str).collect()
+    }
+}
+
 pub struct Host {
     pub id: String,
     pub name: String,
@@ -131,6 +162,9 @@ pub struct Host {
     pub live: Option<Live>,
     pub queue: Vec<Command>,
     pub acc: Acc,
+    pub tail: Tail,
+    pub watched_until: i64,
+    pub tail_seen: i64,
 }
 
 impl Host {
@@ -156,6 +190,9 @@ impl Host {
             live: None,
             queue: vec![],
             acc: Acc::default(),
+            tail: Tail::default(),
+            watched_until: 0,
+            tail_seen: 0,
         }
     }
 }
@@ -664,11 +701,25 @@ mod tests {
     }
 
     #[test]
+    fn tail_serves_new_lines_and_survives_overflow_and_restart() {
+        let mut t = Tail::default();
+        t.push(vec!["a".into(), "b".into()]);
+        assert_eq!(t.since(0), ["a", "b"]);
+        assert_eq!(t.since(1), ["b"]);
+        assert!(t.since(2).is_empty());
+        assert_eq!(t.since(99), ["a", "b"]);
+        t.push((0..TAIL_LINES).map(|i| i.to_string()).collect());
+        assert_eq!(t.since(0).len(), TAIL_LINES); // older lines are gone, not an error
+        t.clear();
+        assert!(t.since(0).is_empty());
+    }
+
+    #[test]
     fn evaluate_opens_expected_alerts() {
         let mut st = state();
         let r = Report {
             temp_c: Some(95.0),
-            smart: Some(vec![SmartDisk { device: "/dev/sda".into(), model: "m".into(), health: Health::Warn, life_left_pct: None, temp_c: None, power_on_hours: None, reason: "8 bad sectors".into() }]),
+            smart: Some(vec![SmartDisk { device: "/dev/sda".into(), model: "m".into(), health: Health::Warn, reason: "8 bad sectors".into(), ..Default::default() }]),
             ..report(1.0, 80, 10)
         };
         st.apply("h1", r, 1);

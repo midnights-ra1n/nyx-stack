@@ -1,5 +1,6 @@
 import { ArrowPathIcon, CheckCircleIcon, PencilSquareIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
+import { Board, CustomizeButton } from "../ui/board"
 import { Button, Copy, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, Select, Stat, Status, Table, Tabs, Td, TextArea } from "../ui/components"
 import { type Col, CrudPage } from "../ui/crud"
 import { api, fmt, useApi } from "../ui/lib"
@@ -79,11 +80,11 @@ const ROUTES: Col[] = [
   { key: "metric", label: "Metric", type: "number" },
 ]
 
-function Usage({ report }: { report: any }) {
+function Usage({ report, edit }: { report: any; edit: any }) {
   const [free, setFree] = useState<Record<string, string>>({})
   const next = async (id: string) => { const r = await api(`/api/ipam/next/${id}`); setFree({ ...free, [id]: r.address ?? "Subnet full" }) }
   return (
-    <Panel title="Subnet usage" flush>
+    <Panel title="Subnet usage" flush edit={edit}>
       {report?.subnets.length ? (
         <Table head={["Subnet", "CIDR", "VLAN", "Used", "Free address"]}>
           {report.subnets.map((s: any) => (
@@ -94,12 +95,12 @@ function Usage({ report }: { report: any }) {
             </tr>
           ))}
         </Table>
-      ) : <div className="px-5 pb-5"><Empty>Add a subnet to see its usage.</Empty></div>}
+      ) : <div className="px-4 pb-4"><Empty>Add a subnet to see its usage.</Empty></div>}
     </Panel>
   )
 }
 
-function Simulator() {
+function Simulator({ edit }: { edit: any }) {
   const [from, setFrom] = useState("")
   const [destination, setDestination] = useState("")
   const [result, setResult] = useState<any>()
@@ -110,7 +111,7 @@ function Simulator() {
   }
   const level = result?.status === "reached" ? "ok" : result?.status === "loop" ? "warn" : "crit"
   return (
-    <Panel title="Routing simulation">
+    <Panel title="Routing simulation" edit={edit}>
       <form className="grid grid-cols-[1fr_1fr_auto] items-end gap-4 max-sm:grid-cols-1" onSubmit={run}>
         <Input label="From device" required value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input label="To address" required className="font-mono" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="10.0.2.20" />
@@ -138,14 +139,13 @@ export function Ipam() {
   if (tab === "routes") return <><div className="mb-4">{tabs}</div><CrudPage title="Routes" singular="route" collection="routes" cols={ROUTES} sort="device" /></>
   return (
     <>
-      <PageHeader title="IPAM" variables={tabs} onRefresh={reload} />
-      <Section>
-        <Panel title="Conflicts">
-          {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>No conflicts.</Empty>}
-        </Panel>
-        <Usage report={data} />
-        <Simulator />
-      </Section>
+      <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />
+      <Board id="ipam" desktop={{ cols: [["conflicts", "usage", "simulator"]], hidden: [] }} phone={{ cols: [["conflicts", "usage", "simulator"]], hidden: [] }} panels={[
+        { id: "conflicts", title: "Conflicts", render: (edit: any) => <Panel title="Conflicts" edit={edit}>
+          {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>No conflicts.</Empty>}</Panel> },
+        { id: "usage", title: "Subnet usage", render: (edit: any) => <Usage report={data} edit={edit} /> },
+        { id: "simulator", title: "Routing simulation", render: (edit: any) => <Simulator edit={edit} /> },
+      ]} />
     </>
   )
 }
@@ -180,17 +180,12 @@ export function Tasks() {
   const remove = async (t: any) => { if (confirm(`Delete ${t.title}?`)) { await api(`/api/tasks/${t.id}`, { method: "DELETE" }); reload() } }
   const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote("Synced."); reload() } catch (e) { setNote((e as Error).message) } }
   const open = data?.filter((t) => !t.done).length ?? 0
-  return (
-    <>
-      <PageHeader title="Tasks" subtitle={note} actions={<>
-        <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />Sync</Button>
-        <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add task</Button>
-      </>} />
-      <Section>
-        <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-2"><Panel title="Open"><Stat label="Tasks" value={open} /></Panel></div>
-        <Panel title="Tasks and events" flush>
+  const panels = [
+    { id: "open", title: "Open", render: (edit: any) => <Panel title="Open" edit={edit}><Stat label="Tasks" value={open} /></Panel> },
+    { id: "tasks", title: "Tasks and events", render: (edit: any) => (
+        <Panel title="Tasks and events" flush edit={edit}>
           <ErrorNote>{error}</ErrorNote>
-          {data?.length === 0 ? <div className="px-5 pb-5"><Empty>No tasks. Link Nextcloud in Settings to sync them.</Empty></div> : (
+          {data?.length === 0 ? <div className="px-4 pb-4"><Empty>No tasks. Link Nextcloud in Settings to sync them.</Empty></div> : (
             <Table head={["Title", "Due", "From", ""]}>
               {data?.map((t) => (
                 <tr key={t.id}>
@@ -209,7 +204,16 @@ export function Tasks() {
             </Table>
           )}
         </Panel>
-      </Section>
+    ) },
+  ]
+  return (
+    <>
+      <PageHeader title="Tasks" subtitle={note} actions={<>
+        <CustomizeButton />
+        <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />Sync</Button>
+        <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add task</Button>
+      </>} />
+      <Board id="tasks" panels={panels} desktop={{ cols: [["open", "tasks"]], hidden: [] }} phone={{ cols: [["open", "tasks"]], hidden: [] }} />
       {edit !== undefined && <TaskForm row={edit} onDone={done} />}
     </>
   )

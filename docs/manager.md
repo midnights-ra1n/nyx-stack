@@ -54,7 +54,7 @@ Exports: SVG, draw.io, Mermaid, Graphviz DOT and JSON.
 ## Deployments
 
 A log of what was deployed where, with planned dates. Planned deployments trigger a
-reminder a day ahead. Site deploys appear here on their own.
+reminder ahead of time, a day by default. Site deploys appear here on their own.
 
 ## Node.js sites
 
@@ -80,4 +80,5 @@ GitHub, Gitea and Forgejo sign webhooks with `X-Hub-Signature-256`, and GitLab s
 
 Tasks can stand alone or sync with Nextcloud: see
 [integrations.md](integrations.md#nextcloud).
-A reminder goes out a day before a task is due.
+A reminder goes out a day before a task is due. Change the delay, and how early ending
+warranties appear on the overview, in **Settings, General, Reminders**.

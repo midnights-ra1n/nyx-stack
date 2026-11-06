@@ -51,7 +51,7 @@ export function PagesList() {
       <Section>
         <Panel title={`${data?.length ?? 0} pages`} flush>
           <ErrorNote>{error}</ErrorNote>
-          {data?.length === 0 ? <div className="px-5 pb-5"><Empty>No pages yet.</Empty></div> : (
+          {data?.length === 0 ? <div className="px-4 pb-4"><Empty>No pages yet.</Empty></div> : (
             <Table head={["Name", "Type", "Address", "State", ""]}>
               {data?.map((p) => (
                 <tr key={p.id}>
@@ -87,7 +87,7 @@ function ItemPicker({ items, onChange, hint }: { items: Item[]; onChange: (i: It
         {all.map((a) => {
           const on = items.find((i) => i.id === a.id)
           return (
-            <li key={a.id} className="grid min-h-11 grid-cols-2 items-center gap-3 max-sm:grid-cols-1">
+            <li key={a.id} className="grid min-h-9 max-sm:min-h-11 grid-cols-2 items-center gap-3 max-sm:grid-cols-1">
               <Check label={`${a.name} (${a.kind})`} checked={!!on} onChange={(e) => onChange(e.target.checked ? [...items, { kind: a.kind, id: a.id, label: "" }] : items.filter((i) => i.id !== a.id))} />
               {on && <input aria-label={`Public name for ${a.name}`} placeholder="Name shown here" value={on.label} className="h-10 rounded-control border border-line2 bg-bg px-3" onChange={(e) => onChange(items.map((i) => (i.id === a.id ? { ...i, label: e.target.value } : i)))} />}
             </li>

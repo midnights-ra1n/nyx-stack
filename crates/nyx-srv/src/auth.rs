@@ -103,12 +103,18 @@ async fn has_users(core: &Core) -> anyhow::Result<bool> {
 
 async fn status(State(core): State<Arc<Core>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let uid = cookie_value(&headers).and_then(|v| decode(&core.secret, v, now()));
+    let email = match &uid {
+        Some(uid) => core.pb.get("users", uid).await.ok().map(|u| u["email"].clone()),
+        None => None,
+    };
     Ok(Json(json!({
         "needs_setup": !has_users(&core).await?,
         "authenticated": uid.is_some(),
         "passkeys": core.webauthn.is_some(),
         "https": core.https_enabled(),
         "public_url": core.env.public_url,
+        "shared_database": core.shared,
+        "email": email,
     })))
 }
 
@@ -139,6 +145,31 @@ async fn login(State(core): State<Arc<Core>>, Json(c): Json<Credentials>) -> Api
 
 async fn logout() -> impl IntoResponse {
     ([(header::SET_COOKIE, format!("{COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"))], Json(Value::Null))
+}
+
+#[derive(Deserialize)]
+struct PasswordChange {
+    current: String,
+    password: String,
+}
+
+/// shortcut: sessions are stateless, so other browsers stay signed in until their
+/// cookie expires. Upgrade to a per-user session epoch if that ever matters.
+async fn change_password(session: Session, State(core): State<Arc<Core>>, Json(b): Json<PasswordChange>) -> ApiResult<Json<Value>> {
+    if b.password.len() < 10 {
+        return Err(ApiError::bad_request("password must be at least 10 characters"));
+    }
+    if core.limiter.lock().unwrap().blocked(&session.0) {
+        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "too many attempts, wait a minute"));
+    }
+    let user = core.pb.get("users", &session.0).await?;
+    // 400, not 401: the session is fine, and the UI treats 401 as being signed out.
+    if core.pb.user_login(user["email"].as_str().unwrap_or_default(), &b.current).await.is_err() {
+        core.limiter.lock().unwrap().fail(&session.0);
+        return Err(ApiError::bad_request("the current password is wrong"));
+    }
+    core.pb.update("users", &session.0, &json!({"password": b.password, "passwordConfirm": b.password})).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(Value::Null))
 }
 
 // Passkeys ---------------------------------------------------------------------
@@ -266,6 +297,7 @@ pub fn router() -> Router<Arc<Core>> {
         .route("/api/auth/setup", post(setup))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
+        .route("/api/auth/password", post(change_password))
         .route("/api/auth/passkey/login/start", post(login_start))
         .route("/api/auth/passkey/login/finish", post(login_finish))
         .route("/api/auth/passkey/register/start", post(register_start))

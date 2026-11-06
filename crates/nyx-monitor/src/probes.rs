@@ -65,6 +65,8 @@ pub struct ProbeDef {
     pub dns_server: String,
     pub warn_days: i64,
     pub expect_status: u16,
+    /// On an `https://` website probe, also follow the certificate.
+    pub watch_cert: bool,
     pub snmp: Option<Arc<snmp::Config>>,
 }
 
@@ -145,7 +147,7 @@ impl ProbeLive {
 
     pub fn to_json(&self) -> Value {
         json!({"id": self.def.id, "name": self.def.name, "type": self.def.kind, "target": self.def.target, "up": self.up,
-            "latency_ms": self.latency_ms, "message": self.message, "cert_days": self.cert_days,
+            "latency_ms": self.latency_ms, "message": self.message, "cert_days": self.cert_days, "warn_days": self.def.warn_days,
             "readings": self.readings, "history": self.history.iter().collect::<Vec<_>>()})
     }
 }
@@ -170,6 +172,7 @@ fn parse_def(r: &Value) -> ProbeDef {
         dns_server: s("dns_server"),
         warn_days: Some(n("warn_days") as i64).filter(|d| *d > 0).unwrap_or(21),
         expect_status: n("expect_status") as u16,
+        watch_cert: r["watch_cert"].as_bool().unwrap_or(false) && s("target").starts_with("https://"),
         snmp: (r["type"] == "snmp").then(|| serde_json::from_value(r["snmp"].clone()).unwrap_or_default()).map(Arc::new),
     }
 }
@@ -274,7 +277,11 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
             if !ok {
                 bail!("HTTP {code}");
             }
-            Ok(Outcome { latency_ms: ms(), message: format!("HTTP {code}"), ..Outcome::default() })
+            let latency_ms = ms();
+            // A failure here says nothing about the site, which just answered.
+            let cert_days = if def.watch_cert { cert_days_left(&app.probes.cert_http, &def.target).await.ok() } else { None };
+            let message = cert_days.map_or(format!("HTTP {code}"), |d| format!("HTTP {code}, certificate expires in {d} days"));
+            Ok(Outcome { latency_ms, message, cert_days, ..Outcome::default() })
         }
         "dns" => {
             let message = dns_lookup(&def.target, &def.dns_server).await?;
@@ -365,6 +372,14 @@ mod tests {
         assert_eq!(alerts_for(&p)[0].severity, "warn");
         p.record(ok(Some(3)));
         assert_eq!(alerts_for(&p)[0].severity, "crit");
+    }
+
+    #[test]
+    fn only_an_https_website_can_watch_its_certificate() {
+        let def = |target: &str, watch: bool| parse_def(&json!({"type": "http", "target": target, "watch_cert": watch})).watch_cert;
+        assert!(def("https://cloud.home.lan", true));
+        assert!(!def("https://cloud.home.lan", false));
+        assert!(!def("http://cloud.home.lan", true));
     }
 
     #[test]

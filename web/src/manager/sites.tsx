@@ -1,8 +1,9 @@
 import { PlusIcon, RocketLaunchIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
+import { Board, CustomizeButton } from "../ui/board"
 import { Button, Copy, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, Select, Status, Table, Td, TextArea } from "../ui/components"
 import { api, fmt, useApi } from "../ui/lib"
-import { PageHeader, Section } from "../ui/shell"
+import { PageHeader } from "../ui/shell"
 import { deployLevel } from "./overview"
 
 function Details({ site, onClose }: { site: any; onClose: () => void }) {
@@ -18,7 +19,7 @@ function Details({ site, onClose }: { site: any; onClose: () => void }) {
         </>}
         <div>
           <div className="mb-1 text-[13px] text-fg2">Last deploy output</div>
-          <pre className="max-h-72 overflow-auto rounded-control bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap">{site.last_output || "No deploy yet."}</pre>
+          <pre className="max-h-72 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap">{site.last_output || "No deploy yet."}</pre>
         </div>
       </div>
     </Modal>
@@ -67,17 +68,15 @@ export function Sites() {
     try { await api(`/api/sites/${s.id}/deploy`, { method: "POST" }); setNote(`Deploy of ${s.name} queued.`); reload() } catch (e) { setNote((e as Error).message) }
   }
   const remove = async (s: any) => { if (confirm(`Stop tracking ${s.name}? Nothing is removed from the host.`)) { await api(`/api/c/sites/${s.id}`, { method: "DELETE" }); reload() } }
-  return (
-    <>
-      <PageHeader title="Node.js sites" subtitle={note} actions={<Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />Add site</Button>} />
-      <Section>
-        <Panel title="Sites" flush>
+  const panels = [
+    { id: "sites", title: "Sites", render: (edit: any) => (
+        <Panel title="Sites" flush edit={edit}>
           <ErrorNote>{error}</ErrorNote>
-          {data?.items.length === 0 ? <div className="px-5 pb-5"><Empty>No sites yet.</Empty></div> : (
+          {data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No sites yet.</Empty></div> : (
             <Table head={["Name", "Host", "Branch", "Last deploy", "State", ""]}>
               {data?.items.map((s: any) => (
                 <tr key={s.id}>
-                  <Td className="font-medium"><button className="min-h-11 text-left text-accent" onClick={() => setOpen(s)}>{s.name}</button></Td>
+                  <Td className="font-medium"><button className="min-h-9 max-sm:min-h-11 text-left text-accent" onClick={() => setOpen(s)}>{s.name}</button></Td>
                   <Td className="text-fg2">{nameOf(s.host)}</Td>
                   <Td mono>{s.branch}</Td>
                   <Td className="text-fg2">{fmt.date(s.last_deploy)}</Td>
@@ -91,8 +90,10 @@ export function Sites() {
             </Table>
           )}
         </Panel>
-        <Panel title="Detected Node.js apps" flush>
-          {apps.length === 0 ? <div className="px-5 pb-5"><Empty>{monitor.data ? "No Node.js apps detected on your hosts." : "Link a monitor in Settings to detect Node.js apps."}</Empty></div> : (
+    ) },
+    { id: "apps", title: "Detected Node.js apps", render: (edit: any) => (
+        <Panel title="Detected Node.js apps" flush edit={edit}>
+          {apps.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No Node.js apps detected on your hosts." : "Link a monitor in Settings to detect Node.js apps."}</Empty></div> : (
             <Table head={["App", "Host", "Node.js", "Directory", ""]}>
               {apps.map((a) => (
                 <tr key={`${a.host.id}${a.pid}`}>
@@ -106,7 +107,12 @@ export function Sites() {
             </Table>
           )}
         </Panel>
-      </Section>
+    ) },
+  ]
+  return (
+    <>
+      <PageHeader title="Node.js sites" subtitle={note} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />Add site</Button></>} />
+      <Board id="sites" panels={panels} desktop={{ cols: [["sites", "apps"]], hidden: [] }} phone={{ cols: [["sites", "apps"]], hidden: [] }} />
       {form && <SiteForm hosts={hosts} preset={form} onDone={(site) => { setForm(undefined); reload(); if (site) setOpen(site) }} />}
       {open && <Details site={open} onClose={() => setOpen(undefined)} />}
     </>
