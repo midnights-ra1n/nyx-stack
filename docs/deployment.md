@@ -3,10 +3,9 @@
 How to install, run, update and remove Nyx with Docker or with `.deb` and `.rpm`
 packages. Agents can use any method: see [agent.md](agent.md).
 
-> **There is no stable release yet.** Only betas are published, so the commands below
-> use the `beta` branch, `NYX_VERSION=beta` and the current beta version. Neither path
-> has been run end to end on Linux so far. To build from source instead, see
-> [development.md](development.md) or `make bins packages`.
+The commands below install the stable channel. To follow beta instead, see
+[release channels](#release-channels). To build from source, see
+[development.md](development.md) or `make bins packages`.
 
 ## Which method to pick
 
@@ -38,9 +37,8 @@ the unprivileged user `nyx` (uid 10001).
 
 ```sh
 mkdir nyx && cd nyx
-curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/.env.example
-sed -i.bak 's/^NYX_VERSION=.*/NYX_VERSION=beta/' .env   # no :latest before the first stable release
+curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/.env.example
 ```
 
 The folder name becomes the prefix of your volumes (`nyx_monitor-data`), so keep it.
@@ -49,7 +47,7 @@ The folder name becomes the prefix of your volumes (`nyx_monitor-data`), so keep
 
 | Variable | Needed for | Meaning |
 | --- | --- | --- |
-| `NYX_VERSION` | All | `beta`, `stable`, `latest`, or a fixed version such as `0.1.0-beta.2`. `stable` and `latest` exist from the first stable release |
+| `NYX_VERSION` | All | `latest` by default, or `stable`, `beta`, or a fixed version such as `0.1.0` |
 | `NYX_MONITOR_URL` | Always | The URL users and agents reach the monitor on |
 | `NYX_MANAGER_URL` | Always | The URL users reach the manager on |
 | `NYX_DB_EMAIL` | `db` profile | Superuser of the shared database |
@@ -238,8 +236,8 @@ Files are named after the version and the architecture:
 
 | | x86_64 | arm64 |
 | --- | --- | --- |
-| Debian, Ubuntu | `nyx-monitor_0.1.0-beta.2-1_amd64.deb` | `nyx-monitor_0.1.0-beta.2-1_arm64.deb` |
-| RHEL, Fedora, Alma | `nyx-monitor-0.1.0-beta.2-1.x86_64.rpm` | `nyx-monitor-0.1.0-beta.2-1.aarch64.rpm` |
+| Debian, Ubuntu | `nyx-monitor_0.1.0-1_amd64.deb` | `nyx-monitor_0.1.0-1_arm64.deb` |
+| RHEL, Fedora, Alma | `nyx-monitor-0.1.0-1.x86_64.rpm` | `nyx-monitor-0.1.0-1.aarch64.rpm` |
 
 ### 1. Download and verify
 
@@ -247,7 +245,7 @@ Take the latest version from the releases page, and swap `nyx-monitor` for what 
 On Debian or Ubuntu:
 
 ```sh
-VERSION=0.1.0-beta.2 ARCH=amd64    # or arm64
+VERSION=0.1.0 ARCH=amd64    # or arm64
 BASE=https://github.com/midnights-ra1n/nyx-stack/releases/download/v$VERSION
 for p in nyx-base nyx-monitor; do curl -fsSLO "$BASE/${p}_$VERSION-1_$ARCH.deb"; done
 curl -fsSLO "$BASE/SHA256SUMS"
@@ -257,7 +255,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 On RHEL, Fedora or Alma:
 
 ```sh
-VERSION=0.1.0-beta.2 ARCH=x86_64   # or aarch64
+VERSION=0.1.0 ARCH=x86_64   # or aarch64
 BASE=https://github.com/midnights-ra1n/nyx-stack/releases/download/v$VERSION
 for p in nyx-base nyx-monitor; do curl -fsSLO "$BASE/$p-$VERSION-1.$ARCH.rpm"; done
 curl -fsSLO "$BASE/SHA256SUMS"
@@ -349,8 +347,9 @@ first if you use it.
 
 Agents update themselves from the monitor, once a day at the hour set in **Settings,
 Monitoring**, when **Update agents automatically** is on. You can also force one from
-the host page. They always take the version their monitor ships, so a monitor on beta
-moves its agents to beta too.
+the host page. They take the version their monitor ships, so a monitor on beta moves its
+agents to beta too. **Use beta agents** does this for the agents alone, see
+[agent updates](agent.md#updates).
 
 ### Removing
 

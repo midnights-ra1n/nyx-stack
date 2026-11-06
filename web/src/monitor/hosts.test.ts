@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildTree, consoleUrl, hostType, updateRun } from "./hosts"
+import { buildTree, consoleUrl, hostType, noAgent, updateRun } from "./hosts"
 
 const pve = { id: "p", kind: "proxmox", hostname: "pve1", guests: [{ vmid: 101, name: "web", kind: "lxc", node: "pve1" }, { vmid: 102, name: "db", kind: "qemu", node: "pve1" }] }
 const ct = { id: "c", parent: "p", vmid: 101 }
@@ -10,6 +10,9 @@ describe("hostType", () => {
     expect(hostType({ kind: "vm", vmid: 101 }, hosts)).toBe("ct")
     expect(hostType(hosts[1], hosts)).toBe("vm")
     expect(hostType(hosts[2], hosts)).toBe("ct")
+  })
+  it("takes the type containers now report", () => {
+    expect(hostType({ kind: "lxc", vmid: 101 }, [])).toBe("ct")
   })
   it("keeps the kind of everything else", () => {
     expect(["vps", "physical", "proxmox"].map((kind) => hostType({ kind }, hosts))).toEqual(["vps", "physical", "proxmox"])
@@ -43,9 +46,19 @@ describe("host tree", () => {
     const rows = buildTree([pve, vm], (h) => h.guests ?? [], new Set())
     expect(rows.map((r) => r.host?.id ?? r.guest.name)).toEqual(["p", "v", "web"])
   })
+  it("does not repeat a guest whose agent sits at the top level", () => {
+    const rows = buildTree([pve, { id: "v", name: "db", vmid: 0 }, { id: "w", hostname: "web", vmid: 0 }], (h) => h.guests ?? [], new Set())
+    expect(rows.map((r) => r.host?.id ?? r.guest.name)).toEqual(["p", "v", "w"])
+  })
   it("collapses children and treats orphans as roots", () => {
     expect(buildTree([pve, ct], (h) => h.guests ?? [], new Set(["p"]))).toHaveLength(1)
     expect(buildTree([{ id: "x", parent: "gone" }], () => [], new Set())[0].depth).toBe(0)
+  })
+})
+
+describe("noAgent", () => {
+  it("is only true for a container measured by its node", () => {
+    expect([noAgent({ kind: "lxc" }), noAgent({ kind: "lxc", agent_version: "0.1.0" }), noAgent({ kind: "vm" })]).toEqual([true, false, false])
   })
 })
 

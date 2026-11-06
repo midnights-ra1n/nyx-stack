@@ -305,8 +305,8 @@ export function Select({ label, options, hint, ...p }: { label: string; hint?: R
   )
 }
 
-export function Check({ label, ...p }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch" {...p} />{label}</label>
+export function Check({ label, hint, ...p }: { label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch shrink-0" {...p} /><span>{label}{hint && <span className="block text-xs text-fg3">{hint}</span>}</span></label>
 }
 
 /** The guide's variable control: label on raised, value on surface. */

@@ -49,6 +49,12 @@ Status pages and wall displays are served without an account, so:
 - Framing is refused everywhere, except for a status page whose owner ticked the
   option. That page is anonymous and read-only, so a frame cannot trick a visitor into
   doing anything. Walls can never be framed.
+- A wall's key also opens the pages of its rotation, which the wall's owner chose. It
+  opens nothing else: the only thing the address can name is a position in that list.
+  Status pages have no rotation, so they cannot be used to reach a wall.
+- A live map on a status page holds names, states, types and links between nodes, for
+  ticked items only. Its **Show every host and probe** option is the one exception to
+  ticking, and says so next to the box, because it publishes real names.
 - Drafts and unknown addresses give the same 404.
 - Texts are shown as text, never as HTML. Logos must be embedded images.
 
@@ -93,9 +99,9 @@ Nyx contacts other parties only when you configure it to:
 | Your notification services | When a rule sends |
 | RTE | Tempo enabled |
 | Your Nextcloud, Proxmox, Meross plugs | When configured |
-| GitHub API and releases | Only when you press **Check on GitHub** or **Update** |
+| GitHub API and releases | When you press **Check on GitHub** or **Update**, and once an hour with **Use beta agents** on |
 
-Release packages are checked against `SHA256SUMS` from the same release. This catches
+Release packages and beta agents are checked against `SHA256SUMS` from the same release. This catches
 corruption, not a compromised GitHub account, as releases are not signed yet.
 
 ## Reporting a vulnerability

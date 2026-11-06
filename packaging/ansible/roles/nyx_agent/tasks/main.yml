@@ -4,7 +4,7 @@
       - nyx_agent_url is defined
       - nyx_agent_token is defined
       - nyx_agent_key is defined
-      - nyx_agent_kind in ['vm', 'physical', 'proxmox', 'vps']
+      - nyx_agent_kind in ['vm', 'lxc', 'physical', 'proxmox', 'vps']
 
 - name: Install the agent
   ansible.builtin.shell: >-

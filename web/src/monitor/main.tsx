@@ -1,11 +1,12 @@
 import "../ui/tokens.css"
-import { BellIcon, CircleStackIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { BellIcon, CircleStackIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
 import { PageEditor, PagesList } from "./display/editor"
 import { DisplayPage } from "./display/viewer"
 import { Storage } from "./disks"
 import { Logs } from "./logs"
+import { MapPage } from "./map"
 import { Alerts, Containers, Network, SearchPage } from "./pages"
 import { HostDetail, Hosts } from "./hosts"
 import { Overview } from "./overview"
@@ -15,6 +16,7 @@ function route(path: string) {
   if (path === "/") return <Overview />
   if (path === "/hosts") return <Hosts />
   if (path.startsWith("/hosts/")) return <HostDetail id={path.slice(7)} />
+  if (path === "/map") return <MapPage />
   if (path === "/containers") return <Containers />
   if (path === "/network") return <Network />
   if (path === "/storage") return <Storage />
@@ -38,6 +40,7 @@ function useNav(): NavConfig {
       { label: "Monitoring", items: [
         { to: "/", label: "Overview", icon: Squares2X2Icon },
         { to: "/hosts", label: "Hosts", icon: ServerStackIcon },
+        { to: "/map", label: "Map", icon: MapIcon },
         { to: "/containers", label: "Containers", icon: CubeIcon },
         { to: "/network", label: "Network", icon: GlobeAltIcon },
         { to: "/storage", label: "Storage", icon: CircleStackIcon },

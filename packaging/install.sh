@@ -3,7 +3,7 @@
 # in the UI generates the full command line.
 #
 #   curl -fsSL https://monitor/install.sh | sudo sh -s -- \
-#     --url https://monitor --token TOKEN --key KEY --kind vm|physical|proxmox|vps [--ct-autoinstall]
+#     --url https://monitor --token TOKEN --key KEY --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall]
 set -eu
 
 URL="" TOKEN="" KEY="" KIND="" CT=""

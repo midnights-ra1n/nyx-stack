@@ -49,13 +49,15 @@ pub struct Maintenance {
     /// Local hour of the daily update check.
     pub check_hour: u32,
     pub agent_auto_update: bool,
+    /// Agents take the newest release from GitHub, not the one this server ships.
+    pub agent_beta: bool,
     /// How long metrics and resolved alerts are kept.
     pub retention_days: u32,
 }
 
 impl Default for Maintenance {
     fn default() -> Self {
-        Self { check_hour: 4, agent_auto_update: true, retention_days: MIN_RETENTION_DAYS }
+        Self { check_hour: 4, agent_auto_update: true, agent_beta: false, retention_days: MIN_RETENTION_DAYS }
     }
 }
 
@@ -211,6 +213,11 @@ impl Update {
 }
 
 impl Host {
+    /// Containers belong to their node: an agent in one is the only sign it is a host at all.
+    pub fn is_container(&self) -> bool {
+        self.kind == "lxc" || self.vmid > 0
+    }
+
     pub fn updating(&self, now: i64) -> bool {
         self.update.as_ref().is_some_and(|u| !u.waiting.is_empty() && !u.lost(now, self.last_seen))
     }
@@ -344,6 +351,10 @@ pub struct State {
     pub maintenance: Maintenance,
     pub last_check_day: i64,
     pub power: HashMap<String, f64>,
+    /// Where nodes were placed on the map, by id. In memory as public pages read it.
+    pub map_layout: Value,
+    /// Version of the agents fetched from GitHub, while beta agents are on.
+    pub beta_agent: Option<String>,
     pub uptime: crate::pages::Uptime,
     /// Fleet-wide average of each flush, so that the overview chart needs no read
     /// of every host's rollups.
@@ -390,6 +401,12 @@ impl App {
         Ok(app)
     }
 
+    /// After a restart `last_seen` is stale for everyone: nothing can be told about a
+    /// host before agents had one full window to report.
+    pub fn settled(&self) -> bool {
+        self.started.elapsed().as_secs() >= offline_after_s() as u64
+    }
+
     pub fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.st.lock().expect("state lock poisoned")
     }
@@ -397,7 +414,9 @@ impl App {
     pub async fn reload_settings(&self) -> anyhow::Result<()> {
         let thresholds = self.core.pb.setting("thresholds").await?.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         let maintenance = self.core.pb.setting("maintenance").await?.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+        let map_layout = self.core.pb.setting("map_layout").await?.unwrap_or_default();
         let mut st = self.lock();
+        st.map_layout = map_layout;
         st.thresholds = thresholds;
         st.maintenance = maintenance;
         Ok(())
@@ -444,9 +463,7 @@ impl App {
     }
 
     pub async fn sweep_offline(&self) -> anyhow::Result<()> {
-        // After a restart `last_seen` is stale for everyone: give agents one full
-        // window to report before calling anything down.
-        if self.started.elapsed().as_secs() < offline_after_s() as u64 {
+        if !self.settled() {
             return Ok(());
         }
         let now = Utc::now().timestamp();
@@ -507,7 +524,7 @@ impl App {
     }
 
     /// Once a day at the chosen hour: ask agents to check for updates and offer
-    /// them the bundled agent version.
+    /// them the agent version they should run.
     pub async fn maintenance(&self) -> anyhow::Result<()> {
         self.reload_settings().await?;
         let now = Local::now();
@@ -518,10 +535,11 @@ impl App {
         }
         st.last_check_day = day;
         let auto = st.maintenance.agent_auto_update;
+        let target = st.agent_target();
         // A queue for a dead host would only grow, so it waits for the next day.
-        for h in st.hosts.values_mut().filter(|h| now.timestamp() - h.last_seen <= offline_after_s()) {
+        for h in st.hosts.values_mut().filter(|h| now.timestamp() - h.last_seen <= offline_after_s() && !h.agent_version.is_empty()) {
             h.queue.push(Command { id: nyx_srv::random_hex(8), action: Action::CheckUpdates });
-            if auto && h.agent_version != env!("CARGO_PKG_VERSION") {
+            if auto && h.agent_version != target {
                 h.queue.push(Command { id: nyx_srv::random_hex(8), action: Action::UpdateAgent });
             }
         }
@@ -546,13 +564,24 @@ impl App {
 }
 
 impl State {
-    /// Upgrade every host in contact, then bring its agent to this server's version:
-    /// in that order, as replacing the agent restarts it and drops what it has queued.
+    /// The fetched beta, for as long as beta agents are on.
+    pub fn beta(&self) -> Option<&str> {
+        self.beta_agent.as_deref().filter(|_| self.maintenance.agent_beta)
+    }
+
+    /// The version agents should run.
+    pub fn agent_target(&self) -> String {
+        self.beta().unwrap_or(env!("CARGO_PKG_VERSION")).to_string()
+    }
+
+    /// Upgrade every host in contact, then bring its agent to the wanted version: in
+    /// that order, as replacing the agent restarts it and drops what it has queued.
     pub fn update_all(&mut self, now: i64) -> usize {
-        let online = self.hosts.values_mut().filter(|h| now - h.last_seen <= offline_after_s());
+        let target = self.agent_target();
+        let online = self.hosts.values_mut().filter(|h| now - h.last_seen <= offline_after_s() && !h.agent_version.is_empty());
         online
             .filter_map(|h| {
-                let stale = h.agent_version != env!("CARGO_PKG_VERSION");
+                let stale = h.agent_version != target;
                 h.start_update(if stale { vec![Action::UpdateSystem, Action::UpdateAgent] } else { vec![Action::UpdateSystem] }, now)
             })
             .count()
@@ -600,7 +629,10 @@ impl State {
         if let Some(c) = r.containers.take() { live.containers = c; }
         if let Some(s) = r.smart.take() { live.smart = s; }
         if let Some(n) = r.node.take() { live.node = Some(n); }
-        if let Some(g) = r.guests.take() { live.guests = g; }
+        if let Some(mut g) = r.guests.take() {
+            if !r.ct_autoinstall { g.retain(|g| g.kind != "lxc"); } // Older agents always list them.
+            live.guests = g;
+        }
         if let Some(u) = r.updates.take() {
             new_updates = !u.is_empty() && u != live.updates;
             live.updates = u;
@@ -766,6 +798,36 @@ mod tests {
         assert_eq!(st.update_all(1000), 2);
         assert_eq!((st.hosts["old"].queue.len(), st.hosts["current"].queue.len(), st.hosts["silent"].queue.len()), (2, 1, 0));
         assert_eq!(st.update_all(1000), 0, "pressing twice changes nothing");
+    }
+
+    #[test]
+    fn hosts_measured_by_their_node_have_no_agent_to_update() {
+        let mut st = State::default();
+        st.hosts.insert("ct".into(), Host { last_seen: 1000, ..Host::from_record(&json!({"id": "ct", "kind": "lxc"})) });
+        assert_eq!(st.update_all(1000), 0);
+        assert!(st.hosts["ct"].queue.is_empty());
+    }
+
+    #[test]
+    fn beta_agents_are_the_target_while_they_are_on() {
+        let mut st = State::default();
+        st.beta_agent = Some("9.9.9-beta.1".into());
+        assert_eq!(st.agent_target(), env!("CARGO_PKG_VERSION"), "ticked off, the fetched files are ignored");
+        st.maintenance.agent_beta = true;
+        assert_eq!(st.agent_target(), "9.9.9-beta.1");
+        st.hosts.insert("h".into(), Host { last_seen: 1000, agent_version: env!("CARGO_PKG_VERSION").into(), ..Host::from_record(&json!({"id": "h"})) });
+        st.update_all(1000);
+        assert_eq!(st.hosts["h"].queue.len(), 2, "an agent on the bundled version is behind");
+    }
+
+    #[test]
+    fn containers_of_an_unwatched_node_stay_out_of_view() {
+        let mut st = state();
+        let guests = vec![Guest { vmid: 101, kind: "lxc".into(), ..Guest::default() }, Guest { vmid: 100, kind: "qemu".into(), ..Guest::default() }];
+        st.apply("h1", Report { guests: Some(guests.clone()), ..Report::default() }, 1);
+        assert_eq!(st.hosts["h1"].live.as_ref().unwrap().guests.iter().map(|g| g.vmid).collect::<Vec<_>>(), [100]);
+        st.apply("h1", Report { guests: Some(guests), ct_autoinstall: true, ..Report::default() }, 2);
+        assert_eq!(st.hosts["h1"].live.as_ref().unwrap().guests.len(), 2);
     }
 
     #[test]

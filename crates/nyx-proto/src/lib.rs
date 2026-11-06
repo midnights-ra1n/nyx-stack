@@ -17,10 +17,11 @@ pub enum HostKind {
     Physical,
     Proxmox,
     Vps,
+    Lxc,
 }
 
 impl HostKind {
-    /// SMART is mandatory on bare metal and meaningless inside a VM.
+    /// SMART is mandatory on bare metal and meaningless inside a VM or a container.
     pub fn has_physical_disks(self) -> bool {
         matches!(self, Self::Physical | Self::Proxmox)
     }
@@ -31,6 +32,7 @@ impl HostKind {
             Self::Physical => "physical",
             Self::Proxmox => "proxmox",
             Self::Vps => "vps",
+            Self::Lxc => "lxc",
         }
     }
 
@@ -40,6 +42,7 @@ impl HostKind {
             "physical" => Self::Physical,
             "proxmox" => Self::Proxmox,
             "vps" => Self::Vps,
+            "lxc" => Self::Lxc,
             _ => return None,
         })
     }
@@ -203,7 +206,7 @@ pub struct NodeApp {
 }
 
 /// A Proxmox guest seen by an agent of kind `proxmox`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Guest {
     pub vmid: u32,
     pub name: String,
@@ -214,6 +217,33 @@ pub struct Guest {
     /// Container started from an OCI image without an init: no agent can run in it.
     #[serde(default)]
     pub oci: bool,
+    /// Figures Proxmox keeps for the guest, so that none of this needs an agent inside.
+    /// Absent from older agents.
+    #[serde(default)]
+    pub os: String,
+    #[serde(default)]
+    pub ip: String,
+    #[serde(default)]
+    pub uptime_s: u64,
+    #[serde(default)]
+    pub cpu_pct: f32,
+    #[serde(default)]
+    pub mem_used: u64,
+    #[serde(default)]
+    pub mem_total: u64,
+    #[serde(default)]
+    pub disk_used: u64,
+    #[serde(default)]
+    pub disk_total: u64,
+    #[serde(default)]
+    pub rx_bps: u64,
+    #[serde(default)]
+    pub tx_bps: u64,
+    /// Bytes since the guest started, which the two rates above come from.
+    #[serde(skip)]
+    pub net_in: u64,
+    #[serde(skip)]
+    pub net_out: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -256,8 +286,6 @@ pub enum Action {
     UpdateSystem,
     /// Replace the agent binary with the one served by the monitor.
     UpdateAgent,
-    /// Install the agent inside a running Proxmox container.
-    InstallInCt { vmid: u32, token: String, key: String },
     /// Clone or pull a Node.js site, build it and restart its service.
     Deploy(Deploy),
 }
@@ -368,9 +396,9 @@ mod tests {
 
     #[test]
     fn kind_round_trips() {
-        for k in [HostKind::Vm, HostKind::Physical, HostKind::Proxmox, HostKind::Vps] {
+        for k in [HostKind::Vm, HostKind::Physical, HostKind::Proxmox, HostKind::Vps, HostKind::Lxc] {
             assert_eq!(HostKind::parse(k.as_str()), Some(k));
         }
-        assert!(HostKind::Proxmox.has_physical_disks() && !HostKind::Vps.has_physical_disks());
+        assert!(HostKind::Proxmox.has_physical_disks() && !HostKind::Vps.has_physical_disks() && !HostKind::Lxc.has_physical_disks());
     }
 }

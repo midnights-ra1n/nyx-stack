@@ -96,7 +96,7 @@ export function RecordForm({ cols: all, row, collection, onDone, title, defaults
 }
 
 /** List, add, edit and delete records of one collection. */
-export function CrudPage({ title, singular, collection, cols, sort = "name", crumbs, extra, onChanged, defaults }: { title: string; singular: string; collection: string; cols: Col[]; sort?: string; crumbs?: { label: string; to?: string }[]; extra?: ReactNode; onChanged?: () => void; defaults?: any }) {
+export function CrudPage({ title, heading = title, variables, singular, collection, cols, sort = "name", crumbs, extra, onChanged, defaults }: { title: string; heading?: string; variables?: ReactNode; singular: string; collection: string; cols: Col[]; sort?: string; crumbs?: { label: string; to?: string }[]; extra?: ReactNode; onChanged?: () => void; defaults?: any }) {
   const { data, reload, error } = useApi(`/api/c/${collection}?sort=${sort}&perPage=500`, { poll: false })
   const [edit, setEdit] = useState<any | null | undefined>()
   const [order, setOrder] = useStored(`nyx.sort.${collection}`, { key: "", desc: false })
@@ -117,7 +117,7 @@ export function CrudPage({ title, singular, collection, cols, sort = "name", cru
   }
   return (
     <>
-      <PageHeader title={title} crumbs={crumbs} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add {singular}</Button>} />
+      <PageHeader title={heading} variables={variables} crumbs={crumbs} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add {singular}</Button>} />
       <Section>
         {extra}
         {all.length > 0 && (

@@ -169,9 +169,9 @@ export function Ipam() {
   const [tab, setTab] = useState("usage")
   const { data, reload } = useApi("/api/ipam/report", { poll: false })
   const tabs = <Tabs tabs={IPAM_TABS} value={tab} onChange={setTab} />
-  if (tab === "subnets") return <><div className="mb-4">{tabs}</div><CrudPage title="Subnets" singular="subnet" collection="subnets" cols={SUBNETS} onChanged={reload} /></>
-  if (tab === "addresses") return <><div className="mb-4">{tabs}</div><CrudPage title="Addresses" singular="address" collection="ip_addresses" cols={ADDRESSES} sort="address" onChanged={reload} /></>
-  if (tab === "routes") return <><div className="mb-4">{tabs}</div><CrudPage title="Routes" singular="route" collection="routes" cols={ROUTES} sort="device" /></>
+  if (tab === "subnets") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Subnets" singular="subnet" collection="subnets" cols={SUBNETS} onChanged={reload} />
+  if (tab === "addresses") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Addresses" singular="address" collection="ip_addresses" cols={ADDRESSES} sort="address" onChanged={reload} />
+  if (tab === "routes") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Routes" singular="route" collection="routes" cols={ROUTES} sort="device" />
   return (
     <>
       <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />

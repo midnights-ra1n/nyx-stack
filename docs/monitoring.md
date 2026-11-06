@@ -22,9 +22,10 @@ and comes back on the hosts that have it.
 
 ## Hosts
 
-Each type has its own icon in the host list: VM, container, physical server, Proxmox
-server and VPS. **Add host** only offers **Runs on** for a VM, and only lists your
-physical and Proxmox servers.
+Each type has its own icon in the host list: VM, LXC container, physical server, Proxmox
+server and VPS. The agent checks the type against the machine, see
+[host types](agent.md#host-types). **Add host** only offers **Runs on** for a VM or a
+container, and only lists your physical and Proxmox servers. A name can only be used once.
 
 **Update all**, on the Hosts page, upgrades the packages of every online host and brings
 its agent to the version of this server. A bar follows the whole run, with one per host,
@@ -32,8 +33,28 @@ and failures keep their output on screen. The same page lists the hosts that nee
 restart, also marked in the table and on each host. Nyx never restarts a host on its own.
 See [agent updates](agent.md#updates).
 
-The host list is a tree: guests appear under their Proxmox host. OCI containers appear there with a
-note, since no agent can run in them: see [OCI containers](agent.md#oci-containers).
+The host list is a tree: guests appear under their Proxmox host. LXC containers only
+appear when that host watches them, with figures from Proxmox and no agent inside: see
+[Proxmox containers](agent.md#proxmox-containers). Deleting a Proxmox host deletes its
+containers too.
+
+## Map
+
+**Map** draws the whole homelab around one hub, updated at the refresh rate of the
+interface: Proxmox and physical servers first, with their VMs and containers behind
+them, then the probes. A node takes the colour of its state, and so does its link when
+something is wrong. The hub takes the worst state, a stopped guest counting as a warning.
+
+- Scroll to zoom, and drag the background to move around.
+- Hover or focus a node for its address, CPU, memory and temperature, or its target and
+  latency for a probe.
+- Click a node, or press Enter on it, to open its page. Guests that are watched from
+  Proxmox without a host of their own have no page.
+- Drag a node to place it. Places are saved on the monitor, so every browser sees the
+  same map. New nodes find a free spot around the hub, and **Reset layout** forgets all
+  places.
+
+Live maps can also be placed on [status pages and wall displays](status-pages.md#live-map).
 
 ## VPN links
 

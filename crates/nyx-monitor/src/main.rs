@@ -87,6 +87,7 @@ fn spawn_loops(app: Arc<App>) {
     task!(5, "probes", |a: Arc<App>| async move { probes::tick(&a).await });
     task!(60, "probe reload", |a: Arc<App>| async move { probes::reload(&a).await });
     task!(60, "meross", |a: Arc<App>| async move { integrations::poll_power(&a).await });
+    task!(3600, "beta agents", |a: Arc<App>| async move { ingest::refresh_beta_agents(&a).await });
     task!(3600, "tempo", |a: Arc<App>| async move { integrations::tempo_tick(&a).await });
     task!(3600, "tempo calendar", |a: Arc<App>| async move { integrations::sync_tempo_calendar(&a, false).await.map(drop) });
 }

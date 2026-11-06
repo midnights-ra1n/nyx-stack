@@ -50,6 +50,25 @@ Phones show panels one above the other, from top to bottom and left to right.
 | Open alerts | Current alerts, the most serious first. Wall displays only |
 | Text | Plain text. HTML is shown as text, never run |
 | Clock | Time and date of the viewing device |
+| Live map | The [map](monitoring.md#map) of the homelab, updated at the page's refresh rate |
+| EDF Tempo | Colour of today and tomorrow, and the days left |
+
+### Live map
+
+Choose **A live map of the homelab** in **Start from** when creating a page, or add the
+**Live map** panel to any page.
+
+On a wall display the map shows everything, unless you select items. Nobody can touch a
+wall, so it has no controls.
+
+On a status page it shows the items you ticked, under their public names, like any
+other panel. Tick **Show every host and probe, including new ones** to follow the whole
+homelab without ticking each item. **This publishes real names**, and a host added later
+appears without you doing anything, so leave it off if names should stay private.
+
+Visitors can move the map around, but they get no details and no links: only names,
+states, types and which node hangs from which. Nodes keep the places you gave them on
+the Map page.
 
 ### Metrics
 
@@ -97,6 +116,20 @@ jumps to the next page every 8 seconds and shows, for example, *Page 2 of 3*. It
 rather than slides, because moving text is hard to read from across a room, and it
 starts each page on a whole item.
 
+**Several pages on one wall.** The **Rotation** tab of a wall lists your other pages.
+Tick the ones to show, in the order you want them, and set **Seconds on each page**,
+from 5 to 3600. The wall shows itself, then each ticked page, then starts over, and its
+header reads *Page 2 of 4*. All pages share that one delay. Each page keeps its own
+theme and refresh, a status page fills the screen like a wall while it is shown, and a
+draft is skipped until it is published. The screen only needs
+the first wall's link: its key opens the pages of its rotation, so ticking another wall
+shows that wall's alerts on this screen.
+
+**Pausing a wall.** The pause button in the header stops everything: the data is no
+longer fetched, and pages and long lists stop turning, so you can read what is on screen.
+The header then says when the data dates from. Press it again to resume. A reload of the
+page also resumes.
+
 **Embedding a status page.** Tick **Let other sites show this page in a frame** in the
 **Sharing** tab, then save and copy the `<iframe>` code. Any site can then frame that
 page, which is safe because it is anonymous and read-only. It remains off by default
@@ -137,5 +170,5 @@ second, without any database access.
 
 ## Not included
 
-There is no incident history, scheduled maintenance calendar, subscription by email or
-rotation between several walls. Use the notice banner for incidents.
+There is no incident history, scheduled maintenance calendar or subscription by email.
+A rotation has one delay for all its pages. Use the notice banner for incidents.

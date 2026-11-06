@@ -254,7 +254,7 @@ export function SettingForm({ title, setting, fields, needs, children }: { title
       <div className="flex flex-col gap-4">
         {children}
         {fields.map((f) => f.type === "checkbox"
-          ? <Check key={f.key} label={f.label} checked={!!value[f.key]} onChange={(e) => setForm({ ...value, [f.key]: e.target.checked })} />
+          ? <Check key={f.key} label={f.label} hint={f.hint} checked={!!value[f.key]} onChange={(e) => setForm({ ...value, [f.key]: e.target.checked })} />
           : <Input key={f.key} label={f.label} hint={f.hint} type={f.type ?? "text"} value={value[f.key] ?? ""} onChange={(e) => setForm({ ...value, [f.key]: f.type === "number" ? Number(e.target.value) : e.target.value })} />)}
         <div className="flex items-center gap-3"><Button onClick={save}>Save</Button><span className="text-[13px] text-fg2">{note}</span></div>
       </div>

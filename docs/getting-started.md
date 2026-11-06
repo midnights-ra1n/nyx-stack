@@ -10,11 +10,11 @@ uses Docker. For packages, see [deployment.md](deployment.md).
 
 ```sh
 mkdir nyx && cd nyx
-curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/.env.example
+curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/.env.example
 ```
 
-In `.env`, set `NYX_VERSION=beta` and the two public URLs. Then:
+In `.env`, set the two public URLs. Then:
 
 ```sh
 docker compose --profile monitor --profile manager up -d
@@ -30,7 +30,7 @@ servers share a database, the same account works on the manager, on port 8082.
 ## 3. Add a host
 
 1. In the monitor, open **Hosts**, then **Add host**.
-2. Enter a name and pick the type: VM, physical, Proxmox or VPS.
+2. Enter a name and pick the type: VM, LXC container, physical, Proxmox or VPS.
 3. Copy the line and run it on the host, as root.
 
 The host appears within 15 seconds. To use Ansible instead, see

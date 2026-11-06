@@ -44,7 +44,7 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 `/api/c/{coll}` reaches an allow-list of collections per server, and hides secret fields.
 It accepts `sort`, `filter`, `page` and `perPage`.
 
-Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`,
+Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), `tempo`, `meross`,
 `proxmox` and `updates` on the monitor. `link`, `nextcloud`, `proxmox`, `updates` and
 `reminders` (`task_days`, `warranty_days`) on the manager. `updates` holds `{"beta": true}` to include beta versions.
 
@@ -53,12 +53,13 @@ Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/overview` | Session | Fleet summary |
-| GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host. Each host carries its `vpn` tunnels |
-| GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it |
+| GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host, and a name can only be used once. Each host carries its `vpn` tunnels |
+| GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it. Its LXC containers go with it, other children stay at the top level |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
 | GET | `/api/hosts/{id}/logs/live` | Session | Live log lines after `?after=<seq>`, with the new `seq` and whether the agent is `connected`. Each request keeps the live view running for 15 seconds |
 | GET | `/api/series` | Session | CPU and memory history, of a host with `?host=`, else the fleet average. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
+| GET | `/api/map` | Session | Nodes of the [map](monitoring.md#map): name, state, type, parent, saved place, details and link. Places are the `map_layout` setting |
 | GET | `/api/containers` | Session | Docker containers across hosts |
 | GET | `/api/storage` | Session | Disks and SMART across hosts |
 | GET | `/api/logs` | Session | Recent log lines, `?host=&q=`. A line reads `<epoch> <<priority>> <service>: <message>` |
@@ -72,7 +73,8 @@ Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`
 | PATCH, DELETE | `/api/pages/{id}` | Session | Change or delete a page |
 | POST | `/api/pages/{id}/key` | Session | Replace a wall's private link |
 | POST | `/api/pages/preview` | Session | Render an unsaved page |
-| GET | `/api/public/pages/{slug}` | Key | Filtered page data |
+| GET | `/api/public/pages/{slug}` | Key | Filtered page data. A wall with a rotation also returns `rotation`: `count` and `seconds` |
+| GET | `/api/public/pages/{slug}/{step}` | Key | Page at that position of a wall's rotation, with the first wall's key |
 | GET | `/status/{slug}` | Public | The status page itself, framable if the page allows it |
 | POST | `/api/link/token` | Session | Create the manager link token |
 | GET | `/api/link/hosts` | Link | Hosts for the manager |
@@ -85,7 +87,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 
 Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
-or `set_kind` with `kind` and `ct_autoinstall`. `update_system` and `update_agent` are
+or `set_kind` with `kind` and `ct_autoinstall`, which watches LXC containers. `update_system` and `update_agent` are
 refused while an update runs on that host.
 
 Each host in `/api/hosts` carries `reboot_required`, and `update` once one was sent:

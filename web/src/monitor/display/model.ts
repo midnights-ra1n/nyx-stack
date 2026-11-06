@@ -1,13 +1,15 @@
 /** Page model shared by the viewer and the editor: a 24-column grid, like Grafana. */
 export const COLS = 24
 
-export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo"
+export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo" | "map"
 export interface Item { kind: "host" | "probe"; id: string; label: string }
 export interface Box { x: number; y: number; w: number; h: number }
 export interface PanelCfg extends Box { id: string; type: PanelType; title: string; items: Item[]; metric: string; text: string; uptime: boolean }
 export interface PageConfig {
   title: string; description: string; footer: string; notice: string; notice_level: string
   logo: string; preset: string; accent: string; refresh_s: number; zoom: number; embed?: boolean; panels: PanelCfg[]
+  /** On a wall: the pages shown in turn after this one, and for how long each. */
+  rotate?: string[]; rotate_s?: number
 }
 
 export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number; title: string; metric?: string; uptime?: boolean }[] = [
@@ -22,6 +24,7 @@ export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number
   { type: "text", label: "Text", w: 8, h: 3, title: "Notes" },
   { type: "clock", label: "Clock", w: 4, h: 3, title: "" },
   { type: "tempo", label: "EDF Tempo", w: 24, h: 4, title: "" },
+  { type: "map", label: "Live map", w: 24, h: 14, title: "" },
 ]
 
 // Not crypto.randomUUID: browsers only offer it over HTTPS, and Nyx also runs on plain HTTP.
@@ -74,8 +77,9 @@ export function nextScroll(top: number, view: number, height: number, cut: numbe
 
 export const slugify = (name: string) => name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64)
 
-export function template(kind: "status" | "wall", title: string): PageConfig {
+export function template(kind: "status" | "wall", title: string, start = "standard"): PageConfig {
   const page = { title, description: "", footer: "", notice: "", notice_level: "", logo: "", preset: kind === "wall" ? "graphite" : "nyx", accent: "", refresh_s: kind === "wall" ? 15 : 60, zoom: 1 }
+  if (start === "map") return { ...page, panels: [panel("overall", { x: 0, y: 0, w: 24, h: 2 }), panel("map", { x: 0, y: 2, w: 24, h: 18 })] }
   if (kind === "status") return { ...page, panels: [panel("overall", { x: 0, y: 0, w: 24, h: 2 }), panel("services", { x: 0, y: 2, w: 24, h: 8 })] }
   return { ...page, panels: [
     panel("stat", { x: 0, y: 0, w: 5, h: 3 }, { title: "Online", metric: "online" }),

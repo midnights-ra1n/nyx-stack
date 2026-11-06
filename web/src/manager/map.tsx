@@ -11,7 +11,7 @@ const FORMATS = [["svg", "SVG"], ["drawio", "draw.io"], ["mermaid", "Mermaid"], 
 const NODE: Col[] = [
   { key: "name", label: "Name", required: true },
   { key: "ip", label: "Address", mono: true },
-  { key: "type", label: "Type", type: "select", options: ["router", "switch", "server", "vm", "proxmox", "physical", "vps", "other"] },
+  { key: "type", label: "Type", type: "select", options: ["router", "switch", "server", "vm", "lxc", "proxmox", "physical", "vps", "other"] },
 ]
 
 function LinkForm({ nodes, onDone }: { nodes: any[]; onDone: () => void }) {

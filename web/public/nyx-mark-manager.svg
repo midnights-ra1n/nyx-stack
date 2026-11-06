@@ -14,7 +14,7 @@
 </linearGradient>
 </defs>
 <g mask="url(#gap)">
-<rect width="64" height="64" rx="18" fill="#c3bafe"/>
+<rect width="64" height="64" rx="18" fill="#e38b4f"/>
 <rect width="64" height="64" rx="18" fill="url(#sheen)"/>
 </g>
 </svg>

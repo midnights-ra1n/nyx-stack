@@ -20,8 +20,8 @@ address, such as a LAN name or a VPN address, change **Monitor URL** above the c
 Your browser remembers it, and the host page offers the same with **Show install
 command**. Without `NYX_PUBLIC_URL`, Nyx suggests the address in your browser.
 
-Add `--ct-autoinstall` on Proxmox to cover containers. On `physical` and `proxmox` the
-script installs smartmontools, because SMART is mandatory there.
+Add `--ct-autoinstall` on Proxmox to watch its containers, see
+[Proxmox containers](#proxmox-containers). On `physical` and `proxmox` the script installs smartmontools, because SMART is mandatory there.
 
 ### Ansible
 
@@ -39,9 +39,15 @@ The role in `packaging/ansible/roles/nyx_agent` takes the same four values:
         nyx_agent_kind: physical
 ```
 
+`nyx_agent_kind` takes `vm`, `physical`, `proxmox`, `vps` or `lxc`, like the install
+line. On `proxmox`, set `nyx_agent_ct_autoinstall: true` to watch the LXC containers from
+the host: nothing is installed inside them. It is the **Watch LXC containers from this
+host** box of the interface.
+
 Each host needs its own token and key, so create them with **Add host** and keep them
 in Ansible Vault. Changing `nyx_agent_kind` and replaying the playbook changes the
-host type without reinstalling.
+host type without reinstalling. Every variable is listed in the role's
+[README](../packaging/ansible/README.md).
 
 ### Package
 
@@ -61,19 +67,49 @@ self-update is lost when the container is recreated, so prefer systemd where you
 
 | Type | SMART | Proxmox guests | Notes |
 | --- | --- | --- | --- |
-| `vm` | no | no | Virtual machines and containers |
-| `vps` | no | no | Same as `vm`, labelled for hosted machines |
+| `vm` | no | no | Virtual machines |
+| `lxc` | no | no | LXC containers. Set by itself when the agent runs in one |
+| `vps` | no | no | A rented machine, usually a VM |
 | `physical` | yes | no | Bare metal without Proxmox |
-| `proxmox` | yes | yes | Lists guests. Can install the agent in containers |
+| `proxmox` | yes | yes | Lists guests. Can watch its containers without an agent inside |
 
 Change the type from the host page. The monitor sends the change to the agent, which
 applies it without restarting anything or losing history.
 
+The agent checks the choice against the machine, with `systemd-detect-virt`, and reports
+what it finds. A machine picked as `vm`, `lxc` or `physical` that turns out to be something
+else is listed as what it is, and SMART follows. `proxmox` and `vps` stay as picked, since
+nothing on the machine shows them: a VPS is usually a VM, sometimes a container, and a
+provider can hide its hypervisor. The inventory of the manager lists a VPS as a VM.
+
 ### Proxmox containers
 
-With container auto-install on, the agent lists containers and asks the monitor for a
-token for each one it has not seen, then runs the installer inside with `pct exec`.
-New containers are picked up the same way. The chosen type inside is `vm`.
+Nothing is installed in LXC containers. The agent on the Proxmox host reads what Proxmox
+already measures, with `pvesh`, and the monitor keeps a host for each container.
+
+Turn on **Watch LXC containers from this host**, or `--ct-autoinstall` in the install
+command, a name kept from when this option installed agents. Then:
+
+- every container gets a host of its own, under its Proxmox host, of type `lxc`, including
+  new ones. CPU, memory, root disk, network, uptime, OS and address follow every 30 s,
+  with history, alerts and status like any host. The address is the static one, or what
+  `lxc-info` reports for DHCP
+- CPU is a share of the cores given to the container
+- a stopped container shows as stopped, and raises the same alert as a host going silent
+- a destroyed container leaves Nyx
+- logs, updates, Docker state and Node.js apps need an agent, and are not available
+
+With the option off, containers do not appear at all. Turning it off removes the hosts
+of watched containers and their history. VMs are always listed under their Proxmox host,
+and need an agent of their own for metrics.
+
+Reading the figures starts `pvesh`, which is heavier than the rest of the agent. It runs
+every 30 s with the option on, every 5 minutes with it off.
+
+If you still want an agent inside a container, install it there with the type `lxc`. The
+monitor ties it to the container by name and uses it instead, until it goes quiet. An
+agent an earlier version installed keeps working the same way: remove it with
+`nyx-agent uninstall` inside the container, and the Proxmox host takes over a minute later.
 
 ### OCI containers
 
@@ -82,20 +118,12 @@ starts anything other than an init, Proxmox writes an `entrypoint` key in
 `/etc/pve/lxc/<vmid>.conf`. The container then runs that one application, with no
 systemd to start the agent, and often no shell, `curl` or package manager.
 
-The agent on the Proxmox host reads that key, reports the guest as `oci`, and:
-
-- auto-install skips it, so no install fails and no empty host is created
-- the host list shows it as `OCI container <vmid>, no agent`, with the metrics it lacks
-- its host page says the same if a host was already created for it
-
-Only its name, ID and console link are known, from Proxmox. There is no CPU, memory,
-disk, network, temperature, updates or logs for it. If the image does start
-`/sbin/init` or systemd, the container is a normal one and the agent installs as usual.
+The agent on the Proxmox host reads that key and reports the guest as `oci`. It is watched
+like any other container, so this does not limit its figures.
 
 An agent started by hand in an OCI container does report CPU, memory, disks and network.
 The host page then warns that logs, updates and Docker state stay empty when the image
-has no journald, package manager or Docker. Delete a host left over from an earlier
-auto-install from its **Agent** panel.
+has no journald, package manager or Docker.
 
 ## What is collected
 
@@ -142,8 +170,10 @@ agent: it would keep running and being refused. Its history ages out with the re
 Left in place on purpose: smartmontools, which other tools may use, and any
 `nyx-site-*` service deployed by the manager, as those are your applications.
 
-An agent inside a Proxmox container is a host of its own, so remove it there. With
-Docker, use `docker compose --profile agent down`.
+On a Proxmox host this also removes any agent left inside its running containers. A
+stopped container keeps its agent, so start it first or run the command there later. Then
+delete the host in the monitor: its LXC containers go with it, while VMs stay as hosts of
+their own, each with its own agent to remove. With Docker, use `docker compose --profile agent down`.
 
 ## Updates
 
@@ -158,5 +188,15 @@ containers of that host, including Nyx if it runs there. The run then disappears
 the page, while the updates themselves go on.
 
 The agent never contacts GitHub. It takes the binary its monitor ships, which keeps its
-version in step with the server. For beta agents, put the monitor on the beta channel,
-see [Release channels](deployment.md#release-channels).
+version in step with the server.
+
+For beta agents with a stable monitor, tick **Use beta agents** in **Settings, Monitoring**.
+This applies to every agent of the monitor. The monitor then checks GitHub once an hour,
+fetches the newest release's agents to its data folder, checks them against `SHA256SUMS`,
+and hands them out, still signed by itself, with the daily update or **Update agent**.
+Releases carry these binaries from the version that added the option. A new install takes
+the shipped agent first, then moves to beta with its first update.
+
+Unticking brings agents back to the version the monitor ships, with their next update. A
+beta agent can need a newer monitor than yours, so try it on a monitor that is not far
+behind. To move the servers too, see [Release channels](deployment.md#release-channels).

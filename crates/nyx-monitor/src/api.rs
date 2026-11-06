@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 7] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "updates"];
+const SETTINGS: [&str; 8] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "updates", "map_layout"];
 const MAX_POINTS: usize = 400;
 
 fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
@@ -49,6 +49,10 @@ pub fn hosts_json(app: &App) -> Vec<Value> {
     let mut v: Vec<&Host> = st.hosts.values().collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     v.iter().map(|h| summary(h, now, &st)).collect()
+}
+
+async fn map(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
+    Json(crate::pages::map_json(&app))
 }
 
 async fn hosts(_: Session, State(app): State<Arc<App>>) -> Json<Vec<Value>> {
@@ -133,6 +137,9 @@ async fn add_host(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewHost
     if b.name.trim().is_empty() {
         return Err(ApiError::bad_request("name is required"));
     }
+    if app.lock().hosts.values().any(|h| h.name.eq_ignore_ascii_case(b.name.trim())) {
+        return Err(ApiError::bad_request("a host has this name already: open it to see its install command"));
+    }
     let ct = b.ct_autoinstall && kind == HostKind::Proxmox;
     if !b.parent.is_empty() && !app.lock().hosts.get(&b.parent).is_some_and(|p| HostKind::parse(&p.kind).is_some_and(HostKind::has_physical_disks)) {
         return Err(ApiError::bad_request("a host can only run on a physical server"));
@@ -167,18 +174,22 @@ async fn install_line(_: Session, State(app): State<Arc<App>>, Path(id): Path<St
 }
 
 async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    let children: Vec<String> = {
+    // Containers go with their node. A VM has its own agent and stays, at the top level.
+    let (containers, others): (Vec<String>, Vec<String>) = {
         let mut st = app.lock();
-        let h = st.hosts.remove(&id).ok_or_else(ApiError::not_found)?;
-        st.by_token.remove(&h.token);
-        st.hosts.values_mut().filter(|c| c.parent == id).map(|c| { c.parent.clear(); c.id.clone() }).collect()
+        if !st.hosts.contains_key(&id) {
+            return Err(ApiError::not_found());
+        }
+        let (containers, others): (Vec<&mut Host>, Vec<&mut Host>) = st.hosts.values_mut().filter(|c| c.parent == id).partition(|c| c.is_container());
+        (containers.iter().map(|c| c.id.clone()).collect(), others.into_iter().map(|c| { c.parent.clear(); c.id.clone() }).collect())
     };
-    for c in children {
+    for c in others {
         app.core.pb.update("hosts", &c, &json!({"parent": ""})).await?;
     }
-    app.reconcile(&format!("offline:{id}"), vec![]).await?;
-    app.reconcile(&format!("host:{id}:"), vec![]).await?;
-    app.core.pb.delete("hosts", &id).await?;
+    for c in containers {
+        ingest::forget_host(&app, &c).await?;
+    }
+    ingest::forget_host(&app, &id).await?;
     Ok(Json(Value::Null))
 }
 
@@ -377,12 +388,16 @@ async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
         app.lock().tempo = None; // New keys must be tried right away.
     }
     app.reload_settings().await?;
+    if key == "maintenance" {
+        ingest::refresh_beta_agents(&app).await.map_err(|e| ApiError::bad_request(format!("Saved, but the beta agents could not be fetched: {e:#}")))?;
+    }
     Ok(Json(Value::Null))
 }
 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/overview", get(overview))
+        .route("/api/map", get(map))
         .route("/api/hosts", get(hosts).post(add_host))
         .route("/api/hosts/update-all", post(update_all))
         .route("/api/hosts/{id}", get(host).delete(delete_host))

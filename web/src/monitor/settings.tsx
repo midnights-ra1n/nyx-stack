@@ -73,6 +73,7 @@ export function Settings() {
         <SettingForm title="Daily maintenance" setting="maintenance" fields={[
           { key: "check_hour", label: "Update check hour", type: "number", hint: "Agents look for system updates once a day at this hour." },
           { key: "agent_auto_update", label: "Update agents automatically", type: "checkbox" },
+          { key: "agent_beta", label: "Use beta agents", type: "checkbox", hint: "Agents take the newest release from GitHub rather than the version this server ships." },
           { key: "retention_days", label: "Keep history for (days)", type: "number", hint: "From 30 to 365. Past 7 days, history is stored hour by hour, so a year takes about 3 MB per host." }]} />
       </> },
       { id: "integrations", label: "Integrations", icon: PuzzlePieceIcon, description: "Optional links to the services around the monitor.", body: <>

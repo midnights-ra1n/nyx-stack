@@ -6,7 +6,7 @@
 
 use crate::App;
 use anyhow::{bail, Context};
-use nyx_srv::{pb_quote, random_hex};
+use nyx_srv::pb_quote;
 use reqwest::Method;
 use serde_json::{json, Value};
 
@@ -212,7 +212,8 @@ pub async fn sync(app: &App) -> anyhow::Result<()> {
 
 async fn push(app: &App, d: &Dav, t: &Value) -> anyhow::Result<()> {
     let s = |k: &str| t[k].as_str().unwrap_or_default();
-    let uid = if s("uid").is_empty() { random_hex(16) } else { s("uid").to_string() };
+    // From the record, not random: a retry after a lost answer must hit the same event.
+    let uid = if s("uid").is_empty() { format!("nyx-task-{}", s("id")) } else { s("uid").to_string() };
     let href = if s("href").is_empty() { format!("{}{uid}.ics", d.base) } else { format!("{}{}", d.origin, s("href")) };
     // Tasks from before states existed only have `done`.
     let status = if s("status").is_empty() && t["done"].as_bool().unwrap_or(false) { "done" } else { s("status") };

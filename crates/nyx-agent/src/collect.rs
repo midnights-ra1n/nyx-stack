@@ -13,6 +13,9 @@ use sysinfo::{Components, Disks, NetworkData, Networks, ProcessRefreshKind, Proc
 
 const SLOW: Duration = Duration::from_secs(60);
 const RARE: Duration = Duration::from_secs(300);
+/// Each reading starts `pvesh`, which is heavy, so it only runs this often for those who
+/// watch containers. Short enough for a missed report not to show a container as down.
+const WATCHED_GUESTS: Duration = Duration::from_secs(30);
 const SMART: Duration = Duration::from_secs(1800);
 const MAX_LOG_BACKLOG: usize = 200;
 const MAX_LOG_LINE: usize = 500;
@@ -47,6 +50,9 @@ pub struct Collector {
     slow: Every,
     rare: Every,
     smart_every: Every,
+    guests_every: Every,
+    last_guests: Instant,
+    detected: Option<HostKind>,
     containers: Option<Vec<Container>>,
     /// Slow data sent only when it changed; `None` means "must be re-sent".
     updates: Option<Vec<PackageUpdate>>,
@@ -70,6 +76,9 @@ impl Collector {
             slow: Every(SLOW, None),
             rare: Every(RARE, None),
             smart_every: Every(SMART, None),
+            guests_every: Every(RARE, None),
+            last_guests: Instant::now(),
+            detected: detected_kind(),
             containers: None,
             updates: None,
             updates_dirty: false,
@@ -94,6 +103,7 @@ impl Collector {
         self.slow.reset();
         self.rare.reset();
         self.smart_every.reset();
+        self.guests_every.reset();
     }
 
     /// The report never reached the monitor: keep logs and results, resend the rest.
@@ -122,6 +132,7 @@ impl Collector {
         let rx: u64 = real().map(|(_, d)| d.received()).sum();
         let tx: u64 = real().map(|(_, d)| d.transmitted()).sum();
 
+        let kind = effective_kind(cfg.kind, self.detected);
         let mut r = Report {
             agent_version: env!("CARGO_PKG_VERSION").into(),
             hostname: System::host_name().unwrap_or_default(),
@@ -129,7 +140,7 @@ impl Collector {
             kernel: System::kernel_version().unwrap_or_default(),
             arch: std::env::consts::ARCH.into(),
             ip: primary_ip(&self.nets),
-            kind: cfg.kind,
+            kind,
             ct_autoinstall: cfg.ct_autoinstall,
             uptime_s: System::uptime().unwrap_or(0),
             cpu_pct: self.sys.global_cpu_usage(),
@@ -156,11 +167,18 @@ impl Collector {
         if self.rare.due() {
             let node = self.node_info();
             r.node = changed(&mut self.node, node);
-            if cfg.kind == HostKind::Proxmox {
-                r.guests = changed(&mut self.guests, proxmox::guests(&r.hostname));
-            }
         }
-        if cfg.kind.has_physical_disks() && self.smart_every.due() {
+        self.guests_every.0 = if cfg.ct_autoinstall { WATCHED_GUESTS } else { RARE };
+        if self.guests_every.due() {
+            // An empty list tells the monitor when this host stopped being a Proxmox server.
+            let mut list = if kind == HostKind::Proxmox { proxmox::guests(&r.hostname) } else { Some(vec![]) };
+            if let Some(list) = &mut list {
+                proxmox::rates(list, self.guests.as_deref().unwrap_or_default(), self.last_guests.elapsed().as_secs_f64().max(1.0));
+            }
+            self.last_guests = Instant::now();
+            r.guests = changed(&mut self.guests, list);
+        }
+        if kind.has_physical_disks() && self.smart_every.due() {
             r.smart = changed(&mut self.smart, smart::scan());
         }
         if self.updates_dirty {
@@ -192,6 +210,32 @@ impl Collector {
         apps.dedup_by(|a, b| a.path == b.path);
         apps.sort_by(|a, b| a.name.cmp(&b.name));
         Some(NodeInfo { version, apps })
+    }
+}
+
+/// What the machine is, according to systemd. `None` where it cannot say, as in the
+/// Docker image, which has no systemd and watches the host it runs on.
+fn detected_kind() -> Option<HostKind> {
+    let out = Command::new("systemd-detect-virt").output().ok()?;
+    kind_of_virt(String::from_utf8_lossy(&out.stdout).trim())
+}
+
+fn kind_of_virt(virt: &str) -> Option<HostKind> {
+    match virt {
+        "" | "docker" | "podman" | "rkt" | "wsl" | "proot" | "pouch" | "openvz" | "systemd-nspawn" => None,
+        "none" => Some(HostKind::Physical),
+        "lxc" | "lxc-libvirt" => Some(HostKind::Lxc),
+        _ => Some(HostKind::Vm), // kvm, qemu, vmware, microsoft, xen and the like
+    }
+}
+
+/// A container, a VM and a physical machine can be told apart by looking, which beats
+/// what was picked at install. Proxmox is a role and a VPS a rental, usually a VM but
+/// sometimes a container: nothing on the machine says so, and the pick stands.
+fn effective_kind(picked: HostKind, detected: Option<HostKind>) -> HostKind {
+    match picked {
+        HostKind::Proxmox | HostKind::Vps => picked,
+        _ => detected.unwrap_or(picked),
     }
 }
 
@@ -400,6 +444,25 @@ mod tests {
         for lan in ["eth0", "enp3s0", "wlan0", "wlp2s0", "vmbr0", "tunl0", "wtf0"] {
             assert_eq!(kind(lan), None, "{lan}");
         }
+    }
+
+    #[test]
+    fn the_machine_decides_between_container_vm_and_physical() {
+        use HostKind::*;
+        assert_eq!(["lxc", "lxc-libvirt", "kvm", "vmware", "none", "docker", ""].map(kind_of_virt), [Some(Lxc), Some(Lxc), Some(Vm), Some(Vm), Some(Physical), None, None]);
+        assert_eq!(effective_kind(Vm, Some(Lxc)), Lxc, "the installer used to say vm inside containers");
+        assert_eq!(effective_kind(Physical, Some(Vm)), Vm);
+        assert_eq!(effective_kind(Vm, Some(Physical)), Physical);
+        assert_eq!(effective_kind(Physical, None), Physical);
+    }
+
+    #[test]
+    fn a_role_or_a_rental_cannot_be_detected_and_stays_as_picked() {
+        use HostKind::*;
+        assert_eq!(effective_kind(Vps, Some(Vm)), Vps);
+        assert_eq!(effective_kind(Vps, Some(Lxc)), Vps);
+        assert_eq!(effective_kind(Vps, Some(Physical)), Vps, "a provider can hide its hypervisor");
+        assert_eq!(effective_kind(Proxmox, Some(Vm)), Proxmox, "nested Proxmox");
     }
 
     #[test]

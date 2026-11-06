@@ -112,8 +112,8 @@ deploys on the host, not inside containers.
 Detection goes by the `node` binary, so it finds apps run through nvm, PM2 or Next.js,
 which rename their process. An app's folder comes from its script, then from its working
 directory, up to the nearest `package.json`. Tools in hidden folders, such as VS Code
-Server, are left out. On a Proxmox node, apps inside containers belong to the agent in
-that container.
+Server, are left out. On a Proxmox node, apps inside containers are only found by an
+agent in that container: watching containers from the node does not show them.
 
 GitHub, Gitea and Forgejo sign webhooks with `X-Hub-Signature-256`, and GitLab sends
 `X-Gitlab-Token`. Both are supported.

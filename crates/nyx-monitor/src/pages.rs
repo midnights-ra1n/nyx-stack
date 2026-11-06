@@ -41,7 +41,7 @@ const MAX_PANELS: usize = 64;
 const MAX_TEXT: usize = 20_000;
 const MAX_LOGO: usize = 350_000; // about 256 KB once decoded
 const COLS: i64 = 24;
-const PANEL_TYPES: [&str; 11] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo"];
+const PANEL_TYPES: [&str; 12] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map"];
 const PRESETS: [&str; 3] = ["nyx", "graphite", "light"];
 /// The id of the monitor's own heartbeat among the probe rollups.
 pub const MONITOR: &str = "_monitor";
@@ -172,6 +172,10 @@ pub struct Config {
     /// Let other sites show this status page in a frame. Walls ignore it.
     pub embed: bool,
     pub panels: Vec<Panel>,
+    /// On a wall, the pages shown in turn after this one.
+    pub rotate: Vec<String>,
+    /// Seconds on each page of the rotation.
+    pub rotate_s: u32,
 }
 
 /// Trust boundary of page editing: everything stored or shown later passes here.
@@ -198,6 +202,8 @@ pub fn clean_config(mut c: Config) -> Result<Config, String> {
     }
     c.refresh_s = if c.refresh_s == 0 { 30 } else { c.refresh_s.clamp(5, 3600) };
     c.zoom = if c.zoom > 0.0 { c.zoom.clamp(0.5, 4.0) } else { 1.0 };
+    c.rotate_s = if c.rotate_s == 0 { 30 } else { c.rotate_s.clamp(5, 3600) };
+    c.rotate.truncate(MAX_PANELS);
     if c.panels.len() > MAX_PANELS {
         return Err(format!("at most {MAX_PANELS} panels"));
     }
@@ -270,6 +276,14 @@ impl Pages {
             None => self.list.push(page),
         }
         self.list.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+
+    /// What a page shows in turn, itself first. Only a wall rotates: its key is what
+    /// lets it reach other walls, and a public page must never open that door.
+    fn rotation<'a>(&'a self, page: &'a Page) -> Vec<&'a Page> {
+        let others = page.config.rotate.iter().filter(|_| page.kind == "wall");
+        let others = others.filter_map(|id| self.list.iter().find(|p| p.id == *id && p.id != page.id && p.published));
+        std::iter::once(page).chain(others).collect()
     }
 }
 
@@ -397,9 +411,10 @@ fn target_row<'a>(c: &Ctx<'a>, it: &Item) -> Option<Row<'a>> {
     Some(Row { label: if it.label.is_empty() { name.to_string() } else { it.label.clone() }, id, state, target })
 }
 
-/// A status page shows only what was picked. On a wall, no selection means everything.
+/// A status page shows only what was picked, unless its map was told to show it all.
+/// On a wall, no selection means everything.
 fn rows<'a>(c: &Ctx<'a>, p: &Panel) -> Vec<Row<'a>> {
-    if p.items.is_empty() && c.wall {
+    if p.items.is_empty() && (c.wall || (p.kind == "map" && p.metric == "all")) {
         let hosts = c.st.hosts.keys().map(|id| Item { kind: "host".into(), id: id.clone(), label: String::new() });
         let probes = c.st.probes.keys().map(|id| Item { kind: "probe".into(), id: id.clone(), label: String::new() });
         let mut all: Vec<Row> = hosts.chain(probes).filter_map(|i| target_row(c, &i)).collect();
@@ -407,6 +422,62 @@ fn rows<'a>(c: &Ctx<'a>, p: &Panel) -> Vec<Row<'a>> {
         return all;
     }
     p.items.iter().filter_map(|i| target_row(c, i)).collect()
+}
+
+/// The nodes of a map with their ids. `parent` is a position in the list: the ids stay
+/// here, since a public page has no use for them. With `guests`, VMs without an agent
+/// are added under their Proxmox host, as the list of a Proxmox host holds nothing else.
+fn map_nodes(c: &Ctx, rows: &[Row], guests: bool) -> Vec<(String, Value)> {
+    let place = |id: &str| {
+        let at = &c.st.map_layout[id];
+        (at["x"].as_f64(), at["y"].as_f64())
+    };
+    let mut nodes: Vec<(String, Value)> = rows.iter().map(|r| {
+        let (kind, parent) = match r.target {
+            Target::Host(h) => (if h.is_container() { "ct" } else { h.kind.as_str() }, rows.iter().position(|p| p.id == h.parent)),
+            Target::Probe(_) => ("probe", None),
+        };
+        let (x, y) = place(r.id);
+        (r.id.to_string(), json!({"label": r.label, "state": r.state, "type": kind, "parent": parent, "x": x, "y": y}))
+    }).collect();
+    for (i, r) in rows.iter().enumerate().filter(|_| guests) {
+        let Target::Host(h) = r.target else { continue };
+        for g in h.live.iter().flat_map(|l| &l.guests) {
+            if c.st.hosts.values().any(|o| (o.parent == h.id && o.vmid == g.vmid) || o.name == g.name || o.hostname == g.name) {
+                continue;
+            }
+            let id = format!("{}/{}", h.id, g.vmid);
+            let (x, y) = place(&id);
+            let (kind, state) = (if g.kind == "lxc" { "ct" } else { "vm" }, if g.status == "running" { "ok" } else { "off" });
+            nodes.push((id, json!({"label": g.name, "state": state, "type": kind, "parent": i, "x": x, "y": y})));
+        }
+    }
+    nodes
+}
+
+/// The map of the signed-in page: everything, with what a visitor must not see.
+pub fn map_json(app: &App) -> Value {
+    let now = Local::now();
+    let st = app.lock();
+    let c = Ctx { st: &st, now: now.timestamp(), today: now.date_naive(), wall: true };
+    let all = rows(&c, &Panel::default());
+    json!(map_nodes(&c, &all, true).into_iter().map(|(id, mut node)| {
+        let row = all.iter().find(|r| r.id == id);
+        let figure = |m: &str| row.and_then(|r| metric(&c, r, m)).map(|(v, unit, _)| format!("{v:.0} {unit}"));
+        match row.map(|r| &r.target) {
+            Some(Target::Host(h)) => {
+                node["detail"] = json!({"Address": Some(h.ip.as_str()).filter(|ip| !ip.is_empty()), "CPU": figure("cpu"), "Memory": figure("mem"), "Temperature": figure("temp")});
+                node["link"] = format!("/hosts/{id}").into();
+            }
+            Some(Target::Probe(p)) => {
+                node["detail"] = json!({"Target": p.def.target, "Latency": figure("latency")});
+                node["link"] = "/network".into();
+            }
+            None => node["detail"] = json!({"Agent": "None"}),
+        }
+        node["id"] = id.into();
+        node
+    }).collect::<Vec<_>>())
 }
 
 fn uptime_of(c: &Ctx, r: &Row) -> Option<f64> {
@@ -520,6 +591,7 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
             let unit = match p.metric.as_str() { "latency" => "ms", "temp" => "°C", "rx" | "tx" => "Mbit/s", _ => "%" };
             json!({"unit": unit, "series": rows.iter().map(|r| json!({"name": r.label, "values": series(c, r, &p.metric)})).collect::<Vec<_>>()})
         }
+        "map" => json!(map_nodes(c, &rows, p.items.is_empty()).into_iter().map(|(_, node)| node).collect::<Vec<_>>()),
         "tempo" => c.st.tempo.as_ref().map_or(Value::Null, |(_, v)| json!({"today": v["today"], "tomorrow": v["tomorrow"], "remaining": v["remaining"]})),
         "alerts" if c.wall => {
             let mut open: Vec<_> = c.st.alerts.values().collect();
@@ -570,18 +642,34 @@ async fn status_shell(State(app): State<Arc<App>>, Path(slug): Path<String>, uri
 }
 
 async fn public(State(app): State<Arc<App>>, Path(slug): Path<String>, headers: HeaderMap) -> ApiResult<Response> {
+    serve(&app, &slug, 0, &headers)
+}
+
+async fn public_step(State(app): State<Arc<App>>, Path((slug, step)): Path<(String, usize)>, headers: HeaderMap) -> ApiResult<Response> {
+    serve(&app, &slug, step, &headers)
+}
+
+/// Page `step` of what `slug` rotates through. The key is that of `slug`, whichever
+/// page comes out: the screen only ever holds its own.
+fn serve(app: &App, slug: &str, step: usize, headers: &HeaderMap) -> ApiResult<Response> {
     let key = headers.get(KEY_HEADER).and_then(|k| k.to_str().ok());
     let reply = |body: Bytes| ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-cache")], body).into_response();
-    let page = {
+    let cached = format!("{slug}/{step}");
+    let (page, count, seconds) = {
         let pages = app.pages.lock().unwrap();
-        let page = pages.list.iter().find(|p| p.slug == slug && p.readable(key)).ok_or_else(ApiError::not_found)?;
-        if let Some((_, body)) = pages.cache.get(&slug).filter(|(at, _)| at.elapsed().as_secs() < CACHE_S) {
+        let root = pages.list.iter().find(|p| p.slug == slug && p.readable(key)).ok_or_else(ApiError::not_found)?;
+        if let Some((_, body)) = pages.cache.get(&cached).filter(|(at, _)| at.elapsed().as_secs() < CACHE_S) {
             return Ok(reply(body.clone()));
         }
-        page.clone()
+        let chain = pages.rotation(root);
+        ((*chain.get(step).ok_or_else(ApiError::not_found)?).clone(), chain.len(), root.config.rotate_s)
     };
-    let body = Bytes::from(build(&app.lock(), &page.kind, &page.config, Local::now()).to_string());
-    app.pages.lock().unwrap().cache.insert(slug, (Instant::now(), body.clone()));
+    let mut body = build(&app.lock(), &page.kind, &page.config, Local::now());
+    if count > 1 {
+        body["rotation"] = json!({"count": count, "seconds": seconds});
+    }
+    let body = Bytes::from(body.to_string());
+    app.pages.lock().unwrap().cache.insert(cached, (Instant::now(), body.clone()));
     Ok(reply(body))
 }
 
@@ -686,6 +774,7 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/status/{slug}", get(status_shell))
         .route("/api/public/pages/{slug}", get(public))
+        .route("/api/public/pages/{slug}/{step}", get(public_step))
         .route("/api/pages", get(list).post(create))
         .route("/api/pages/preview", post(preview))
         .route("/api/pages/{id}", patch(update).delete(remove))
@@ -892,5 +981,93 @@ mod tests {
             u.add("p", day(1) + Duration::days(i), 1, 1);
         }
         assert_eq!(u.days["p"].len(), DAYS + 1);
+    }
+
+    fn map_page(metric: &str, items: Vec<Item>) -> Config {
+        clean_config(Config { panels: vec![Panel { id: "m".into(), kind: "map".into(), metric: metric.into(), items, ..Panel::default() }], ..Config::default() }).unwrap()
+    }
+
+    fn map_of(st: &Fleet, kind: &str, cfg: &Config) -> Vec<Value> {
+        build(st, kind, cfg, Local::now())["panels"][0]["data"].as_array().unwrap().clone()
+    }
+
+    fn pick(id: &str, kind: &str, label: &str) -> Item {
+        Item { kind: kind.into(), id: id.into(), label: label.into() }
+    }
+
+    #[test]
+    fn a_public_map_shows_only_what_was_picked_under_the_chosen_name() {
+        let st = fleet(Local::now().timestamp());
+        assert!(map_of(&st, "status", &map_page("", vec![])).is_empty());
+        let nodes = map_of(&st, "status", &map_page("", vec![pick("h1", "host", "Home server")]));
+        assert_eq!(nodes.len(), 1);
+        assert_eq!((nodes[0]["label"].as_str(), nodes[0]["state"].as_str()), (Some("Home server"), Some("ok")));
+        let text = serde_json::to_string(&nodes).unwrap();
+        for private in ["pve-secret", "192.0.2.10", "h1", "pve.lan", "internal.example"] {
+            assert!(!text.contains(private), "{private} leaked: {text}");
+        }
+    }
+
+    #[test]
+    fn a_status_map_shows_all_only_when_told_to_and_a_wall_by_default() {
+        let st = fleet(Local::now().timestamp());
+        assert_eq!(map_of(&st, "status", &map_page("all", vec![])).len(), 2);
+        assert_eq!(map_of(&st, "wall", &map_page("", vec![])).len(), 2);
+    }
+
+    #[test]
+    fn children_point_at_their_parent_and_keep_their_saved_place() {
+        let now = Local::now().timestamp();
+        let mut st = fleet(now);
+        st.hosts.insert("c1".into(), Host::from_record(&json!({"id": "c1", "name": "web", "parent": "h1", "kind": "lxc", "vmid": 101})));
+        st.map_layout = json!({"c1": {"x": 12.0, "y": -4.0}});
+        let nodes = map_of(&st, "wall", &map_page("", vec![]));
+        let index = |label: &str| nodes.iter().position(|n| n["label"] == label).unwrap();
+        let web = &nodes[index("web")];
+        assert_eq!((web["parent"].as_u64(), web["type"].as_str()), (Some(index("pve-secret") as u64), Some("ct")));
+        assert_eq!((web["x"].as_f64(), web["y"].as_f64()), (Some(12.0), Some(-4.0)));
+        assert!(nodes[index("pve-secret")]["x"].is_null());
+    }
+
+    #[test]
+    fn a_vm_without_an_agent_hangs_under_its_node_but_only_when_everything_is_shown() {
+        let now = Local::now().timestamp();
+        let mut st = fleet(now);
+        let guest = |vmid, name: &str| nyx_proto::Guest { vmid, name: name.into(), kind: "qemu".into(), status: "stopped".into(), ..nyx_proto::Guest::default() };
+        st.hosts.get_mut("h1").unwrap().live.as_mut().unwrap().guests = vec![guest(100, "db"), guest(101, "Website")];
+        st.hosts.insert("v".into(), Host::from_record(&json!({"id": "v", "name": "known", "parent": "h1", "vmid": 101})));
+        let nodes = map_of(&st, "wall", &map_page("", vec![]));
+        assert_eq!(nodes.iter().filter(|n| n["type"] == "vm" && n["label"] == "db" && n["state"] == "off" && !n["parent"].is_null()).count(), 1);
+        assert_eq!(nodes.iter().filter(|n| n["label"] == "Website").count(), 1, "a guest with a host is that host");
+        assert!(!serde_json::to_string(&map_of(&st, "status", &map_page("", vec![pick("h1", "host", "")]))).unwrap().contains("db"));
+    }
+
+    fn in_rotation(id: &str, kind: &str, published: bool, rotate: &[&str]) -> Page {
+        Page { id: id.into(), name: id.into(), slug: id.into(), kind: kind.into(), published, key: "k".into(), config: Config { rotate: rotate.iter().map(|s| s.to_string()).collect(), ..Config::default() } }
+    }
+
+    #[test]
+    fn a_wall_rotates_through_published_pages_in_the_chosen_order() {
+        let mut pages = Pages::default();
+        for p in [in_rotation("wall", "wall", true, &["c", "b", "draft", "gone", "wall"]), in_rotation("b", "wall", true, &[]), in_rotation("c", "status", true, &[]), in_rotation("draft", "wall", false, &[])] {
+            pages.store(p);
+        }
+        let wall = pages.list.iter().find(|p| p.id == "wall").unwrap();
+        assert_eq!(pages.rotation(wall).iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["wall", "c", "b"]);
+    }
+
+    #[test]
+    fn a_public_page_cannot_reach_a_wall_through_a_rotation() {
+        let mut pages = Pages::default();
+        pages.store(in_rotation("wall", "wall", true, &[]));
+        pages.store(in_rotation("public", "status", true, &["wall"]));
+        let public = pages.list.iter().find(|p| p.id == "public").unwrap();
+        assert_eq!(pages.rotation(public).len(), 1);
+    }
+
+    #[test]
+    fn the_rotation_delay_stays_within_its_bounds() {
+        let delay = |rotate_s| clean_config(Config { rotate_s, ..Config::default() }).unwrap().rotate_s;
+        assert_eq!((delay(0), delay(1), delay(45), delay(99_999)), (30, 5, 45, 3600));
     }
 }

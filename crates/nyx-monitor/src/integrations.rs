@@ -399,6 +399,13 @@ mod tests {
             assert_eq!(seen[0].1, "Basic bWU6YXBw");
             assert!(seen[1].2.contains("SUMMARY:🔴 Rouge"));
         }
+        // A monitor reinstalled on the same calendar has no memory of what it sent, and
+        // sends the season again: the same files, so Nextcloud replaces each event.
+        assert_eq!(send_days(&http, &cal("tempo"), &days).await.unwrap(), 2);
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen[..2].iter().map(|s| (&s.0, &s.2)).collect::<Vec<_>>(), seen[2..4].iter().map(|s| (&s.0, &s.2)).collect::<Vec<_>>());
+        }
         assert!(send_days(&http, &cal("missing"), &days).await.unwrap_err().to_string().contains("no calendar"));
     }
 

@@ -48,8 +48,9 @@ fn assets_of(h: &Value) -> Vec<(String, Value)> {
     let id = h["id"].as_str().unwrap_or_default();
     let name = h["name"].as_str().unwrap_or_default();
     let mut out = vec![];
-    if h["kind"] == "vm" || h["kind"] == "vps" {
-        let kind = if h["vmid"].as_u64().unwrap_or(0) > 0 { "container" } else { h["kind"].as_str().unwrap_or("vm") };
+    if h["kind"] == "vm" || h["kind"] == "vps" || h["kind"] == "lxc" {
+        // A VPS is a VM to the inventory. `vmid` covers containers of older agents, reported as `vm`.
+        let kind = if h["kind"] == "lxc" || h["vmid"].as_u64().unwrap_or(0) > 0 { "container" } else { "vm" };
         out.push((id.to_string(), json!({"name": name, "type": kind, "hostname": h["hostname"], "ip": h["ip"], "status": h["status"], "vmid": h["vmid"], "pve_node": h["pve_node"]})));
     }
     for g in h["guests"].as_array().into_iter().flatten() {
@@ -144,6 +145,8 @@ mod tests {
         assert_eq!(a[0].1["type"], "container");
         let vm = json!({"id": "v", "name": "vm1", "kind": "vm", "vmid": 0});
         assert_eq!(assets_of(&vm)[0].1["type"], "vm");
+        assert_eq!(assets_of(&json!({"id": "s", "name": "ovh", "kind": "vps"}))[0].1["type"], "vm");
+        assert_eq!(assets_of(&json!({"id": "c", "name": "ct", "kind": "lxc", "vmid": 101}))[0].1["type"], "container");
     }
 
     #[test]

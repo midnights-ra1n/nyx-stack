@@ -10,6 +10,7 @@ import { Grid } from "./viewer"
 const MAX_LOGO = 256 * 1024
 const pageUrl = (p: any) => `${location.origin}/${p.kind}/${p.slug}${p.kind === "wall" ? `#key=${p.access_key}` : ""}`
 const KINDS = [{ value: "status", label: "Public status page" }, { value: "wall", label: "Wall display" }]
+const STARTS = [{ value: "standard", label: "The usual panels" }, { value: "map", label: "A live map of the homelab" }]
 
 const HOST_METRICS = [["cpu", "CPU"], ["mem", "Memory"], ["swap", "Swap"], ["disk", "Fullest disk"], ["temp", "Temperature"], ["rx", "Network in"], ["tx", "Network out"]]
 const PROBE_METRICS = [["latency", "Latency"], ["cert_days", "Certificate days left"]]
@@ -17,13 +18,13 @@ const COUNTS = [["online", "Number online"], ["down", "Number down"], ["containe
 const SERIES = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["temp", "Temperature"], ["rx", "Network in"], ["tx", "Network out"], ["latency", "Probe latency"]]
 
 function NewPage({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ name: "", kind: "status", slug: "" })
+  const [f, setF] = useState({ name: "", kind: "status", slug: "", start: "standard" })
   const [error, setError] = useState("")
   const slug = f.slug || slugify(f.name)
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const page = await api("/api/pages", { body: { name: f.name, kind: f.kind, slug, config: template(f.kind as any, f.name) } })
+      const page = await api("/api/pages", { body: { name: f.name, kind: f.kind, slug, config: template(f.kind as any, f.name, f.start) } })
       navigate(`/pages/${page.id}`)
     } catch (err) { setError((err as Error).message) }
   }
@@ -32,6 +33,7 @@ function NewPage({ onDone }: { onDone: () => void }) {
       <form className="flex flex-col gap-4" onSubmit={save}>
         <Input label="Name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <Select label="Type" value={f.kind} options={KINDS} onChange={(e) => setF({ ...f, kind: e.target.value })} />
+        <Select label="Start from" value={f.start} options={STARTS} onChange={(e) => setF({ ...f, start: e.target.value })} />
         <Input label="Address" required value={slug} className="font-mono" onChange={(e) => setF({ ...f, slug: e.target.value })} hint={`${location.origin}/${f.kind}/${slug}`} />
         <p className="text-fg2">{f.kind === "wall" ? "Fills the screen without scrolling. Opens with a private link, no sign-in needed." : "Anyone with the address can read it once published. It shows only what you pick."}</p>
         <ErrorNote>{error}</ErrorNote>
@@ -110,7 +112,8 @@ function PanelForm({ panel, wall, onSave, onClose }: { panel: PanelCfg; wall: bo
   const probes = useApi<any[]>("/api/probes", { poll: false }).data ?? []
   const set = (over: Partial<PanelCfg>) => setP({ ...p, ...over })
   const num = (k: keyof Box, label: string) => <Input label={label} type="number" min={0} value={p[k]} onChange={(e) => set({ [k]: Number(e.target.value) })} />
-  const usesItems = !["overall", "text", "clock", "alerts", "tempo"].includes(p.type)
+  const everything = p.type === "map" && p.metric === "all"
+  const usesItems = !["overall", "text", "clock", "alerts", "tempo"].includes(p.type) && !everything
   const usesMetric = ["stat", "gauge", "bars", "timeseries"].includes(p.type)
   return (
     <Modal title={PANEL_TYPES.find((t) => t.type === p.type)?.label ?? "Panel"} onClose={onClose} wide>
@@ -118,6 +121,7 @@ function PanelForm({ panel, wall, onSave, onClose }: { panel: PanelCfg; wall: bo
         <Input label="Title" value={p.title} onChange={(e) => set({ title: e.target.value })} hint="Leave empty for no title bar." />
         {usesMetric && <Select label="Metric" value={p.metric} onChange={(e) => set({ metric: e.target.value })} options={metricOptions(p, wall, probes).map(([value, label]) => ({ value, label }))} />}
         {p.type === "services" && <Check label="Show 30 days of uptime" checked={p.uptime} onChange={(e) => set({ uptime: e.target.checked })} />}
+        {p.type === "map" && !wall && <div className="col-span-full"><Check label="Show every host and probe, including new ones" hint="Their real names become public." checked={everything} onChange={(e) => set({ metric: e.target.checked ? "all" : "", items: [] })} /></div>}
         {p.type === "text" && <div className="col-span-full"><TextArea label="Text" rows={5} value={p.text} onChange={(e) => set({ text: e.target.value })} /></div>}
         {usesItems && <ItemPicker items={p.items} onChange={(items) => set({ items })} hint={wall ? "Leave everything unticked to show all hosts and probes." : "Only what you tick is public. Give it another name to hide the real one."} />}
         <div className="col-span-full grid grid-cols-4 gap-3">{num("x", "Column")}{num("y", "Row")}{num("w", "Width")}{num("h", "Height")}</div>
@@ -198,6 +202,23 @@ function Appearance({ c, set }: { c: PageConfig; set: (o: Partial<PageConfig>) =
   )
 }
 
+function Rotation({ c, set, others }: { c: PageConfig; set: (o: Partial<PageConfig>) => void; others: any[] }) {
+  const picked = c.rotate ?? []
+  return (
+    <Panel title="Page rotation">
+      <div className="flex flex-col gap-4">
+        <p className="text-fg2">This wall shows itself, then each page ticked here, then starts over. Its private link is enough for all of them.</p>
+        {others.length === 0 ? <Empty>No other pages yet.</Empty> : (
+          <ul className="flex flex-col gap-1">
+            {others.map((p) => <li key={p.id}><Check label={p.name} hint={p.published ? (p.kind === "wall" ? "Wall display" : "Status page") : "Draft: skipped until it is published."} checked={picked.includes(p.id)} onChange={(e) => set({ rotate: e.target.checked ? [...picked, p.id] : picked.filter((id) => id !== p.id) })} /></li>)}
+          </ul>
+        )}
+        <div className="w-48"><Input label="Seconds on each page" type="number" min={5} max={3600} value={c.rotate_s || 30} onChange={(e) => set({ rotate_s: Number(e.target.value) })} /></div>
+      </div>
+    </Panel>
+  )
+}
+
 function Sharing({ page, onChange, c, set }: { page: any; onChange: (p: any) => void; c: PageConfig; set: (o: Partial<PageConfig>) => void }) {
   const [slug, setSlug] = useState(page.slug)
   const [error, setError] = useState("")
@@ -268,7 +289,7 @@ export function PageEditor({ id }: { id: string }) {
   return (
     <>
       <PageHeader title={page.name} crumbs={[{ label: "Status pages", to: "/pages" }, { label: page.name }]} subtitle={note || (dirty ? "Unsaved changes." : page.published ? "Published." : "Draft: not visible yet.")}
-        variables={<Tabs tabs={TABS} value={tab} onChange={setTab} />}
+        variables={<Tabs tabs={page.kind === "wall" ? [...TABS, { id: "rotation", label: "Rotation" }] : TABS} value={tab} onChange={setTab} />}
         actions={<>
           {page.published && <a href={pageUrl(page)} target="_blank" rel="noreferrer"><Button><ArrowTopRightOnSquareIcon className="size-5" aria-hidden />Open</Button></a>}
           <Button onClick={() => publish(!page.published)}>{page.published ? "Unpublish" : "Publish"}</Button>
@@ -277,6 +298,7 @@ export function PageEditor({ id }: { id: string }) {
       <Section>
         {tab === "appearance" && <Appearance c={cfg} set={set} />}
         {tab === "sharing" && <Sharing page={page} onChange={setPage} c={cfg} set={set} />}
+        {tab === "rotation" && <Rotation c={cfg} set={set} others={(pages ?? []).filter((p) => p.id !== id)} />}
         {tab === "layout" && <>
           <Select label="Add a panel" value="" onChange={(e) => e.target.value && set({ panels: addPanel(cfg.panels, e.target.value as any) })} options={[{ value: "", label: "Choose a type…" }, ...PANEL_TYPES.filter((t) => page.kind === "wall" || t.type !== "alerts").map((t) => ({ value: t.type, label: t.label }))]} />
           <div className="rounded-panel bg-bg p-2" style={themeVars(cfg.preset, cfg.accent)}>

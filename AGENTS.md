@@ -28,7 +28,7 @@ Il pourra se déployer à la main via un bouton "Ajouter un hôte" et ensuite on
 Les types de déploiement à prendre en charge et à inclure dans la ligne curl :
 - VM
 - Serveur physique (Non Proxmox)
-- Serveur physique (Proxmox) avec si activé installation dans des CT Proxmox et détection et installation de l'agent dans les nouveaux CT
+- Serveur physique (Proxmox) avec si activé surveillance des LXC depuis l'hôte Proxmox, sans agent à l'intérieur, y compris les nouveaux LXC
 - VPS
 
 La surveillance SMART est obligatoire dans les déploiements/installations dans des hôtes physiques.

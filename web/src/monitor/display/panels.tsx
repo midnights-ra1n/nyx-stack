@@ -2,6 +2,7 @@ import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { BarGauge, ChartHover, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
+import { LiveMap } from "../map"
 import { TempoTiles } from "../tempo"
 import { nextScroll, uptimeBar } from "./model"
 
@@ -162,7 +163,7 @@ function Clock() {
   )
 }
 
-function Body({ p, overall, generated }: { p: any; overall: Level; generated: number }) {
+function Body({ p, overall, generated, paged }: { p: any; overall: Level; generated: number; paged?: boolean }) {
   switch (p.type) {
     case "overall": return <Overall state={overall} />
     case "services": return <Services rows={p.data} generated={generated} />
@@ -174,11 +175,12 @@ function Body({ p, overall, generated }: { p: any; overall: Level; generated: nu
     case "alerts": return <Alerts rows={p.data} />
     case "text": return <p className="whitespace-pre-wrap">{p.text}</p>
     case "clock": return <Clock />
+    case "map": return <LiveMap nodes={p.data ?? []} still={paged} />
     default: return null
   }
 }
 
-const EDGE_TO_EDGE = ["overall"]
+const EDGE_TO_EDGE = ["overall", "map"]
 const PAGE_MS = 8000
 
 /** Nobody can scroll a wall, so what does not fit comes up one page at a time. A jump, not a slide: moving text is hard to read from across a room. */
@@ -204,13 +206,13 @@ function useWallPaging(on: boolean) {
 }
 
 /** A compact frame, like a Grafana panel, that fills its grid cell. */
-export function DashPanel({ p, overall, generated, paged }: { p: any; overall: Level; generated: number; paged?: boolean }) {
-  const { ref, label } = useWallPaging(!!paged && p.type !== "tempo")
+export function DashPanel({ p, overall, generated, paged, paused }: { p: any; overall: Level; generated: number; paged?: boolean; paused?: boolean }) {
+  const { ref, label } = useWallPaging(!!paged && !paused && p.type !== "tempo" && p.type !== "map")
   if (p.type === "tempo") return p.data ? <TempoTiles tempo={p.data} className="h-full auto-rows-fr" /> : <div className="flex h-full items-center justify-center rounded-panel border border-line bg-surface text-fg3">No EDF Tempo data</div>
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface" aria-label={p.title || p.type}>
       {p.title && <h2 className="flex h-8 shrink-0 items-center truncate px-3 text-[13px] font-medium text-fg2">{p.title}</h2>}
-      <div ref={ref} className={`min-h-0 flex-1 ${paged ? "overflow-hidden" : "overflow-auto"} ${EDGE_TO_EDGE.includes(p.type) ? "" : p.title ? "px-3 pb-2" : "p-2"}`}><Body p={p} overall={overall} generated={generated} /></div>
+      <div ref={ref} className={`min-h-0 flex-1 ${paged ? "overflow-hidden" : "overflow-auto"} ${EDGE_TO_EDGE.includes(p.type) ? "" : p.title ? "px-3 pb-2" : "p-2"}`}><Body p={p} overall={overall} generated={generated} paged={paged} /></div>
       {label && <span className="absolute right-3 top-1.5 rounded-control bg-raised px-2 text-xs text-fg2">{label}</span>}
     </section>
   )

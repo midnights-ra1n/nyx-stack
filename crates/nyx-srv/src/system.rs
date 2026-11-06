@@ -2,7 +2,8 @@
 //!
 //! The server runs unprivileged, so it only drops a request file. A root systemd
 //! path unit picks it up, see `packaging/update.sh`. GitHub is contacted only when
-//! the user asks for a check. Docker installs update by pulling a new image.
+//! the user asks for a check, or turns on beta agents on the monitor. Docker installs
+//! update by pulling a new image.
 //!
 //! Release tags are `vX.Y.Z`, or `vX.Y.Z-beta.N` on the beta channel, which leads
 //! up to the stable version of the same number.
@@ -34,7 +35,7 @@ fn parse_version(v: &str) -> Option<(u32, u32, u32, u32)> {
     p.next().is_none().then_some(t)
 }
 
-fn is_newer(tag: &str, current: &str) -> bool {
+pub fn is_newer(tag: &str, current: &str) -> bool {
     parse_version(tag) > parse_version(&format!("v{current}"))
 }
 
@@ -48,11 +49,20 @@ fn newest(releases: &Value) -> &str {
     tags.max_by_key(|t| parse_version(t)).unwrap_or_default()
 }
 
+async fn releases(url: String) -> reqwest::Result<Value> {
+    reqwest::Client::new().get(url).header("user-agent", "nyx-stack").send().await?.error_for_status()?.json().await
+}
+
+/// The tag of the highest release, beta or not.
+pub async fn newest_release() -> reqwest::Result<String> {
+    Ok(newest(&releases(format!("{RELEASES}?per_page={BETA_LOOKBACK}")).await?).to_string())
+}
+
 async fn check(_: Session, State(core): State<Arc<Core>>) -> ApiResult<Json<Value>> {
     let beta = core.pb.setting("updates").await?.is_some_and(|s| s["beta"] == true);
     let url = if beta { format!("{RELEASES}?per_page={BETA_LOOKBACK}") } else { format!("{RELEASES}/latest") };
     let fail = |e: reqwest::Error| ApiError::bad_request(format!("could not reach GitHub: {e}"));
-    let answer: Value = reqwest::Client::new().get(url).header("user-agent", "nyx-stack").send().await.map_err(fail)?.error_for_status().map_err(fail)?.json().await.map_err(fail)?;
+    let answer = releases(url).await.map_err(fail)?;
     let tag = if beta { newest(&answer) } else { answer["tag_name"].as_str().unwrap_or_default() };
     Ok(Json(json!({"latest": tag, "available": is_newer(tag, env!("CARGO_PKG_VERSION"))})))
 }

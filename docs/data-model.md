@@ -13,7 +13,7 @@ and are rebuilt from agents and rollups after a restart.
 | Collection | Purpose | Kept |
 | --- | --- | --- |
 | `users` | Accounts (PocketBase built-in) | Always |
-| `settings` | Key and JSON value: thresholds, integrations, update channel, link token hash, and the monitor's daily `history` snapshot | Always |
+| `settings` | Key and JSON value: thresholds, integrations, update channel, link token hash, map places, and the monitor's daily `history` snapshot | Always |
 | `passkeys` | WebAuthn credentials per user | Until removed |
 | `mcp_tokens` | Hashed MCP tokens | Until revoked |
 | `notif_channels` | Shoutrrr URL and templates | Always |

@@ -20,11 +20,10 @@ the manager fills its inventory from the agents and deploys sites through them.
 
 ## Project status
 
-Nyx is pre-release software. The code builds and its tests pass, and the servers have
-been exercised on macOS with real processes and a browser. Beta images and packages are
-published, but there is no stable release yet, and the Docker, Linux package, SMART and
-Proxmox paths have not been run on real systems. You can also
-[build it from source](docs/development.md).
+Nyx 0.1.0 is the first stable release, with images and packages on the
+[releases page](https://github.com/midnights-ra1n/nyx-stack/releases). It is a young
+project: its tests pass, but it has only seen light use on real systems, so keep backups
+and report what breaks. You can also [build it from source](docs/development.md).
 
 ## Features
 
@@ -126,9 +125,9 @@ Both interfaces work as installable web apps.
 ## Quick start with Docker
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/.env.example
-# Set NYX_VERSION=beta and your two URLs in .env, then:
+curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/stable/packaging/docker/.env.example
+# Set your two URLs in .env, then:
 docker compose --profile monitor --profile manager up -d
 ```
 

@@ -27,7 +27,7 @@ pub enum Msg {
 
 const TAIL_STEP: Duration = Duration::from_secs(2);
 
-const USAGE: &str = "usage: nyx-agent [run] [--config PATH] | version | uninstall | configure --url URL --token T --key K --kind vm|physical|proxmox|vps [--ct-autoinstall] [--config PATH]";
+const USAGE: &str = "usage: nyx-agent [run] [--config PATH] | version | uninstall | configure --url URL --token T --key K --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall] [--config PATH]";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
