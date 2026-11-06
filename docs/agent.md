@@ -15,6 +15,11 @@ curl -fsSL https://monitor/install.sh | sudo sh -s -- \
   --url https://monitor --token TOKEN --key KEY --kind vm
 ```
 
+The line uses the monitor's public URL. If the host reaches the monitor at another
+address, such as a LAN name or a VPN address, change **Monitor URL** above the command.
+Your browser remembers it, and the host page offers the same with **Show install
+command**. Without `NYX_PUBLIC_URL`, Nyx suggests the address in your browser.
+
 Add `--ct-autoinstall` on Proxmox to cover containers. On `physical` and `proxmox` the
 script installs smartmontools, because SMART is mandatory there.
 
@@ -70,6 +75,28 @@ With container auto-install on, the agent lists containers and asks the monitor 
 token for each one it has not seen, then runs the installer inside with `pct exec`.
 New containers are picked up the same way. The chosen type inside is `vm`.
 
+### OCI containers
+
+Proxmox VE 9.1 and later can start a container from an OCI image. When such an image
+starts anything other than an init, Proxmox writes an `entrypoint` key in
+`/etc/pve/lxc/<vmid>.conf`. The container then runs that one application, with no
+systemd to start the agent, and often no shell, `curl` or package manager.
+
+The agent on the Proxmox host reads that key, reports the guest as `oci`, and:
+
+- auto-install skips it, so no install fails and no empty host is created
+- the host list shows it as `OCI container <vmid>, no agent`, with the metrics it lacks
+- its host page says the same if a host was already created for it
+
+Only its name, ID and console link are known, from Proxmox. There is no CPU, memory,
+disk, network, temperature, updates or logs for it. If the image does start
+`/sbin/init` or systemd, the container is a normal one and the agent installs as usual.
+
+An agent started by hand in an OCI container does report CPU, memory, disks and network.
+The host page then warns that logs, updates and Docker state stay empty when the image
+has no journald, package manager or Docker. Delete a host left over from an earlier
+auto-install from its **Agent** panel.
+
 ## What is collected
 
 | Data | Frequency | Notes |
@@ -80,7 +107,8 @@ New containers are picked up the same way. The chosen type inside is `vm`.
 | Node.js apps and version | When changed | From running processes |
 | Pending system updates | Daily | At the hour set in the monitor |
 | SMART health and remaining life | Periodically | Physical hosts. Summarised as a simple state |
-| Logs | When there are new lines | Warnings and above, through journald |
+| Logs | Once a minute, when there are new lines | Warnings and above, through journald |
+| Live logs | Every 2 s, only while someone watches this host | Info and above, nothing stored. See [live logs](monitoring.md#live-logs) |
 
 Package managers supported for updates are apt and dnf.
 
@@ -90,7 +118,7 @@ Package managers supported for updates are apt and dnf.
 | --- | --- |
 | `/usr/local/bin/nyx-agent` | Binary (`/usr/bin` when installed from a package) |
 | `/etc/nyx/agent.conf` | Configuration, mode 0600 |
-| `/run/nyx-agent/` | tmpfs: journal cursor, temporary deploy keys |
+| `/run/nyx-agent/` | tmpfs: journal cursors, temporary deploy keys |
 
 ## Removing
 

@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use anyhow::{bail, Context};
-use nyx_proto::{sign, verify, Report, Reply};
+use nyx_proto::{sign, verify, LiveLogs, LiveReply, Report, Reply};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ureq::tls::{RootCerts, TlsConfig};
 
@@ -20,10 +20,19 @@ pub fn client() -> ureq::Agent {
 }
 
 pub fn post_report(http: &ureq::Agent, cfg: &Config, report: &Report) -> anyhow::Result<Reply> {
-    let body = serde_json::to_vec(report)?;
+    post(http, cfg, "report", report)
+}
+
+/// Whether someone is still watching.
+pub fn post_logs(http: &ureq::Agent, cfg: &Config, lines: Vec<String>) -> anyhow::Result<bool> {
+    Ok(post::<_, LiveReply>(http, cfg, "logs", &LiveLogs { lines })?.live)
+}
+
+fn post<B: serde::Serialize, R: serde::de::DeserializeOwned>(http: &ureq::Agent, cfg: &Config, path: &str, body: &B) -> anyhow::Result<R> {
+    let body = serde_json::to_vec(body)?;
     let ts = now();
     let mut res = http
-        .post(format!("{}/agent/v1/report", cfg.url))
+        .post(format!("{}/agent/v1/{path}", cfg.url))
         .header("content-type", "application/json")
         .header("x-nyx-token", &cfg.token)
         .header("x-nyx-ts", ts.to_string())

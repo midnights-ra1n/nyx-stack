@@ -10,11 +10,11 @@ uses Docker. For packages, see [deployment.md](deployment.md).
 
 ```sh
 mkdir nyx && cd nyx
-curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/main/packaging/docker/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/main/packaging/docker/.env.example
+curl -fsSLO https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/midnights-ra1n/nyx-stack/beta/packaging/docker/.env.example
 ```
 
-In `.env`, set `NYX_PB_PASSWORD` (`openssl rand -hex 24`) and the two public URLs. Then:
+In `.env`, set `NYX_VERSION=beta` and the two public URLs. Then:
 
 ```sh
 docker compose --profile monitor --profile manager up -d

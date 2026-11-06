@@ -702,7 +702,7 @@ mod tests {
         let mut st = Fleet::default();
         st.hosts.insert("h1".into(), Host::from_record(&json!({"id": "h1", "name": "pve-secret", "hostname": "pve.lan", "ip": "192.0.2.10", "token": "tok", "key": "k"})));
         st.apply("h1", Report { cpu_pct: 42.0, mem_used: 50, mem_total: 100, disks: vec![Disk { mount: "/data/private".into(), used: 10, total: 100, ..Disk::default() }], kind: HostKind::Vm, ..Report::default() }, now);
-        let def = ProbeDef { id: "p1".into(), name: "Website".into(), kind: "http".into(), target: "https://internal.example.lan/admin".into(), interval_s: 60, dns_server: String::new(), warn_days: 14, expect_status: 200, snmp: None };
+        let def = ProbeDef { id: "p1".into(), name: "Website".into(), kind: "http".into(), target: "https://internal.example.lan/admin".into(), interval_s: 60, dns_server: String::new(), watch_cert: false, warn_days: 14, expect_status: 200, snmp: None };
         let mut p = ProbeLive::new(def);
         p.up = Some(true);
         p.latency_ms = 12.0;

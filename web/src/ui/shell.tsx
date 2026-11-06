@@ -2,7 +2,7 @@ import { ArrowPathIcon, Cog6ToothIcon, EllipsisHorizontalIcon, MagnifyingGlassIc
 import { createRoot } from "react-dom/client"
 import { type ReactNode, createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
 import { Button, ErrorNote, type Icon, Input, Tabs } from "./components"
-import { api, AUTH_LOST, setRefresh, useApi, useOnline, useRefresh } from "./lib"
+import { api, AUTH_LOST, REFRESH, setRefresh, useApi, useOnline, useRefresh } from "./lib"
 
 // Router: the app has few, flat routes; history API is all it needs.
 const subscribe = (l: () => void) => { addEventListener("popstate", l); return () => removeEventListener("popstate", l) }
@@ -31,7 +31,7 @@ function Search() {
   return (
     <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`) }} className="relative max-lg:hidden">
       <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 size-5 text-fg3" aria-hidden />
-      <input aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="h-10 w-full rounded-control border border-line2 bg-raised pl-10 pr-3 placeholder:text-fg3" />
+      <input aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="h-9 max-sm:h-11 w-full rounded-control border border-line2 bg-raised pl-10 pr-4 placeholder:text-fg3" />
     </form>
   )
 }
@@ -39,7 +39,7 @@ function Search() {
 function SideEntry({ item, path }: { item: NavItem; path: string }) {
   const active = isActive(path, item.to), I = item.icon
   return (
-    <Link to={item.to} title={item.label} aria-current={active ? "page" : undefined} className={`flex h-10 items-center gap-3 rounded-control px-3 max-lg:justify-center ${active ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>
+    <Link to={item.to} title={item.label} aria-current={active ? "page" : undefined} className={`flex h-9 max-sm:h-11 items-center gap-3 rounded-control px-3 max-lg:justify-center ${active ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>
       <I className="size-5 shrink-0" aria-hidden />
       <span className="flex-1 max-lg:sr-only">{item.label}</span>
       {!!item.badge && <span className="rounded-full bg-crit-soft px-2 text-xs leading-5 text-crit max-lg:hidden">{item.badge}</span>}
@@ -87,7 +87,7 @@ function BottomBar({ nav, path, onCustomize }: { nav: NavConfig; path: string; o
         <>
           <div className="fixed inset-0 z-20 bg-black/60 sm:hidden" onClick={() => setMore(false)} />
           <div className="fixed inset-x-2 bottom-[calc(72px+env(safe-area-inset-bottom))] z-30 rounded-panel border border-line2 bg-surface p-2 sm:hidden">
-            {rest.map((i) => { const I = i.icon; return <Link key={i.to} to={i.to} onClick={() => setMore(false)} className="flex h-[52px] items-center gap-4 px-3 text-base text-fg"><I className="size-5 text-fg2" aria-hidden />{i.label}</Link> })}
+            {rest.map((i) => { const I = i.icon; return <Link key={i.to} to={i.to} onClick={() => setMore(false)} className="flex h-11 items-center gap-4 rounded-control px-4 text-base text-fg"><I className="size-5 text-fg2" aria-hidden />{i.label}</Link> })}
             {onCustomize && <button className="flex h-[52px] w-full items-center gap-4 border-t border-line px-3 text-base text-accent" onClick={() => { setMore(false); onCustomize() }}><PencilSquareIcon className="size-5" aria-hidden />Customize screen</button>}
           </div>
         </>
@@ -106,11 +106,11 @@ export const useCustomize = () => useContext(Customize)
 function RefreshControl({ onRefresh }: { onRefresh?: () => void }) {
   const ms = useRefresh()
   return (
-    <div className="flex h-10 max-sm:h-11 items-stretch rounded-control border border-line2 bg-surface">
-      <button aria-label="Refresh now" className="flex w-10 items-center justify-center border-r border-line2 text-fg2 hover:text-fg" onClick={onRefresh}><ArrowPathIcon className="size-5" aria-hidden /></button>
+    <div className="flex h-9 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2 bg-surface">
+      <button aria-label="Refresh now" className="flex w-11 items-center justify-center border-r border-line2 text-fg2 hover:text-fg" onClick={onRefresh}><ArrowPathIcon className="size-5" aria-hidden /></button>
       <div className="relative flex items-center">
         <select aria-label="Auto-refresh interval" value={ms} onChange={(e) => setRefresh(Number(e.target.value))} className="h-full appearance-none bg-transparent pl-3 pr-7 text-[13px] text-fg2">
-          {[[5000, "5 s"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [0, "Off"]].map(([v, l]) => <option key={v} value={v} className="bg-surface">{l}</option>)}
+          {REFRESH.map(([v, l]) => <option key={v} value={v} className="bg-surface">{l}</option>)}
         </select>
         <ChevronUpDownIcon className="pointer-events-none absolute right-1.5 size-4 text-fg3" aria-hidden />
       </div>
@@ -146,7 +146,7 @@ export function PageHeader({ title, crumbs, subtitle, actions, variables, onRefr
   )
 }
 
-export const Section = ({ children }: { children: ReactNode }) => <div className="flex flex-col gap-5">{children}</div>
+export const Section = ({ children }: { children: ReactNode }) => <div className="flex flex-col gap-4">{children}</div>
 
 async function passkeyLogin(email: string) {
   const { flow, options } = await api("/api/auth/passkey/login/start", { body: { email } })
@@ -222,7 +222,7 @@ function DatabaseChoice({ name, embedded, onDone }: { name: string; embedded: bo
 
 function OfflineNote() {
   return useOnline() ? null : (
-    <p role="status" className="mb-5 rounded-panel border border-line2 bg-off-soft px-5 py-3 text-fg2">You are offline. Figures below are from your last connection.</p>
+    <p role="status" className="mb-4 rounded-panel border border-line2 bg-off-soft px-4 py-2.5 text-fg2">You are offline. Figures below are from your last connection.</p>
   )
 }
 
@@ -234,12 +234,12 @@ function Authed({ useNav, route, customizable }: { useNav: () => NavConfig; rout
   return (
     <Customize.Provider value={{ editing, setEditing, register }}>
       <Sidebar nav={nav} path={path} />
-      <header className="sticky top-0 z-10 flex h-[calc(56px+env(safe-area-inset-top))] items-end justify-between border-b border-line bg-sidebar px-5 pt-[env(safe-area-inset-top)] sm:hidden">
+      <header className="sticky top-0 z-10 flex h-[calc(56px+env(safe-area-inset-top))] items-end justify-between border-b border-line bg-sidebar px-4 pt-[env(safe-area-inset-top)] sm:hidden">
         <Link to="/" className="flex h-14 items-center gap-3"><Logo className="size-7" /><span className="text-base font-medium">{nav.name}</span></Link>
         <Link to="/search" aria-label="Search" className="flex size-14 items-center justify-center text-fg2"><MagnifyingGlassIcon className="size-5" aria-hidden /></Link>
       </header>
       <main className="pb-16 pl-[248px] max-lg:pl-[72px] max-sm:pb-[calc(96px+env(safe-area-inset-bottom))] max-sm:pl-0">
-        <div className="px-8 pt-6 max-sm:px-5 max-sm:pt-5"><OfflineNote />{route(path)}</div>
+        <div className="px-6 pt-5 max-sm:px-4 max-sm:pt-4"><OfflineNote />{route(path)}</div>
       </main>
       <BottomBar nav={nav} path={path} onCustomize={customizable && canCustomize ? () => setEditing(true) : undefined} />
     </Customize.Provider>

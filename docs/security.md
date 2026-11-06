@@ -65,6 +65,12 @@ Keep its port on a private network or behind an HTTPS reverse proxy. The first-s
 screen refuses plain HTTP to a public address, because the password and the token travel
 with every request. Packages generate a long password, and with Docker you set it.
 
+## Changing a password
+
+**Settings, Security, Account** asks for the current password, and failures are rate
+limited like logins. Sessions are signed cookies with no list on the server, so other
+browsers stay signed in until their cookie expires, at most 7 days later.
+
 ## Secrets at rest
 
 - `database.json`, mode 0600, holds the database password.

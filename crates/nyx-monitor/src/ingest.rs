@@ -47,13 +47,16 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     let pending_updates = report.updates.as_ref().map(|u| (u.len(), u.iter().filter(|p| p.security).count()));
     let guests = report.guests.clone();
 
-    let (applied, wanted, name, commands) = {
+    let (applied, wanted, name, commands, live_logs) = {
         let mut st = app.lock();
-        let applied = st.apply(&id, report, Utc::now().timestamp()).ok_or_else(ApiError::not_found)?;
+        let now = Utc::now().timestamp();
+        let applied = st.apply(&id, report, now).ok_or_else(ApiError::not_found)?;
         let th = st.thresholds;
         let wanted = evaluate(st.hosts.get(&id).ok_or_else(ApiError::not_found)?, &th, &st.alerts);
         let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
-        (applied, wanted, h.name.clone(), std::mem::take(&mut h.queue))
+        let live_logs = h.watched_until > now;
+        if !live_logs { h.tail.clear(); }
+        (applied, wanted, h.name.clone(), std::mem::take(&mut h.queue), live_logs)
     };
 
     if let Some(patch) = &applied.patch {
@@ -67,18 +70,31 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     if let Some(guests) = guests {
         adopt_containers(&app, &id, &guests).await?;
     }
-    Ok(Json(Reply { interval_s: REPORT_INTERVAL_S, resync: applied.first, commands }))
+    Ok(Json(Reply { interval_s: REPORT_INTERVAL_S, resync: applied.first, commands, live_logs }))
+}
+
+/// Log lines of a host someone is watching. Nothing here reaches the database.
+async fn live_logs(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<LiveReply>> {
+    let (id, _) = authenticate(&app, &headers, &body)?;
+    let logs: LiveLogs = serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let now = Utc::now().timestamp();
+    let mut st = app.lock();
+    let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
+    let live = h.watched_until > now;
+    h.tail_seen = now;
+    if live { h.tail.push(logs.lines); }
+    Ok(Json(LiveReply { live }))
 }
 
 /// Create a child host and queue the install for each new running container of a
-/// Proxmox host with auto-install enabled.
+/// Proxmox host with auto-install enabled. OCI containers cannot run the agent.
 async fn adopt_containers(app: &App, parent: &str, guests: &[Guest]) -> anyhow::Result<()> {
     let to_adopt: Vec<Guest> = {
         let st = app.lock();
         let Some(p) = st.hosts.get(parent).filter(|p| p.ct_autoinstall) else { return Ok(()) };
         guests
             .iter()
-            .filter(|g| g.kind == "lxc" && g.status == "running")
+            .filter(|g| g.kind == "lxc" && g.status == "running" && !g.oci)
             .filter(|g| !st.hosts.values().any(|h| h.parent == p.id && h.vmid == g.vmid))
             .cloned()
             .collect()
@@ -131,6 +147,7 @@ async fn binary(State(app): State<Arc<App>>, Path(name): Path<String>, headers: 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/agent/v1/report", post(report))
+        .route("/agent/v1/logs", post(live_logs))
         .route("/agent/v1/binary/{name}", get(binary))
         .route("/install.sh", get(install_script))
         .with_state(app)

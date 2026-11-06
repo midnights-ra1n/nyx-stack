@@ -33,12 +33,12 @@ export function Button({ variant = "secondary", className = "", ...p }: { varian
     ghost: "text-accent hover:text-accent-hover",
     danger: "text-crit border border-crit hover:bg-crit-soft",
   }[variant]
-  return <button type="button" {...p} className={`inline-flex h-10 max-sm:h-11 items-center justify-center gap-2 rounded-control px-4 font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${look} ${className}`} />
+  return <button type="button" {...p} className={`inline-flex h-9 max-sm:h-11 items-center justify-center gap-2 rounded-control px-4 font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${look} ${className}`} />
 }
 
 export function IconButton({ label, icon: I, className = "", ...p }: { label: string; icon: Icon } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button type="button" aria-label={label} title={label} {...p} className={`inline-flex size-10 max-sm:size-11 items-center justify-center rounded-control text-fg2 hover:text-fg disabled:opacity-30 ${className}`}>
+    <button type="button" aria-label={label} title={label} {...p} className={`inline-flex size-9 max-sm:size-11 items-center justify-center rounded-control text-fg2 hover:text-fg disabled:opacity-30 ${className}`}>
       <I className="size-5" aria-hidden />
     </button>
   )
@@ -47,19 +47,20 @@ export function IconButton({ label, icon: I, className = "", ...p }: { label: st
 export interface PanelAction { label: string; onClick: () => void }
 
 /** Title left, three-dot menu right, body at the height of its content. */
-export function Panel({ title, actions, children, footer, flush, edit }: { title: string; actions?: PanelAction[]; children: ReactNode; footer?: ReactNode; flush?: boolean; edit?: ReactNode }) {
+export function Panel({ title, badge, actions, children, footer, flush, edit }: { title: string; badge?: ReactNode; actions?: PanelAction[]; children: ReactNode; footer?: ReactNode; flush?: boolean; edit?: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
     <section className={`rounded-panel border bg-surface ${edit ? "border-dashed border-line2" : "border-line"}`} aria-label={title}>
-      <header className="flex h-[52px] items-center justify-between pl-5 pr-2">
+      <header className="flex h-11 items-center justify-between gap-3 pl-4 pr-2">
         <h2 className="text-[15px] leading-[22px] font-medium">{title}</h2>
+        {badge && <span className="mr-3">{badge}</span>}
         {actions?.length ? (
           <div className="relative">
             <IconButton label={`${title} menu`} icon={EllipsisVerticalIcon} aria-expanded={open} onClick={() => setOpen(!open)} />
             {open && (
-              <div className="absolute right-0 top-11 z-20 min-w-44 rounded-panel border border-line2 bg-surface p-1" role="menu">
+              <div className="absolute right-0 top-11 z-20 min-w-44 rounded-panel border border-line2 bg-surface p-2" role="menu">
                 {actions.map((a) => (
-                  <button key={a.label} role="menuitem" className="block h-10 w-full rounded-control px-3 text-left text-fg2 hover:bg-raised hover:text-fg" onClick={() => { setOpen(false); a.onClick() }}>{a.label}</button>
+                  <button key={a.label} role="menuitem" className="block h-9 max-sm:h-11 w-full rounded-control px-3 text-left text-fg2 hover:bg-raised hover:text-fg" onClick={() => { setOpen(false); a.onClick() }}>{a.label}</button>
                 ))}
               </div>
             )}
@@ -67,8 +68,8 @@ export function Panel({ title, actions, children, footer, flush, edit }: { title
         ) : null}
       </header>
       {edit && <div className="flex justify-end border-b border-line px-2">{edit}</div>}
-      <div className={flush ? "" : "px-5 pb-5"}>{children}</div>
-      {footer && <footer className="border-t border-line px-5 py-3 text-[13px] text-fg3">{footer}</footer>}
+      <div className={flush ? "" : "px-4 pb-4"}>{children}</div>
+      {footer && <footer className="border-t border-line px-4 py-2.5 text-[13px] text-fg3">{footer}</footer>}
     </section>
   )
 }
@@ -77,7 +78,7 @@ export function Stat({ label, value, sub, level }: { label: string; value: React
   return (
     <div>
       <div className="text-[13px] text-fg2">{label}</div>
-      <div className={`mt-1 text-[32px] leading-[38px] font-medium ${level ? levelText[level] : ""}`}>{value}</div>
+      <div className={`mt-1 text-[26px] leading-[32px] font-medium ${level ? levelText[level] : ""}`}>{value}</div>
       {sub && <div className="text-xs text-fg3">{sub}</div>}
     </div>
   )
@@ -105,7 +106,7 @@ export function Gauge({ label, value, warn = 75, crit = 90 }: { label: string; v
 
 /** Horizontal fill, coloured by thresholds. */
 export function Meter({ pct, warn = 75, crit = 90 }: { pct: number; warn?: number; crit?: number }) {
-  return <div className="h-5 rounded-[2px] bg-raised"><div className={`h-full rounded-[2px] ${levelBg[levelOf(pct, warn, crit)]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
+  return <div className="h-3 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${levelBg[levelOf(pct, warn, crit)]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
 }
 
 export function BarGauge({ rows, warn = 75, crit = 90 }: { rows: { label: string; pct: number }[]; warn?: number; crit?: number }) {
@@ -184,7 +185,7 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
   return (
     <div className="overflow-x-auto max-sm:overflow-visible">
       <table className="rt w-full text-left">
-        <thead className="bg-raised text-xs text-fg2"><tr>{head.map((h, i) => <th key={i} scope="col" className="h-9 px-3 font-medium first:pl-5 whitespace-nowrap">{h}</th>)}</tr></thead>
+        <thead className="bg-raised text-xs text-fg2"><tr>{head.map((h, i) => <th key={i} scope="col" className="h-8 px-3 font-medium first:pl-4 whitespace-nowrap">{h}</th>)}</tr></thead>
         <tbody className="divide-y divide-line">{rows}</tbody>
       </table>
     </div>
@@ -192,12 +193,12 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
 }
 
 export const Td = ({ children, className = "", mono, ...p }: { children?: ReactNode; className?: string; mono?: boolean } & React.TdHTMLAttributes<HTMLTableCellElement>) => (
-  <td {...p} className={`h-11 px-3 first:pl-5 ${mono ? "font-mono text-[13px] text-fg2" : ""} ${className}`}>{children}</td>
+  <td {...p} className={`h-9 px-3 first:pl-4 ${mono ? "font-mono text-[13px] text-fg2" : ""} ${className}`}>{children}</td>
 )
 
 /** Fully tinted state cell, as in the guide's tables. */
 export const StateCell = ({ level, label, ...p }: { level: Level; label?: string } & React.TdHTMLAttributes<HTMLTableCellElement>) => (
-  <td {...p} className={`h-11 px-3 ${levelSoft[level]}`}><Status cell level={level} label={label} /></td>
+  <td {...p} className={`h-9 px-3 ${levelSoft[level]}`}><Status cell level={level} label={label} /></td>
 )
 
 export const Empty = ({ children }: { children: ReactNode }) => <p className="py-2 text-fg3">{children}</p>
@@ -205,7 +206,8 @@ export const Mono = ({ children, className = "" }: { children: ReactNode; classN
 export const ErrorNote = ({ children }: { children: ReactNode }) => (children ? <p role="alert" className="text-crit">{children}</p> : null)
 
 // 16 px on phones: iOS zooms the page into any smaller input.
-const fieldClass = "h-10 max-sm:h-11 max-sm:text-base w-full rounded-control border border-line2 bg-raised px-3 text-fg placeholder:text-fg3 hover:border-fg3"
+const fieldBase = "max-sm:text-base w-full border border-line2 bg-raised px-4 text-fg placeholder:text-fg3 hover:border-fg3"
+const fieldClass = `field h-9 max-sm:h-11 rounded-control ${fieldBase}`
 
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: (id: string) => ReactNode }) {
   const id = useId()
@@ -223,7 +225,7 @@ export function Input({ label, hint, ...p }: { label: string; hint?: ReactNode }
 }
 
 export function TextArea({ label, hint, ...p }: { label: string; hint?: ReactNode } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <Field label={label} hint={hint}>{(id) => <textarea id={id} rows={6} {...p} className={`${fieldClass} h-auto py-2 font-mono text-[13px]`} />}</Field>
+  return <Field label={label} hint={hint}>{(id) => <textarea id={id} rows={6} {...p} className={`${fieldBase} rounded-box py-2 font-mono text-[13px]`} />}</Field>
 }
 
 export function Select({ label, options, hint, ...p }: { label: string; hint?: ReactNode; options: (string | { value: string; label: string })[] } & React.SelectHTMLAttributes<HTMLSelectElement>) {
@@ -239,15 +241,15 @@ export function Select({ label, options, hint, ...p }: { label: string; hint?: R
 }
 
 export function Check({ label, ...p }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return <label className="flex min-h-10 items-center gap-3 text-fg2"><input type="checkbox" className="size-4 accent-[var(--color-accent)]" {...p} />{label}</label>
+  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch" {...p} />{label}</label>
 }
 
 /** The guide's variable control: label on raised, value on surface. */
 export function Variable({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   const id = useId()
   return (
-    <div className="flex h-10 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2">
-      <label htmlFor={id} className="flex items-center bg-raised px-3 text-fg2">{label}</label>
+    <div className="flex h-9 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2">
+      <label htmlFor={id} className="flex items-center bg-raised pl-4 pr-3 text-fg2">{label}</label>
       <div className="relative flex items-center bg-surface">
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-3 pr-8 text-fg">
           {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{o.label}</option>)}
@@ -261,7 +263,7 @@ export function Variable({ label, value, onChange, options }: { label: string; v
 export function RangeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const id = useId()
   return (
-    <div className="relative flex h-10 max-sm:h-11 items-center rounded-control border border-line2 bg-surface">
+    <div className="relative flex h-9 max-sm:h-11 items-center rounded-control border border-line2 bg-surface">
       <ClockIcon className="pointer-events-none absolute left-3 size-5 text-fg2" aria-hidden />
       <label htmlFor={id} className="sr-only">Period</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-10 pr-9 text-fg">
@@ -277,7 +279,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   useEffect(() => { ref.current?.showModal() }, [])
   return (
     <dialog ref={ref} onClose={onClose} aria-label={title} className={`m-auto max-h-[calc(100dvh-40px)] w-[calc(100vw-40px)] overflow-y-auto ${wide ? "max-w-5xl" : "max-w-xl"} rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60`}>
-      <header className="flex h-[52px] items-center justify-between border-b border-line pl-5 pr-2">
+      <header className="flex h-11 items-center justify-between border-b border-line pl-4 pr-2">
         <h2 className="text-[15px] font-medium">{title}</h2>
         <IconButton label="Close" icon={XMarkIcon} onClick={() => ref.current?.close()} />
       </header>
@@ -290,7 +292,7 @@ export function Copy({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (
     <div className="flex flex-col gap-2">
-      <pre className="overflow-x-auto rounded-control border border-line2 bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap break-all text-fg2">{text}</pre>
+      <pre className="overflow-x-auto rounded-box border border-line2 bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap break-all text-fg2">{text}</pre>
       <div><Button onClick={async () => { await navigator.clipboard.writeText(text); setDone(true) }}>{done ? "Copied" : "Copy"}</Button></div>
     </div>
   )
@@ -300,7 +302,7 @@ export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: str
   return (
     <div role="tablist" className="flex flex-wrap gap-2">
       {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" aria-selected={t.id === value} onClick={() => onChange(t.id)} className={`h-10 rounded-control px-3 ${t.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t.label}</button>
+        <button key={t.id} type="button" role="tab" aria-selected={t.id === value} onClick={() => onChange(t.id)} className={`h-9 max-sm:h-11 rounded-control px-4 ${t.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t.label}</button>
       ))}
     </div>
   )

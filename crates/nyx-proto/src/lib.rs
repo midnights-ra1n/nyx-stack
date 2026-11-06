@@ -95,15 +95,16 @@ pub struct Container {
     pub status: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Health {
+    #[default]
     Ok,
     Warn,
     Crit,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct SmartDisk {
     pub device: String,
     pub model: String,
@@ -113,6 +114,20 @@ pub struct SmartDisk {
     pub temp_c: Option<i32>,
     pub power_on_hours: Option<u64>,
     pub reason: String,
+    /// `NVMe`, `SSD` or `HDD`. This field and the ones below are absent from older agents.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub serial: String,
+    #[serde(default)]
+    pub capacity: Option<u64>,
+    #[serde(default)]
+    pub bad_sectors: u64,
+    #[serde(default)]
+    pub power_cycles: Option<u64>,
+    /// Lifetime writes, when the drive counts them.
+    #[serde(default)]
+    pub written_bytes: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -144,6 +159,9 @@ pub struct Guest {
     pub kind: String,
     pub status: String,
     pub node: String,
+    /// Container started from an OCI image without an init: no agent can run in it.
+    #[serde(default)]
+    pub oci: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -153,6 +171,21 @@ pub struct Reply {
     /// The monitor lost its state (restart): resend all change-only data.
     pub resync: bool,
     pub commands: Vec<Command>,
+    /// Someone is watching this host: send logs to `/agent/v1/logs` until told to stop.
+    #[serde(default)]
+    pub live_logs: bool,
+}
+
+/// Body of `/agent/v1/logs`. Same line format as [`Report::logs`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct LiveLogs {
+    pub lines: Vec<String>,
+}
+
+/// Answer of `/agent/v1/logs`: `false` once nobody is watching any more.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct LiveReply {
+    pub live: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

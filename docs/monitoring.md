@@ -1,14 +1,37 @@
 # Monitoring
 
+## Customizing the pages
+
+Every page made of blocks has a **Customize** button, in the **More** menu on a phone:
+the overview, hosts, host detail, containers, network, storage, alerts and logs in the
+monitor, and the overview, IPAM, network map, sites and tasks in the manager.
+
+- Slide a block where you want it, by its handle on a phone, or use the arrows from the
+  keyboard.
+- Close a block to hide it. Hidden blocks stay listed at the top, ready to come back.
+- Choose from one to four columns. Below 1024 pixels there is always one.
+- **Reset this page** goes back to the default layout. To reset every page, use
+  **Settings, General**.
+
+Some blocks are hidden by default. The overview also offers disk health, recent logs,
+probes, stopped containers, pending updates, power and EDF Tempo.
+
+Layouts are stored in your browser, separately for desktop and phone. All host pages
+share one layout. A block a host cannot show, such as SMART on a VM, is skipped there
+and comes back on the hosts that have it.
+
 ## Hosts
 
-The host list is a tree: guests appear under their Proxmox host. The overview board
-can be rearranged with **Customize**, with separate layouts for desktop and phone,
-stored in your browser.
+The host list is a tree: guests appear under their Proxmox host. OCI containers appear there with a
+note, since no agent can run in them: see [OCI containers](agent.md#oci-containers).
 
 ## Probes
 
-Add them in **Network**.
+Add them in **Network**. A website probe on an `https://` address can also watch the
+certificate: turn on **Also watch the HTTPS certificate** and choose how many days ahead
+to warn. It then alerts like a certificate probe, without a second probe for the same
+site. Its check always reads the certificate, even one Nyx would not trust. A site whose
+certificate has expired is reported as down, because the website check itself fails.
 
 | Type | Checks |
 | --- | --- |
@@ -61,9 +84,21 @@ Older agents do not send the type and device, which then show a dash.
 
 ## SMART
 
-Each disk has a simple state (OK, warning or critical) and an estimate of remaining
-life. Details are on the host's storage panel and on the **Storage** page. Changes
-raise `smart` notifications.
+Each physical disk has a card, on the host page and on **Storage**, with a simple state
+(healthy, attention or critical) and, in plain words, what smartctl knows about it:
+
+| Field | Notes |
+| --- | --- |
+| Model, device, type, capacity | NVMe, SSD or HDD |
+| Life left | When the drive reports wear. Attention from 20 %, critical from 10 % |
+| Temperature, powered on, power cycles | |
+| Bad sectors | Reallocated, pending and uncorrectable together. Any of them means attention |
+| Written | Lifetime writes, when the drive counts them |
+| Serial | To find the drive and for warranty claims |
+
+Agents older than this version only send the state, life left, temperature and powered
+on time, and the rest shows a dash. SMART data is read every 30 minutes, without waking
+sleeping disks. Changes raise `smart` notifications.
 
 ## Status pages and wall displays
 
@@ -88,5 +123,29 @@ does not come back. A year takes about 3 MB per host, see the
 
 ## Logs
 
-The agent sends warnings and above. The monitor keeps the last 500 lines per host in
-RAM, so they are gone after a restart. This is deliberate: Nyx is not a log archive.
+The agent sends warnings and above once a minute. The monitor keeps the last 500 lines
+per host in RAM, so they are gone after a restart. This is deliberate: Nyx is not a log
+archive.
+
+The **Logs** page shows each line as a time, a level, a service and a message. Identical
+messages are folded into their latest occurrence with the number of repeats. Filter by
+host, level or text, or select a service under **Noisiest services**. The host page has
+the same journal as a block.
+
+### Live logs
+
+Pick a host and press **Go live** to follow everything from info up as it happens. The
+same button is on the Logs block of a host page.
+
+- The agent never opens a port, so it learns that someone is watching from the answer
+  to its next report. The first lines take up to 15 seconds, then arrive every 2
+  seconds.
+- Nothing is stored. Live lines stay in RAM, up to 1000 per host, and are dropped once
+  nobody watches.
+- The agent stops about 15 seconds after the last browser request, which also happens
+  when you hide the tab.
+- Reading the journal costs a little CPU and I/O every 2 seconds on that host, only
+  while someone watches.
+
+A live view follows one host at a time. An agent too old to know about live logs never
+answers, and the page says so: update it first.

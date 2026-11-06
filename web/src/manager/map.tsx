@@ -1,9 +1,10 @@
 import { ArrowDownTrayIcon, LinkIcon, PlusIcon, ServerStackIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useRef, useState } from "react"
+import { Board, CustomizeButton } from "../ui/board"
 import { Button, Empty, ErrorNote, IconButton, Modal, Panel, Select, Table, Td, Input } from "../ui/components"
 import { type Col, RecordForm } from "../ui/crud"
 import { api, useApi } from "../ui/lib"
-import { PageHeader, Section } from "../ui/shell"
+import { PageHeader } from "../ui/shell"
 
 const W = 140, H = 56
 const FORMATS = [["svg", "SVG"], ["drawio", "draw.io"], ["mermaid", "Mermaid"], ["dot", "Graphviz"], ["json", "JSON"]]
@@ -83,13 +84,15 @@ export function NetworkMap() {
   return (
     <>
       <PageHeader title="Network map" subtitle={note} actions={<>
+        <CustomizeButton />
         <Button onClick={importHosts}><ServerStackIcon className="size-5" aria-hidden />Import hosts</Button>
         <Button onClick={() => setForm("link")} disabled={list.length < 2}><LinkIcon className="size-5" aria-hidden />Add link</Button>
         <Button variant="primary" onClick={() => setForm("node")}><PlusIcon className="size-5" aria-hidden />Add device</Button>
       </>} />
-      <Section>
-        <Panel title="Map" flush>
-          {list.length === 0 ? <div className="px-5 pb-5"><Empty>Add a device or import hosts from monitoring.</Empty></div> : (
+      <Board id="map" desktop={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} phone={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} panels={[
+        { id: "map", title: "Map", render: (edit: any) => (
+        <Panel title="Map" flush edit={edit}>
+          {list.length === 0 ? <div className="px-4 pb-4"><Empty>Add a device or import hosts from monitoring.</Empty></div> : (
             // Nodes capture touches to drag, the empty canvas keeps scrolling the page.
             <div className="overflow-auto">
               <svg ref={svg} width={right} height={bottom} viewBox={`0 0 ${right} ${bottom}`} role="img" aria-label={`Network map with ${list.length} devices. The same data is listed below.`}>
@@ -110,17 +113,20 @@ export function NetworkMap() {
             </div>
           )}
         </Panel>
-        <Panel title="Export">
+        ) },
+        { id: "export", title: "Export", render: (edit: any) => (
+        <Panel title="Export" edit={edit}>
           <div className="flex flex-wrap gap-2">
             {FORMATS.map(([f, label]) => <a key={f} href={`/api/map/export/${f}`} download><Button><ArrowDownTrayIcon className="size-5" aria-hidden />{label}</Button></a>)}
           </div>
         </Panel>
-        {list.length > 0 && (
-          <Panel title="Devices" flush>
+        ) },
+        { id: "devices", title: "Devices", absent: list.length === 0, render: (edit: any) => (
+          <Panel title="Devices" flush edit={edit}>
             <Table head={["Name", "Address", "Type", ""]}>
               {list.map((n) => (
                 <tr key={n.id}>
-                  <Td className="font-medium"><button className="min-h-11 text-left" onClick={() => setForm(n)}>{n.name}</button></Td>
+                  <Td className="font-medium"><button className="min-h-9 max-sm:min-h-11 text-left" onClick={() => setForm(n)}>{n.name}</button></Td>
                   <Td mono>{n.ip || "—"}</Td>
                   <Td className="text-fg2">{n.type || "—"}</Td>
                   <Td className="w-12 text-right"><IconButton label="Delete" icon={TrashIcon} onClick={() => removeNode(n)} /></Td>
@@ -128,11 +134,11 @@ export function NetworkMap() {
               ))}
             </Table>
           </Panel>
-        )}
-        {(links.data?.items.length ?? 0) > 0 && (
-          <Panel title="Links" flush>
+        ) },
+        { id: "links", title: "Links", absent: !links.data?.items.length, render: (edit: any) => (
+          <Panel title="Links" flush edit={edit}>
             <Table head={["From", "To", "Label", ""]}>
-              {links.data.items.map((l: any) => (
+              {links.data?.items.map((l: any) => (
                 <tr key={l.id}>
                   <Td className="font-medium">{byId[l.source]?.name ?? "—"}</Td>
                   <Td>{byId[l.target]?.name ?? "—"}</Td>
@@ -142,8 +148,8 @@ export function NetworkMap() {
               ))}
             </Table>
           </Panel>
-        )}
-      </Section>
+        ) },
+      ]} />
       {form === "link" && <LinkForm nodes={list} onDone={done} />}
       {form && form !== "link" && <RecordForm title={form === "node" ? "Add device" : "Edit device"} cols={NODE} collection="map_nodes" row={form === "node" ? null : form} onDone={done} defaults={undefined} />}
     </>

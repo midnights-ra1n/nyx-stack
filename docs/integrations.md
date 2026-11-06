@@ -24,10 +24,42 @@ Manager, **Settings, Integrations**. Tasks and calendar sync over CalDAV.
 
 ## EDF Tempo
 
-Monitor, **Settings, Integrations**. Create an application on the
-[RTE data portal](https://data.rte-france.com), subscribe to the *Tempo Like Supply
-Contract* API, and paste the client ID and secret. The overview's Tempo panel, hidden
-by default, shows today, tomorrow and the days left.
+1. Create an application on the [RTE data portal](https://data.rte-france.com).
+2. Subscribe that application to the *Tempo Like Supply Contract* API. Keys alone are
+   not enough: without the subscription RTE refuses the calendar.
+3. In the monitor, **Settings, Integrations**, paste the client ID and secret, then
+   **Save**.
+4. Press **Test the connection**. It asks RTE at once and shows its answer.
+5. On the overview, press **Customize** and add the **EDF Tempo** panel, hidden by
+   default. It shows today, tomorrow and the days left.
+
+The monitor calls RTE itself, over HTTPS, so your browser's connection does not matter:
+Tempo works with Nyx on plain HTTP. The monitor needs outbound access to
+`digital.iservices.rte-france.com`. Answers are kept for an hour, and saving new keys
+drops them.
+
+### Tempo days in a Nextcloud calendar
+
+The monitor can copy each Tempo day into a Nextcloud calendar, as an all-day event
+named `🔵 Bleu`, `⚪️ Blanc` or `🔴 Rouge`, in the matching colour. Events leave the day
+free, so they do not count as busy time.
+
+1. In Nextcloud, create a calendar for it, and an app password under **Personal
+   settings, Security**.
+2. In the monitor, **Settings, Integrations, EDF Tempo in Nextcloud**, enter the
+   Nextcloud URL, your user, the app password and the calendar's name, as it appears in
+   its link. Then **Save**.
+3. Press **Sync now**. It sends every day of the season so far and tells you what went
+   wrong, if anything.
+
+From then on the monitor checks every hour and sends new days. RTE publishes tomorrow's
+colour around 11:00, so it appears within the following hour. Once tomorrow is in the
+calendar, the monitor leaves RTE alone until the next day. **Sync now** also brings back
+events you deleted.
+
+This is separate from the manager's Nextcloud settings, because a monitor can run
+without a manager. The two can point at the same calendar or at different ones. If the
+hourly check fails, the reason goes to the monitor's log.
 
 ## Proxmox console
 
@@ -48,7 +80,7 @@ protocol documentation, not a physical plug.
 Lets AI assistants read your infrastructure. All tools are read-only.
 
 Available only over HTTPS: plain HTTP gets a 403. Create a token in **Settings,
-Access**. It is shown once and only its hash is stored.
+Security**. It is shown once and only its hash is stored.
 
 The endpoint is `https://your-server/mcp`, using Streamable HTTP.
 
@@ -71,5 +103,5 @@ Example prompt: *"Give me the overall state of my infrastructure."*
 
 ## Passkeys
 
-Add them in **Settings, Access**. They need an `https://` `NYX_PUBLIC_URL`, and a
+Add them in **Settings, Security**. They need an `https://` `NYX_PUBLIC_URL`, and a
 passkey is bound to that domain: changing the domain means registering a new one.

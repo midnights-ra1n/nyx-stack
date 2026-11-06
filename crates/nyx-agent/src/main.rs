@@ -1,6 +1,6 @@
 //! nyx-agent: one thread collects and reports, one thread runs slow commands.
 //! No listening socket, no async runtime, nothing written to disk in normal
-//! operation (the journald cursor lives in the `/run` tmpfs).
+//! operation (the journald cursors live in the `/run` tmpfs).
 
 mod collect;
 mod config;
@@ -14,7 +14,7 @@ mod uninstall;
 use config::Config;
 use nyx_proto::{Action, Reply};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Messages from the command worker back to the reporting loop.
 pub enum Msg {
@@ -22,6 +22,8 @@ pub enum Msg {
     Updates(Vec<nyx_proto::PackageUpdate>),
     Restart,
 }
+
+const TAIL_STEP: Duration = Duration::from_secs(2);
 
 const USAGE: &str = "usage: nyx-agent [run] [--config PATH] | version | uninstall | configure --url URL --token T --key K --kind vm|physical|proxmox|vps [--ct-autoinstall] [--config PATH]";
 
@@ -67,11 +69,13 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
             }
         }
         let report = collector.report(&cfg);
+        let mut tail = false;
         match transport::post_report(&http, &cfg, &report) {
             Ok(reply) => {
                 if restart {
                     std::process::exit(0); // systemd brings the new binary up
                 }
+                tail = reply.live_logs;
                 interval = handle_reply(reply, &mut cfg, &mut collector, &job_tx);
             }
             Err(e) => {
@@ -79,7 +83,24 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
                 collector.restore(report);
             }
         }
-        std::thread::sleep(Duration::from_secs(interval));
+        let next_report = Instant::now() + Duration::from_secs(interval);
+        if tail {
+            tail_logs(&http, &cfg, next_report);
+        } else {
+            collect::forget_live_logs();
+        }
+        std::thread::sleep(next_report.saturating_duration_since(Instant::now()));
+    }
+}
+
+/// Sends new journal lines every step until the next report is due, or nobody is watching.
+fn tail_logs(http: &ureq::Agent, cfg: &Config, until: Instant) {
+    while Instant::now() < until {
+        match transport::post_logs(http, cfg, collect::live_lines()) {
+            Ok(true) => std::thread::sleep(TAIL_STEP.min(until.saturating_duration_since(Instant::now()))),
+            Ok(false) => return,
+            Err(e) => return eprintln!("live logs failed: {e:#}"),
+        }
     }
 }
 

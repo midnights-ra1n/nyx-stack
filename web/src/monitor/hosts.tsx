@@ -1,14 +1,19 @@
 import { ChevronRightIcon, CommandLineIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
-import { useState } from "react"
-import { BarGauge, Button, Check, Copy, Empty, ErrorNote, Gauge, Input, Modal, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries } from "../ui/components"
-import { api, fmt, levelOf, type Level, useApi } from "../ui/lib"
-import { Link, navigate, PageHeader, Section } from "../ui/shell"
+import { useEffect, useState } from "react"
+import { Board, CustomizeButton } from "../ui/board"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, Input, Modal, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries } from "../ui/components"
+import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
+import { Link, navigate, PageHeader } from "../ui/shell"
+import { DiskCards, FileSystems } from "./disks"
+import { HostLogs } from "./logs"
 import { hostLevel } from "./overview"
 
 const KINDS = [{ value: "vm", label: "VM" }, { value: "physical", label: "Physical server" }, { value: "proxmox", label: "Physical server (Proxmox)" }, { value: "vps", label: "VPS" }]
 // The path keeps working where sudo does not search /usr/local/bin, as on RHEL.
 const UNINSTALL = 'sudo "$(command -v nyx-agent)" uninstall'
 const kindLabel = (k: string) => KINDS.find((x) => x.value === k)?.label ?? k
+
+const OCI_LIMITS = "No CPU, memory, disk, network, updates or logs: an OCI image has no systemd to run the agent."
 
 export interface TreeRow { host?: any; guest?: any; parent?: any; depth: number; hasChildren: boolean; key: string }
 
@@ -37,6 +42,29 @@ export function consoleUrl(pve: string, h: any, guest?: any) {
   return h.kind === "proxmox" ? `${base}&console=shell&node=${h.hostname}` : ""
 }
 
+/** The install command of a host, for the address the host can reach the monitor at. */
+function InstallCommand({ id }: { id: string }) {
+  const { data: status } = useApi("/api/auth/status", { poll: false })
+  const [typed, setTyped] = useStored("nyx.agent-url", "")
+  const [url, setUrl] = useState(typed)
+  useEffect(() => { const t = setTimeout(() => setUrl(typed), 300); return () => clearTimeout(t) }, [typed])
+  // Without NYX_PUBLIC_URL the server only knows localhost, which a remote host cannot reach.
+  const fallback = status?.public_url?.includes("://localhost") ? location.origin : status?.public_url
+  const address = url.trim() || fallback
+  const { data, error } = useApi(address ? `/api/hosts/${id}/install?url=${encodeURIComponent(address)}` : null, { poll: false })
+  return (
+    <div className="flex flex-col gap-4">
+      <Input label="Monitor URL" value={typed} placeholder={fallback} className="font-mono" onChange={(e) => setTyped(e.target.value)} hint="The address this host reaches the monitor at. Remembered on this device." />
+      {error ? <ErrorNote>{error}</ErrorNote> : data && <>
+        <p className="text-fg2">Run this as root on the host.</p>
+        <Copy text={data.curl} />
+        <p className="text-fg2">Or use these variables with the Ansible role.</p>
+        <Copy text={Object.entries(data.ansible).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")} />
+      </>}
+    </div>
+  )
+}
+
 function AddHost({ hosts, onDone }: { hosts: any[]; onDone: () => void }) {
   const [f, setF] = useState({ name: "", kind: "vm", parent: "", ct_autoinstall: false })
   const [res, setRes] = useState<any>()
@@ -45,17 +73,7 @@ function AddHost({ hosts, onDone }: { hosts: any[]; onDone: () => void }) {
     e.preventDefault()
     try { setRes(await api("/api/hosts", { body: f })) } catch (err) { setError((err as Error).message) }
   }
-  if (res) {
-    const a = res.ansible
-    return (
-      <Modal title="Install the agent" onClose={onDone}>
-        <p className="text-fg2">Run this as root on the host.</p>
-        <Copy text={res.curl} />
-        <p className="text-fg2">Or use these variables with the Ansible role.</p>
-        <Copy text={Object.entries(a).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")} />
-      </Modal>
-    )
-  }
+  if (res) return <Modal title="Install the agent" onClose={onDone}><InstallCommand id={res.id} /></Modal>
   return (
     <Modal title="Add host" onClose={onDone}>
       <form className="flex flex-col gap-4" onSubmit={submit}>
@@ -78,11 +96,21 @@ export function Hosts() {
   const list = hosts.data ?? []
   const rows = buildTree(list, (h) => h.guests ?? [], collapsed)
   const toggle = (id: string) => { const s = new Set(collapsed); s.has(id) ? s.delete(id) : s.add(id); setCollapsed(s) }
-  return (
-    <>
-      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<Button variant="primary" onClick={() => setAdd(true)}><PlusIcon className="size-5" aria-hidden />Add host</Button>} />
-      <Panel title="Fleet" flush>
-        {list.length === 0 ? <div className="px-5 pb-5"><Empty>No hosts yet. Add one to get an install command.</Empty></div> : (
+  const online = list.filter((h) => h.status !== "off").length
+  const updates = list.reduce((n, h) => n + (h.updates || 0), 0)
+  const panels = [
+    { id: "summary", title: "Summary", render: (edit: any) => (
+      <Panel title="Summary" edit={edit}>
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="Online" value={`${online} / ${list.length}`} level={online === list.length ? "ok" : "warn"} />
+          <Stat label="Pending updates" value={updates} level={updates ? "warn" : "ok"} />
+          <Stat label="Agent-less guests" value={rows.filter((r) => r.guest).length} />
+        </div>
+      </Panel>
+    ) },
+    { id: "fleet", title: "Fleet", render: (edit: any) => (
+      <Panel title="Fleet" flush edit={edit}>
+        {list.length === 0 ? <div className="px-4 pb-4"><Empty>No hosts yet. Add one to get an install command.</Empty></div> : (
           <Table head={["Host", "Type", "Address", "CPU", "Mem.", "Temp.", "Updates", "State"]}>
             {rows.map((r) => r.host ? (
               <tr key={r.key} className="hover:bg-raised">
@@ -100,32 +128,36 @@ export function Hosts() {
                 <Td className="text-fg2">{fmt.pct(r.host.mem)}</Td>
                 <Td className="text-fg2">{fmt.temp(r.host.temp)}</Td>
                 <Td className="text-fg2">{r.host.updates || "—"}</Td>
-                <StateCell level={hostLevel(r.host.status)} label={r.host.installed ? undefined : "Waiting for install"} />
+                <StateCell level={hostLevel(r.host.status)} label={r.host.installed ? undefined : r.host.oci ? "OCI, no agent" : "Waiting for install"} />
               </tr>
             ) : (
               <tr key={r.key}>
-                <Td className="text-fg2"><span style={{ paddingLeft: r.depth * 24 + 20 }}>{r.guest.name}</span></Td>
-                <Td className="text-fg3">{r.guest.kind === "lxc" ? "Container" : "VM"} {r.guest.vmid}, no agent</Td>
-                <Td /><Td /><Td /><Td /><Td />
+                <Td className="text-fg2"><span style={{ paddingLeft: r.depth * 24 + 16 }}>{r.guest.name}</span></Td>
+                <Td className="text-fg3">{r.guest.oci ? "OCI container" : r.guest.kind === "lxc" ? "Container" : "VM"} {r.guest.vmid}, no agent</Td>
+                {r.guest.oci ? <Td colSpan={5} className="text-warn">{OCI_LIMITS}</Td> : <><Td /><Td /><Td /><Td /><Td /></>}
                 <Td>{proxmox.data?.url && <a className="text-accent" target="_blank" rel="noreferrer" href={consoleUrl(proxmox.data.url, r.parent, r.guest)}>Console</a>}</Td>
               </tr>
             ))}
           </Table>
         )}
       </Panel>
+    ) },
+  ]
+  return (
+    <>
+      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setAdd(true)}><PlusIcon className="size-5" aria-hidden />Add host</Button></>} />
+      <Board id="hosts" panels={panels} desktop={{ cols: [["fleet"]], hidden: ["summary"] }} phone={{ cols: [["fleet"]], hidden: ["summary"] }} />
       {add && <AddHost hosts={list} onDone={() => { setAdd(false); hosts.reload() }} />}
     </>
   )
 }
-
-const smartLevel: Record<string, Level> = { ok: "ok", warn: "warn", crit: "crit" }
 
 export function HostDetail({ id }: { id: string }) {
   const [range, setRange] = useState("1h")
   const { data: h, reload, error } = useApi(`/api/hosts/${id}`)
   const series = useApi<any[]>(`/api/series?range=${range}&host=${id}`)
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const [install, setInstall] = useState<any>()
+  const [install, setInstall] = useState(false)
   const [note, setNote] = useState("")
   const [removing, setRemoving] = useState(false)
   if (error) return <p role="alert" className="text-crit">{error}</p>
@@ -140,6 +172,84 @@ export function HostDetail({ id }: { id: string }) {
   }
   const consoleLink = consoleUrl(proxmox.data?.url ?? "", h)
   const points = series.data ?? []
+  const physical = h.kind === "physical" || h.kind === "proxmox"
+  const panels = [
+    { id: "usage", title: "Usage", render: (edit: any) => (
+      <Panel title="Usage" edit={edit}>
+        <div className="flex justify-around gap-4"><Gauge label="CPU" value={h.cpu ?? 0} /><Gauge label="Memory" value={h.mem ?? 0} /></div>
+      </Panel>
+    ) },
+    { id: "history", title: "History", render: (edit: any) => (
+      <Panel title="History" edit={edit}>
+        <TimeSeries series={[{ name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) }, { name: "Memory", color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) }]} />
+      </Panel>
+    ) },
+    { id: "details", title: "Details", render: (edit: any) => (
+      <Panel title="Details" edit={edit}>
+        <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-2">
+          <Stat label="Swap" value={fmt.pct(h.swap)} level={levelOf(h.swap)} />
+          <Stat label="Temperature" value={fmt.temp(h.temp)} />
+          <Stat label="Containers" value={`${h.containers_running}/${h.containers_total}`} />
+          <Stat label="Down" value={<span className="text-xl">{fmt.bps(h.rx)}</span>} />
+          <Stat label="Up" value={<span className="text-xl">{fmt.bps(h.tx)}</span>} />
+          <Stat label="Agent" value={<span className="text-xl">{h.agent_version || "—"}</span>} />
+        </div>
+      </Panel>
+    ) },
+    { id: "logs", title: "Logs", render: (edit: any) => <HostLogs id={id} lines={h.logs} edit={edit} /> },
+    { id: "disks", title: "File systems", render: (edit: any) => (
+      <Panel title="File systems" flush edit={edit}>
+        {h.disks?.length ? <FileSystems rows={h.disks.map((d: any) => ({ ...d, pct: (d.used / d.total) * 100 }))} /> : <div className="px-4 pb-4"><Empty>No data yet.</Empty></div>}
+      </Panel>
+    ) },
+    { id: "smart", title: "Physical disks", absent: !physical, render: (edit: any) => (
+      <Panel title="Physical disks" edit={edit} footer="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment.">
+        {h.smart?.length ? <DiskCards disks={h.smart} /> : <Empty>No SMART data yet.</Empty>}
+      </Panel>
+    ) },
+    { id: "containers", title: "Containers", absent: !h.containers?.length, render: (edit: any) => (
+      <Panel title="Containers" flush edit={edit}>
+        <Table head={["Name", "Status", "State"]}>
+          {h.containers?.map((c: any) => <tr key={c.name}><Td mono>{c.name}</Td><Td className="text-fg2">{c.status}</Td><StateCell level={c.state === "running" ? "ok" : "off"} label={c.state} /></tr>)}
+        </Table>
+      </Panel>
+    ) },
+    { id: "node", title: "Node.js", absent: !h.node, render: (edit: any) => (
+      <Panel title="Node.js" edit={edit}>
+        <p className="text-fg2">Node <Mono>{h.node?.version}</Mono></p>
+        {h.node?.apps.map((a: any) => <p key={a.path} className="mt-2">{a.name} <Mono className="text-fg3">{a.path}</Mono></p>)}
+      </Panel>
+    ) },
+    { id: "updates", title: "Updates", render: (edit: any) => (
+      <Panel title="Updates" edit={edit}>
+        {h.update_list?.length ? (
+          <ul className="mb-4 max-h-60 overflow-auto">
+            {h.update_list.map((u: any) => <li key={u.name} className="flex justify-between py-1"><Mono>{u.name}</Mono><span className={u.security ? "text-warn" : "text-fg3"}>{u.security ? "Security" : u.version}</span></li>)}
+          </ul>
+        ) : <p className="mb-4 text-fg3">No pending updates known.</p>}
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => send({ action: "check_updates" }, "Check requested.")}>Check now</Button>
+          <Button variant="primary" onClick={() => { if (confirm(`Upgrade all packages on ${h.name}?`)) send({ action: "update_system" }, "System update requested.") }}>Update system</Button>
+          <Button onClick={() => send({ action: "update_agent" }, "Agent update requested.")}>Update agent</Button>
+        </div>
+      </Panel>
+    ) },
+    { id: "agent", title: "Agent", render: (edit: any) => (
+      <Panel title="Agent" edit={edit}>
+        <div className="flex flex-col gap-4">
+          <Select label="Deployment type" value={h.kind} onChange={(e) => send({ action: "set_kind", kind: e.target.value, ct_autoinstall: h.ct_autoinstall }, "Type change requested.")} options={KINDS} hint="Applied live, without reinstalling." />
+          {h.kind === "proxmox" && <Check label="Install the agent in containers, including new ones" checked={h.ct_autoinstall} onChange={(e) => send({ action: "set_kind", kind: h.kind, ct_autoinstall: e.target.checked }, "Change requested.")} />}
+          {note && <p className="text-[13px] text-fg2" role="status">{note}</p>}
+          {h.results?.slice(-3).reverse().map((r: any) => <p key={r.id} className={`font-mono text-[13px] whitespace-pre-wrap ${r.ok ? "text-fg2" : "text-crit"}`}>{r.output}</p>)}
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={() => setInstall(!install)}>{install ? "Hide install command" : "Show install command"}</Button>
+            <Button variant="danger" onClick={() => setRemoving(true)}><TrashIcon className="size-5" aria-hidden />Delete host</Button>
+          </div>
+          {install && <InstallCommand id={id} />}
+        </div>
+      </Panel>
+    ) },
+  ]
   return (
     <>
       <PageHeader
@@ -150,86 +260,14 @@ export function HostDetail({ id }: { id: string }) {
         actions={<>
           <Status level={hostLevel(h.status)} />
           {consoleLink && <a href={consoleLink} target="_blank" rel="noreferrer"><Button><CommandLineIcon className="size-5" aria-hidden />Console</Button></a>}
+          <CustomizeButton />
           <RangeSelect value={range} onChange={setRange} />
         </>}
       />
-      <div className="grid grid-cols-2 items-start gap-5 max-lg:grid-cols-1">
-        <Section>
-          <Panel title="Usage">
-            <div className="flex justify-around gap-4"><Gauge label="CPU" value={h.cpu ?? 0} /><Gauge label="Memory" value={h.mem ?? 0} /></div>
-          </Panel>
-          <Panel title="History">
-            <TimeSeries series={[{ name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) }, { name: "Memory", color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) }]} />
-          </Panel>
-          <Panel title="Details">
-            <div className="grid grid-cols-3 gap-5 max-sm:grid-cols-2">
-              <Stat label="Swap" value={fmt.pct(h.swap)} level={levelOf(h.swap)} />
-              <Stat label="Temperature" value={fmt.temp(h.temp)} />
-              <Stat label="Containers" value={`${h.containers_running}/${h.containers_total}`} />
-              <Stat label="Down" value={<span className="text-xl">{fmt.bps(h.rx)}</span>} />
-              <Stat label="Up" value={<span className="text-xl">{fmt.bps(h.tx)}</span>} />
-              <Stat label="Agent" value={<span className="text-xl">{h.agent_version || "—"}</span>} />
-            </div>
-          </Panel>
-          <Panel title="Logs" footer="Warnings and errors from journald, kept in memory.">
-            {h.logs?.length ? <pre className="max-h-80 overflow-auto font-mono text-[13px] whitespace-pre-wrap text-fg2">{[...h.logs].reverse().join("\n")}</pre> : <Empty>No warnings.</Empty>}
-          </Panel>
-        </Section>
-        <Section>
-          <Panel title="Disks">
-            {h.disks?.length ? <BarGauge rows={h.disks.map((d: any) => ({ label: d.mount, pct: (d.used / d.total) * 100 }))} /> : <Empty>No data yet.</Empty>}
-          </Panel>
-          {(h.kind === "physical" || h.kind === "proxmox") && (
-            <Panel title="SMART" flush footer="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment.">
-              {h.smart?.length ? (
-                <Table head={["Disk", "Model", "Life left", "State"]}>
-                  {h.smart.map((d: any) => (
-                    <tr key={d.device}><Td mono>{d.device}</Td><Td className="text-fg2">{d.model}</Td><Td className="text-fg2">{d.life_left_pct == null ? "—" : `${d.life_left_pct} %`}</Td><StateCell level={smartLevel[d.health]} label={d.reason || undefined} /></tr>
-                  ))}
-                </Table>
-              ) : <div className="px-5 pb-5"><Empty>No SMART data yet.</Empty></div>}
-            </Panel>
-          )}
-          {h.containers?.length > 0 && (
-            <Panel title="Containers" flush>
-              <Table head={["Name", "Status", "State"]}>
-                {h.containers.map((c: any) => <tr key={c.name}><Td mono>{c.name}</Td><Td className="text-fg2">{c.status}</Td><StateCell level={c.state === "running" ? "ok" : "off"} label={c.state} /></tr>)}
-              </Table>
-            </Panel>
-          )}
-          {h.node && (
-            <Panel title="Node.js">
-              <p className="text-fg2">Node <Mono>{h.node.version}</Mono></p>
-              {h.node.apps.map((a: any) => <p key={a.path} className="mt-2">{a.name} <Mono className="text-fg3">{a.path}</Mono></p>)}
-            </Panel>
-          )}
-          <Panel title="Updates">
-            {h.update_list?.length ? (
-              <ul className="mb-4 max-h-60 overflow-auto">
-                {h.update_list.map((u: any) => <li key={u.name} className="flex justify-between py-1"><Mono>{u.name}</Mono><span className={u.security ? "text-warn" : "text-fg3"}>{u.security ? "Security" : u.version}</span></li>)}
-              </ul>
-            ) : <p className="mb-4 text-fg3">No pending updates known.</p>}
-            <div className="flex flex-wrap gap-3">
-              <Button onClick={() => send({ action: "check_updates" }, "Check requested.")}>Check now</Button>
-              <Button variant="primary" onClick={() => { if (confirm(`Upgrade all packages on ${h.name}?`)) send({ action: "update_system" }, "System update requested.") }}>Update system</Button>
-              <Button onClick={() => send({ action: "update_agent" }, "Agent update requested.")}>Update agent</Button>
-            </div>
-          </Panel>
-          <Panel title="Agent">
-            <div className="flex flex-col gap-4">
-              <Select label="Deployment type" value={h.kind} onChange={(e) => send({ action: "set_kind", kind: e.target.value, ct_autoinstall: h.ct_autoinstall }, "Type change requested.")} options={KINDS} hint="Applied live, without reinstalling." />
-              {h.kind === "proxmox" && <Check label="Install the agent in containers, including new ones" checked={h.ct_autoinstall} onChange={(e) => send({ action: "set_kind", kind: h.kind, ct_autoinstall: e.target.checked }, "Change requested.")} />}
-              {note && <p className="text-[13px] text-fg2" role="status">{note}</p>}
-              {h.results?.slice(-3).reverse().map((r: any) => <p key={r.id} className={`font-mono text-[13px] whitespace-pre-wrap ${r.ok ? "text-fg2" : "text-crit"}`}>{r.output}</p>)}
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={async () => setInstall(await api(`/api/hosts/${id}/install`))}>Show install command</Button>
-                <Button variant="danger" onClick={() => setRemoving(true)}><TrashIcon className="size-5" aria-hidden />Delete host</Button>
-              </div>
-              {install && <Copy text={install.curl} />}
-            </div>
-          </Panel>
-        </Section>
-      </div>
+      {h.oci && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">{h.installed ? "This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker." : OCI_LIMITS}</p>}
+      <Board id="host" panels={panels}
+        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "node", "updates", "agent"]], hidden: [] }}
+        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
       {removing && (
         <Modal title={`Delete ${h.name}`} onClose={() => setRemoving(false)}>
           <div className="flex flex-col gap-4">

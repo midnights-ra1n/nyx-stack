@@ -47,7 +47,10 @@ NYX_PB_BIN=$(command -v pocketbase) cargo run -p nyx-monitor   # data in ./nyx-d
 ## Layout rules
 
 - UI code shared by both servers goes in `web/src/ui`.
-- Styling follows the tokens in `web/src/ui/tokens.css`, from `Nyx-DA-guide.pdf`.
+- Styling follows the tokens in `web/src/ui/tokens.css`: `Nyx-DA-guide.pdf` for the
+  structure and the accent, with midnight-blue surfaces and text and fully rounded
+  controls, like homelab-management. Use `rounded-control` for pills, `rounded-box` for
+  anything that wraps text and `rounded-panel` for cards.
 - Nothing may load from a third party at runtime: fonts come from `@fontsource`.
 - Anything added to a public page must be listed in `build` in `pages.rs`, and covered
   by the test that looks for leaks.

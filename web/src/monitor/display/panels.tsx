@@ -25,7 +25,7 @@ function UptimeBars({ days, uptime, generated }: { days: (number | null)[]; upti
   return (
     <div className="mt-1">
       <div className="flex h-5 gap-px" role="img" aria-label={uptime == null ? "No uptime data yet" : `${uptime} percent uptime over 30 days`}>
-        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-[1px] ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? "no data" : `${d} %`}`} />)}
+        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-full ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? "no data" : `${d} %`}`} />)}
       </div>
       <div className="mt-1 flex justify-between text-xs text-fg3"><span>30 days ago</span><span>{uptime == null ? "No data yet" : `${uptime} % uptime`}</span><span>Today</span></div>
     </div>
@@ -51,7 +51,7 @@ function Tiles({ rows }: { rows: any[] }) {
   return (
     <ul className="grid min-h-full auto-rows-fr grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
       {rows.map((r, i) => (
-        <li key={i} className={`flex min-h-16 flex-col justify-center rounded-control px-3 py-2 ${levelSoft[r.state as Level]}`}>
+        <li key={i} className={`flex min-h-16 flex-col justify-center rounded-box px-3 py-2 ${levelSoft[r.state as Level]}`}>
           <span className="truncate font-medium" title={r.label}>{r.label}</span>
           <Status cell level={r.state} />
         </li>
@@ -138,7 +138,7 @@ function Alerts({ rows }: { rows: any[] | null }) {
   return (
     <ul className="flex flex-col gap-2">
       {rows.map((a, i) => (
-        <li key={i} className={`flex gap-2 rounded-control px-3 py-2 ${levelSoft[a.severity as Level] ?? levelSoft.warn}`}>
+        <li key={i} className={`flex gap-2 rounded-box px-3 py-2 ${levelSoft[a.severity as Level] ?? levelSoft.warn}`}>
           <ExclamationTriangleIcon className={`mt-0.5 size-4 shrink-0 ${levelText[a.severity as Level] ?? levelText.warn}`} aria-hidden />
           <span className="min-w-0"><span className="block">{a.message}</span><span className="text-xs text-fg3">Since {fmt.date(a.since)}</span></span>
         </li>

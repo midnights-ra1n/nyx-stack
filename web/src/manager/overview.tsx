@@ -39,12 +39,12 @@ export function Overview() {
           <Table head={["Name", "Version", "State"]}>
             {data.deployments.map((d: any) => <tr key={d.id}><Td className="font-medium">{d.name}</Td><Td mono>{d.version || "—"}</Td><Td><Status level={deployLevel(d.status)} label={d.status || "planned"} /></Td></tr>)}
           </Table>
-        ) : <div className="px-5 pb-5"><Empty>No deployments yet.</Empty></div>}
+        ) : <div className="px-4 pb-4"><Empty>No deployments yet.</Empty></div>}
       </Panel>
     ) },
     { id: "warranty", title: "Warranty ending", render: (edit: any) => (
       <Panel title="Warranty ending" edit={edit}>
-        {data?.warranty.length ? <ul className="flex flex-col gap-2">{data.warranty.map((h: any) => <li key={h.id} className="flex justify-between gap-3"><span>{h.name}</span><span className="text-fg2">{fmt.date(h.warranty_until)}</span></li>)}</ul> : <Empty>No warranty ends within 60 days.</Empty>}
+        {data?.warranty.length ? <ul className="flex flex-col gap-2">{data.warranty.map((h: any) => <li key={h.id} className="flex justify-between gap-3"><span>{h.name}</span><span className="text-fg2">{fmt.date(h.warranty_until)}</span></li>)}</ul> : <Empty>No warranty ending soon.</Empty>}
       </Panel>
     ) },
   ]

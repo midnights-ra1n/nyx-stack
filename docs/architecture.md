@@ -45,8 +45,10 @@ short-lived process per delivery, so nothing Go-related stays in memory.
 
 **Agent.** It has two threads: a collector and a worker for slow commands. Reports
 carry slow-changing data (Docker, updates, SMART, logs) only when it changed. It opens
-no port. Its systemd unit runs at low CPU and idle I/O priority. The journal cursor
-sits in tmpfs, so the agent does not write to disk during normal operation.
+no port. Its systemd unit runs at low CPU and idle I/O priority. The journal cursors
+sit in tmpfs, so the agent does not write to disk during normal operation. Live logs
+add work only while someone watches a host: the answer to a report asks the agent to
+post new journal lines every two seconds, until the monitor says nobody is left.
 
 **Servers.** A single-threaded Tokio runtime. Live metrics live in RAM ring buffers
 (240 points per host, 500 log lines), so viewing a dashboard never touches the disk.
