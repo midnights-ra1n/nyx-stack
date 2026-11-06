@@ -2,12 +2,19 @@
 
 use crate::{config::Config, packages, transport, Msg};
 use anyhow::{bail, Context};
-use nyx_proto::{Action, Command, CommandResult, Deploy};
-use std::{fs, os::unix::fs::PermissionsExt, process, sync::mpsc::Sender};
+use nyx_proto::{Action, Command, CommandResult, Deploy, Progress};
+use std::{
+    fs,
+    io::{BufRead, BufReader, Read},
+    os::unix::fs::PermissionsExt,
+    process::{self, Stdio},
+    sync::mpsc::Sender,
+};
 
 const OUTPUT_TAIL: usize = 4000;
 
 pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
+    let mut restart = false;
     let outcome = match cmd.action {
         Action::CheckUpdates => match packages::check() {
             Some(list) => {
@@ -17,14 +24,8 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
             }
             None => Err(anyhow::anyhow!("no supported package manager")),
         },
-        Action::UpdateSystem => upgrade(),
-        Action::UpdateAgent => match update_agent(cfg, http) {
-            Ok(msg) => {
-                let _ = tx.send(Msg::Restart);
-                Ok(msg)
-            }
-            Err(e) => Err(e),
-        },
+        Action::UpdateSystem => upgrade(tx),
+        Action::UpdateAgent => update_agent(cfg, http).inspect(|_| restart = true),
         Action::InstallInCt { vmid, token, key } => install_in_ct(cfg, vmid, &token, &key),
         Action::Deploy(d) => deploy(&d),
         Action::SetKind { .. } => Ok(String::new()), // handled by the main loop
@@ -34,6 +35,9 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
         Err(e) => (false, format!("{e:#}")),
     };
     let _ = tx.send(Msg::Result(CommandResult { id: cmd.id, ok, output: tail(&output) }));
+    if restart {
+        let _ = tx.send(Msg::Restart); // Last, so the report before the exit carries the result.
+    }
 }
 
 fn tail(s: &str) -> String {
@@ -51,17 +55,53 @@ fn sh(mut c: process::Command) -> anyhow::Result<String> {
     }
 }
 
+/// [`sh`] for long commands: tells the monitor how far they have come.
+fn stream(mut c: process::Command, parse: fn(&str) -> Option<Progress>, tx: &Sender<Msg>) -> anyhow::Result<String> {
+    let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().with_context(|| format!("cannot start {:?}", c.get_program()))?;
+    let (out, mut err) = (child.stdout.take().context("no stdout")?, child.stderr.take().context("no stderr")?);
+    // On its own thread: a full stderr pipe would stall the command.
+    let errors = std::thread::spawn(move || {
+        let mut bytes = vec![];
+        let _ = err.read_to_end(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let (mut text, mut shown) = (String::new(), None);
+    for line in BufReader::new(out).split(b'\n').map_while(Result::ok) {
+        let line = String::from_utf8_lossy(&line);
+        if let Some(p) = parse(&line).filter(|p| shown != Some(p.pct)) {
+            shown = Some(p.pct);
+            let _ = tx.send(Msg::Progress(p));
+        }
+        if !packages::is_apt_status(&line) {
+            text.push_str(&line);
+            text.push('\n');
+        }
+    }
+    text.push_str(&errors.join().unwrap_or_default());
+    if child.wait()?.success() {
+        Ok(text)
+    } else {
+        bail!("{} failed:\n{}", c.get_program().to_string_lossy(), tail(&text))
+    }
+}
+
 fn cmd<const N: usize>(program: &str, args: [&str; N]) -> process::Command {
     let mut c = process::Command::new(program);
     c.args(args);
     c
 }
 
-fn upgrade() -> anyhow::Result<String> {
+fn upgrade(tx: &Sender<Msg>) -> anyhow::Result<String> {
     let (program, args) = packages::upgrade_command().context("no supported package manager")?;
+    let _ = tx.send(Msg::Progress(Progress { pct: 0, step: "Refreshing the package list".into() }));
+    packages::check(); // The daily check can be a day old.
     let mut c = process::Command::new(program);
     c.args(args).env("DEBIAN_FRONTEND", "noninteractive");
-    sh(c)
+    let output = stream(c, if program == "dnf" { packages::dnf_progress } else { packages::apt_progress }, tx);
+    if let Some(list) = packages::check() {
+        let _ = tx.send(Msg::Updates(list)); // Also after a failure: part of it may have gone through.
+    }
+    output
 }
 
 fn update_agent(cfg: &Config, http: &ureq::Agent) -> anyhow::Result<String> {
@@ -149,6 +189,17 @@ fn unit_file(d: &Deploy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_keeps_the_output_and_reports_each_step_once() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run = |script: &str| stream(cmd("sh", ["-c", script]), packages::apt_progress, &tx);
+        let out = run("echo hello; echo pmstatus:a:0:One; echo pmstatus:a:0:Again; echo pmstatus:b:100:Two; echo oops >&2").unwrap();
+        assert_eq!(out, "hello\noops\n");
+        let pcts: Vec<u8> = rx.try_iter().map(|m| match m { Msg::Progress(p) => p.pct, _ => panic!("unexpected message") }).collect();
+        assert_eq!(pcts, [25, 100]);
+        assert!(format!("{:#}", run("echo broken >&2; exit 3").unwrap_err()).contains("broken"));
+    }
 
     #[test]
     fn unit_escapes_start_command() {

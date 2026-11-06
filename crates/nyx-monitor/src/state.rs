@@ -17,6 +17,10 @@ pub const RAM_POINTS: usize = 240;
 /// Logs are kept in RAM only, so collecting them costs the server no disk I/O.
 pub const LOG_LINES: usize = 500;
 pub const REPORT_INTERVAL_S: u64 = 15;
+/// Report pace while an update runs, so that its bar moves.
+pub const UPDATE_INTERVAL_S: u64 = 5;
+/// An update without a result by then lost its agent, which keeps its queue in memory.
+const UPDATE_TIMEOUT_S: i64 = 3600;
 /// Lines of a live view kept in memory, and how long one request keeps it running.
 pub const TAIL_LINES: usize = 1000;
 pub const LIVE_WATCH_S: i64 = 15;
@@ -161,13 +165,68 @@ pub struct Host {
     pub last_seen: i64,
     pub live: Option<Live>,
     pub queue: Vec<Command>,
+    pub update: Option<Update>,
     pub acc: Acc,
     pub tail: Tail,
     pub watched_until: i64,
     pub tail_seen: i64,
 }
 
+/// The latest update sent to a host. In memory only, like the commands themselves.
+pub struct Update {
+    pub started: i64,
+    total: usize,
+    /// Commands without a result yet.
+    waiting: Vec<String>,
+    errors: Vec<String>,
+}
+
+impl Update {
+    fn lost(&self, now: i64, last_seen: i64) -> bool {
+        !self.waiting.is_empty() && (now - last_seen > offline_after_s() || now - self.started > UPDATE_TIMEOUT_S)
+    }
+
+    fn finish(&mut self, res: &CommandResult) {
+        if let Some(i) = self.waiting.iter().position(|id| *id == res.id) {
+            self.waiting.remove(i);
+            if !res.ok {
+                self.errors.push(res.output.clone());
+            }
+        }
+    }
+
+    pub fn to_json(&self, now: i64, last_seen: i64, progress: Option<&Progress>) -> Value {
+        let lost = self.lost(now, last_seen);
+        let done = self.waiting.is_empty() || lost;
+        let finished = self.total - self.waiting.len();
+        let pct = if done { 100 } else { (finished * 100 + progress.map_or(0, |p| p.pct as usize)) / self.total };
+        let mut errors = self.errors.clone();
+        if lost {
+            errors.push("The agent stopped answering before the end.".into());
+        }
+        json!({"started": self.started, "done": done, "pct": pct, "step": progress.map(|p| &p.step), "error": errors.join("\n")})
+    }
+}
+
 impl Host {
+    pub fn updating(&self, now: i64) -> bool {
+        self.update.as_ref().is_some_and(|u| !u.waiting.is_empty() && !u.lost(now, self.last_seen))
+    }
+
+    /// Queue `actions` in order, unless an update is running: a second one could
+    /// restart the agent under the first. Returns the id of the first command.
+    pub fn start_update(&mut self, actions: Vec<Action>, now: i64) -> Option<String> {
+        if self.updating(now) {
+            return None;
+        }
+        let commands: Vec<Command> = actions.into_iter().map(|action| Command { id: nyx_srv::random_hex(8), action }).collect();
+        let waiting: Vec<String> = commands.iter().map(|c| c.id.clone()).collect();
+        let first = waiting.first().cloned();
+        self.update = Some(Update { started: now, total: waiting.len(), waiting, errors: vec![] });
+        self.queue.extend(commands);
+        first
+    }
+
     pub fn from_record(r: &Value) -> Self {
         let s = |k: &str| r[k].as_str().unwrap_or_default().to_string();
         Self {
@@ -189,6 +248,7 @@ impl Host {
             last_seen: chrono::DateTime::parse_from_rfc3339(&s("last_seen").replacen(' ', "T", 1)).map_or(0, |d| d.timestamp()),
             live: None,
             queue: vec![],
+            update: None,
             acc: Acc::default(),
             tail: Tail::default(),
             watched_until: 0,
@@ -271,6 +331,8 @@ pub struct FleetPoint {
 
 #[derive(Default)]
 pub struct State {
+    /// Latest EDF Tempo summary, and when RTE gave it.
+    pub tempo: Option<(std::time::Instant, Value)>,
     pub hosts: HashMap<String, Host>,
     pub by_token: HashMap<String, String>,
     pub alerts: HashMap<String, OpenAlert>,
@@ -295,7 +357,6 @@ pub struct App {
     pub http: reqwest::Client,
     pub agent_dir: String,
     pub probes: crate::probes::Shared,
-    pub tempo_cache: Mutex<Option<(std::time::Instant, Value)>>,
     pub pages: Mutex<crate::pages::Pages>,
     started: std::time::Instant,
 }
@@ -319,7 +380,6 @@ impl App {
             http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build()?,
             agent_dir: std::env::var("NYX_AGENT_DIR").unwrap_or_else(|_| "/usr/share/nyx/agents".into()),
             probes: crate::probes::Shared::new()?,
-            tempo_cache: Mutex::new(None),
             pages: Mutex::new(pages),
             started: std::time::Instant::now(),
         };
@@ -484,6 +544,18 @@ impl App {
 }
 
 impl State {
+    /// Upgrade every host in contact, then bring its agent to this server's version:
+    /// in that order, as replacing the agent restarts it and drops what it has queued.
+    pub fn update_all(&mut self, now: i64) -> usize {
+        let online = self.hosts.values_mut().filter(|h| now - h.last_seen <= offline_after_s());
+        online
+            .filter_map(|h| {
+                let stale = h.agent_version != env!("CARGO_PKG_VERSION");
+                h.start_update(if stale { vec![Action::UpdateSystem, Action::UpdateAgent] } else { vec![Action::UpdateSystem] }, now)
+            })
+            .count()
+    }
+
     pub fn add_fleet_point(&mut self, p: FleetPoint) {
         self.fleet.push_back(p);
         while self.fleet.len() > FLEET_POINTS {
@@ -536,6 +608,7 @@ impl State {
             live.logs.push_back(line);
         }
         for res in r.results.drain(..) {
+            if let Some(u) = &mut h.update { u.finish(&res); }
             if self.results.len() == 200 { self.results.pop_front(); }
             self.results.push_back(json!({"id": res.id, "host": h.id, "ok": res.ok, "output": res.output, "t": now}));
         }
@@ -611,6 +684,61 @@ mod tests {
 
     fn report(cpu: f32, mem_pct: u64, disk_pct: u64) -> Report {
         Report { cpu_pct: cpu, mem_used: mem_pct, mem_total: 100, disks: vec![Disk { mount: "/".into(), used: disk_pct, total: 100, ..Disk::default() }], kind: HostKind::Vm, ..Report::default() }
+    }
+
+    fn result(id: &str, ok: bool) -> CommandResult {
+        CommandResult { id: id.into(), ok, output: "out".into() }
+    }
+
+    #[test]
+    fn an_update_tracks_its_commands_and_refuses_a_second_one() {
+        let mut h = Host { last_seen: 100, ..host() };
+        h.start_update(vec![Action::UpdateSystem, Action::UpdateAgent], 100).unwrap();
+        assert!(h.start_update(vec![Action::UpdateAgent], 100).is_none());
+        assert_eq!(h.queue.len(), 2);
+        assert!(matches!(h.queue[0].action, Action::UpdateSystem), "the agent replaces itself last");
+        let (first, second) = (h.queue[0].id.clone(), h.queue[1].id.clone());
+        fn json(h: &Host, p: Option<&Progress>) -> Value {
+            h.update.as_ref().unwrap().to_json(100, 100, p)
+        }
+
+        assert_eq!(json(&h, Some(&Progress { pct: 50, step: "x".into() }))["pct"], 25);
+        h.update.as_mut().unwrap().finish(&result("someone-else", true));
+        h.update.as_mut().unwrap().finish(&result(&first, true));
+        assert_eq!(json(&h, None)["pct"], 50);
+        h.update.as_mut().unwrap().finish(&result(&second, false));
+        let end = json(&h, None);
+        assert_eq!((&end["done"], &end["pct"], &end["error"]), (&json!(true), &json!(100), &json!("out")));
+        assert!(!h.updating(100) && h.start_update(vec![Action::UpdateAgent], 100).is_some());
+    }
+
+    #[test]
+    fn an_update_whose_agent_goes_quiet_ends_and_can_be_retried() {
+        let mut h = Host { last_seen: 100, ..host() };
+        h.start_update(vec![Action::UpdateSystem], 100);
+        assert!(h.updating(100 + offline_after_s()));
+        let now = 101 + offline_after_s();
+        assert!(!h.updating(now));
+        let json = h.update.as_ref().unwrap().to_json(now, h.last_seen, None);
+        assert_eq!(json["done"], true);
+        assert!(json["error"].as_str().unwrap().contains("stopped answering"));
+        h.last_seen = now;
+        assert!(h.updating(now), "still within the time an upgrade can take");
+        assert!(!h.updating(100 + UPDATE_TIMEOUT_S + 1));
+    }
+
+    #[test]
+    fn update_all_skips_silent_hosts_and_agents_already_current() {
+        let mut st = State::default();
+        let add = |st: &mut State, id: &str, last_seen, version: &str| {
+            st.hosts.insert(id.into(), Host { last_seen, agent_version: version.into(), ..Host::from_record(&json!({"id": id})) });
+        };
+        add(&mut st, "old", 1000, "0.0.1");
+        add(&mut st, "current", 1000, env!("CARGO_PKG_VERSION"));
+        add(&mut st, "silent", 0, "0.0.1");
+        assert_eq!(st.update_all(1000), 2);
+        assert_eq!((st.hosts["old"].queue.len(), st.hosts["current"].queue.len(), st.hosts["silent"].queue.len()), (2, 1, 0));
+        assert_eq!(st.update_all(1000), 0, "pressing twice changes nothing");
     }
 
     #[test]

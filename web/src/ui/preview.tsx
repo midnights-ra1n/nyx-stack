@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { fmt } from "./lib"
+import { fmt, markUrl } from "./lib"
 
 interface Chat { label: string; bg: string; text: string; meta: string; bubble?: string }
 
@@ -13,7 +13,7 @@ const CHATS: Record<string, Chat> = {
 const LOOKS = [{ id: "email", label: "Email" }, ...Object.entries(CHATS).map(([id, c]) => ({ id, label: c.label })), { id: "phone", label: "Phone" }]
 const LOOK_OF: Record<string, string> = { smtp: "email", discord: "discord", slack: "slack", telegram: "telegram", teams: "teams", matrix: "matrix" }
 
-const Avatar = ({ size = 36 }: { size?: number }) => <img src="/nyx-mark.svg" alt="" style={{ width: size, height: size }} className="shrink-0 rounded-full" />
+const Avatar = ({ size = 36 }: { size?: number }) => <img src={markUrl()} alt="" style={{ width: size, height: size }} className="shrink-0 rounded-full" />
 
 function ChatLook({ id, title, body }: { id: string; title: string; body: string }) {
   const c = CHATS[id]

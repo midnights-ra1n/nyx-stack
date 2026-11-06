@@ -1,7 +1,7 @@
 //! Gathers host metrics. Slow-changing data is read on its own schedule and sent
 //! only when it changed, which keeps both CPU use and reports small.
 
-use crate::{config::Config, proxmox, smart};
+use crate::{config::Config, packages, proxmox, smart};
 use nyx_proto::*;
 use std::{
     io::{Read, Write},
@@ -43,6 +43,7 @@ pub struct Collector {
     temps: Components,
     last_net: Instant,
     pub pending_results: Vec<CommandResult>,
+    pub progress: Option<Progress>,
     pending_logs: Vec<String>,
     slow: Every,
     rare: Every,
@@ -65,6 +66,7 @@ impl Collector {
             temps: Components::new_with_refreshed_list()?,
             last_net: Instant::now(),
             pending_results: vec![],
+            progress: None,
             pending_logs: vec![],
             slow: Every(SLOW, None),
             rare: Every(RARE, None),
@@ -142,8 +144,10 @@ impl Collector {
             temp_c: self.temps.iter().filter_map(|c| c.temperature()).filter(|t| t.is_finite() && *t > 0.0).reduce(f32::max),
             logs: std::mem::take(&mut self.pending_logs),
             results: std::mem::take(&mut self.pending_results),
+            progress: self.progress.clone(),
             ..Report::default()
         };
+        r.reboot_required = packages::reboot_required(&r.kernel);
 
         if self.slow.due() {
             r.containers = changed(&mut self.containers, docker_containers());

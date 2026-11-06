@@ -1,6 +1,6 @@
 //! Agent-facing endpoints: signed reports, install script, binary downloads.
 
-use crate::state::{evaluate, App, Host, REPORT_INTERVAL_S};
+use crate::state::{evaluate, App, Host, REPORT_INTERVAL_S, UPDATE_INTERVAL_S};
 use axum::{
     body::Bytes,
     extract::{Path, State},
@@ -47,7 +47,7 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     let pending_updates = report.updates.as_ref().map(|u| (u.len(), u.iter().filter(|p| p.security).count()));
     let guests = report.guests.clone();
 
-    let (applied, wanted, name, commands, live_logs) = {
+    let (applied, wanted, name, commands, live_logs, interval_s) = {
         let mut st = app.lock();
         let now = Utc::now().timestamp();
         let applied = st.apply(&id, report, now).ok_or_else(ApiError::not_found)?;
@@ -56,7 +56,8 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
         let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
         let live_logs = h.watched_until > now;
         if !live_logs { h.tail.clear(); }
-        (applied, wanted, h.name.clone(), std::mem::take(&mut h.queue), live_logs)
+        let interval_s = if h.updating(now) { UPDATE_INTERVAL_S } else { REPORT_INTERVAL_S };
+        (applied, wanted, h.name.clone(), std::mem::take(&mut h.queue), live_logs, interval_s)
     };
 
     if let Some(patch) = &applied.patch {
@@ -70,7 +71,7 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     if let Some(guests) = guests {
         adopt_containers(&app, &id, &guests).await?;
     }
-    Ok(Json(Reply { interval_s: REPORT_INTERVAL_S, resync: applied.first, commands, live_logs }))
+    Ok(Json(Reply { interval_s, resync: applied.first, commands, live_logs }))
 }
 
 /// Log lines of a host someone is watching. Nothing here reaches the database.

@@ -109,6 +109,15 @@ export function Meter({ pct, warn = 75, crit = 90 }: { pct: number; warn?: numbe
   return <div className="h-3 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${levelBg[levelOf(pct, warn, crit)]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
 }
 
+/** Fills with the work done. Unlike a Meter, a full bar is good news. */
+export function Progress({ pct, label, thin }: { pct: number; label: string; thin?: boolean }) {
+  return (
+    <div role="progressbar" aria-label={label} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className={`overflow-hidden rounded-full bg-raised ${thin ? "h-2" : "h-5"}`}>
+      <div className="h-full rounded-full bg-ok transition-[width] duration-500" style={{ width: `${pct}%` }} />
+    </div>
+  )
+}
+
 export function BarGauge({ rows, warn = 75, crit = 90 }: { rows: { label: string; pct: number }[]; warn?: number; crit?: number }) {
   return (
     <div className="flex flex-col gap-3">

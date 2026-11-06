@@ -5,6 +5,7 @@ import { fmt, type Level, levelSoft, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskHealth } from "./disks"
 import { RecentLogs } from "./logs"
+import { TempoTiles } from "./tempo"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
@@ -166,23 +167,10 @@ export function Overview() {
   )
 }
 
-const TEMPO: Record<string, { label: string; level: Level }> = { BLUE: { label: "Blue", level: "info" }, WHITE: { label: "White", level: "off" }, RED: { label: "Red", level: "crit" } }
-
 function TempoPanel({ tempo, error, edit }: { tempo: any; error?: string; edit: any }) {
-  const day = (c?: string) => (c ? <Status level={TEMPO[c].level} label={TEMPO[c].label} /> : <span className="text-fg3">Not published</span>)
   return (
     <Panel title="EDF Tempo" edit={edit}>
-      {error ? <ErrorNote>{error}</ErrorNote> : !tempo ? <Empty>Loading…</Empty> : !tempo.configured ? <Empty>Add your RTE API keys in Settings.</Empty> : (
-        <div className="flex flex-col gap-3">
-          <div className="flex justify-between"><span className="text-fg2">Today</span>{day(tempo.today)}</div>
-          <div className="flex justify-between"><span className="text-fg2">Tomorrow</span>{day(tempo.tomorrow)}</div>
-          <div className="grid grid-cols-3 gap-3 border-t border-line pt-3">
-            <Stat label="Blue left" value={tempo.remaining.blue} />
-            <Stat label="White left" value={tempo.remaining.white} />
-            <Stat label="Red left" value={tempo.remaining.red} />
-          </div>
-        </div>
-      )}
+      {error ? <ErrorNote>{error}</ErrorNote> : !tempo ? <Empty>Loading…</Empty> : !tempo.configured ? <Empty>Add your RTE API keys in Settings.</Empty> : <TempoTiles tempo={tempo} className="auto-rows-[112px]" />}
     </Panel>
   )
 }

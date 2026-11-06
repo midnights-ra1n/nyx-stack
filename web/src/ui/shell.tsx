@@ -2,7 +2,7 @@ import { ArrowPathIcon, Cog6ToothIcon, EllipsisHorizontalIcon, MagnifyingGlassIc
 import { createRoot } from "react-dom/client"
 import { type ReactNode, createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
 import { Button, ErrorNote, type Icon, Input, Tabs } from "./components"
-import { api, AUTH_LOST, REFRESH, setRefresh, useApi, useOnline, useRefresh } from "./lib"
+import { api, AUTH_LOST, markUrl, REFRESH, setRefresh, useApi, useOnline, useRefresh } from "./lib"
 
 // Router: the app has few, flat routes; history API is all it needs.
 const subscribe = (l: () => void) => { addEventListener("popstate", l); return () => removeEventListener("popstate", l) }
@@ -16,13 +16,15 @@ export function Link({ to, className, children, ...p }: { to: string; className?
 export interface NavItem { to: string; label: string; icon: Icon; badge?: number }
 export interface NavConfig {
   name: string
+  /** Which of the two servers this is, under the logo. */
+  role: string
   groups: { label: string; items: NavItem[] }[]
   /** Four bottom-bar tabs on phones; the rest goes to the "More" sheet. */
   tabs: string[]
   footer?: ReactNode
 }
 
-const Logo = ({ className = "size-8" }: { className?: string }) => <img src="/nyx-mark.svg" alt="" className={className} />
+const Logo = ({ className = "size-8" }: { className?: string }) => <img src={markUrl()} alt="" className={className} />
 
 const isActive = (path: string, to: string) => (to === "/" ? path === "/" : path === to || path.startsWith(`${to}/`))
 
@@ -51,7 +53,7 @@ function SideEntry({ item, path }: { item: NavItem; path: string }) {
 function Sidebar({ nav, path }: { nav: NavConfig; path: string }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-10 flex w-[248px] flex-col gap-7 border-r border-line bg-sidebar px-4 py-6 max-lg:w-[72px] max-lg:px-3 max-sm:hidden">
-      <Link to="/" className="flex items-center gap-3 max-lg:justify-center"><Logo /><span className="text-lg font-medium max-lg:sr-only">{nav.name}</span></Link>
+      <Link to="/" className="flex items-center gap-3 max-lg:justify-center"><Logo /><span className="flex flex-col max-lg:sr-only"><span className="text-lg leading-6 font-medium">{nav.name}</span><span className="text-xs text-fg2">{nav.role}</span></span></Link>
       <Search />
       <nav className="flex flex-1 flex-col gap-7 overflow-y-auto" aria-label="Main">
         {nav.groups.map((g) => (

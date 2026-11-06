@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::{process::Stdio, sync::Arc};
 use tokio::io::AsyncWriteExt;
 
-pub const EVENT_TYPES: [&str; 5] = ["state", "update", "smart", "temperature", "task"];
+pub const EVENT_TYPES: [&str; 6] = ["state", "update", "smart", "temperature", "task", "tempo"];
 pub const DEFAULT_TITLE: &str = "{{ icon }} Nyx: {{ count }} event{{ 's' if count != 1 }}";
 // One line per event: Discord turns each line into its own embed.
 pub const DEFAULT_BODY: &str = "{% for e in events %}{{ e.icon }} {{ e.type_icon }} {{ e.title }}{% if e.host and e.host not in e.title %} ({{ e.host }}){% endif %}{% if e.message %} · {{ e.message }}{% endif %}\n{% endfor %}";
@@ -36,6 +36,7 @@ fn type_icon(kind: &str) -> &'static str {
         "update" => "📦",
         "smart" => "💽",
         "temperature" => "🌡️",
+        "tempo" => "⚡",
         _ => "📋",
     }
 }

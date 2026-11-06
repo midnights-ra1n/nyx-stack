@@ -38,6 +38,13 @@ Tempo works with Nyx on plain HTTP. The monitor needs outbound access to
 `digital.iservices.rte-france.com`. Answers are kept for an hour, and saving new keys
 drops them.
 
+Display pages have an **EDF Tempo** panel with the same tiles: the colours of today and
+tomorrow, and the days left. It refreshes on its own, once an hour.
+
+To be told tomorrow's colour, tick **EDF Tempo colour of tomorrow** in a notification
+rule. The event comes once a day, within the hour after RTE publishes it, around 11:00.
+A red day has the severity `warn`, the others `info`.
+
 ### Tempo days in a Nextcloud calendar
 
 The monitor can copy each Tempo day into a Nextcloud calendar, as an all-day event

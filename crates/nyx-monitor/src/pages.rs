@@ -41,7 +41,7 @@ const MAX_PANELS: usize = 64;
 const MAX_TEXT: usize = 20_000;
 const MAX_LOGO: usize = 350_000; // about 256 KB once decoded
 const COLS: i64 = 24;
-const PANEL_TYPES: [&str; 10] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock"];
+const PANEL_TYPES: [&str; 11] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo"];
 const PRESETS: [&str; 3] = ["nyx", "graphite", "light"];
 /// The id of the monitor's own heartbeat among the probe rollups.
 pub const MONITOR: &str = "_monitor";
@@ -520,6 +520,7 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
             let unit = match p.metric.as_str() { "latency" => "ms", "temp" => "°C", "rx" | "tx" => "Mbit/s", _ => "%" };
             json!({"unit": unit, "series": rows.iter().map(|r| json!({"name": r.label, "values": series(c, r, &p.metric)})).collect::<Vec<_>>()})
         }
+        "tempo" => c.st.tempo.as_ref().map_or(Value::Null, |(_, v)| json!({"today": v["today"], "tomorrow": v["tomorrow"], "remaining": v["remaining"]})),
         "alerts" if c.wall => {
             let mut open: Vec<_> = c.st.alerts.values().collect();
             open.sort_by_key(|a| (a.severity != "crit", std::cmp::Reverse(a.opened.clone())));
@@ -750,6 +751,16 @@ mod tests {
         let status = page("status", vec![panel("alerts", &[], ""), panel("stat", &[], "alerts")]);
         assert_eq!(status["panels"][0]["data"], Value::Null);
         assert_eq!(status["panels"][1]["data"], Value::Null);
+    }
+
+    #[test]
+    fn a_tempo_panel_shows_the_latest_days_once_rte_gave_them() {
+        let now = Local::now();
+        let cfg = Config { panels: vec![panel("tempo", &[], "")], ..Config::default() };
+        let mut st = fleet(now.timestamp());
+        assert!(build(&st, "wall", &cfg, now)["panels"][0]["data"].is_null());
+        st.tempo = Some((std::time::Instant::now(), json!({"date": "2026-11-06", "configured": true, "today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}})));
+        assert_eq!(build(&st, "wall", &cfg, now)["panels"][0]["data"], json!({"today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}}));
     }
 
     #[test]

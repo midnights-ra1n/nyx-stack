@@ -40,7 +40,7 @@ uses emojis and gives each event its own line:
 | `icon` | Emoji of the worst severity in the message |
 | `events` | The list, each with the fields below |
 | `e.icon` | 🔴 critical, 🟠 warning, 🔵 information, 🟢 resolved |
-| `e.type_icon` | 📡 state, 📦 update, 💽 SMART, 🌡️ temperature, 📋 task |
+| `e.type_icon` | 📡 state, 📦 update, 💽 SMART, 🌡️ temperature, 📋 task, ⚡ EDF Tempo |
 | `e.type`, `e.severity`, `e.title`, `e.message`, `e.host`, `e.created` | The event itself |
 
 Any emoji can also be typed straight into a template:
@@ -68,6 +68,7 @@ A rule sends some event types to one channel, on a schedule.
 | `update` | System updates detected |
 | `smart` | Disks needing attention or critical |
 | `temperature` | High temperature |
+| `tempo` | EDF Tempo colour of tomorrow |
 | `task` | Task and deployment reminders, deploy results |
 
 | Schedule | Behaviour |

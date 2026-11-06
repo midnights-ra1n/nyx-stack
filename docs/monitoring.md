@@ -22,16 +22,23 @@ and comes back on the hosts that have it.
 
 ## Hosts
 
+**Update all**, on the Hosts page, upgrades the packages of every online host and brings
+its agent to the version of this server. A bar follows the whole run, with one per host,
+and failures keep their output on screen. The same page lists the hosts that need a
+restart, also marked in the table and on each host. Nyx never restarts a host on its own.
+See [agent updates](agent.md#updates).
+
 The host list is a tree: guests appear under their Proxmox host. OCI containers appear there with a
 note, since no agent can run in them: see [OCI containers](agent.md#oci-containers).
 
 ## Probes
 
-Add them in **Network**. A website probe on an `https://` address can also watch the
-certificate: turn on **Also watch the HTTPS certificate** and choose how many days ahead
-to warn. It then alerts like a certificate probe, without a second probe for the same
-site. Its check always reads the certificate, even one Nyx would not trust. A site whose
-certificate has expired is reported as down, because the website check itself fails.
+Add them in **Network**. A website probe on an `https://` address also follows its
+certificate: the **Certificate** column of the table shows the days left, and it alerts
+like a certificate probe, without a second probe for the same site. Choose how many days
+ahead to warn in the probe's settings. Its check always reads the certificate, even one
+Nyx would not trust. A site whose certificate has expired is reported as down, because
+the website check itself fails.
 
 | Type | Checks |
 | --- | --- |

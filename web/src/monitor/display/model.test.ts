@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { addPanel, bottom, COLS, nextScroll, type PanelCfg, place, slugify, template, themeVars } from "./model"
 
 const p = (id: string, x: number, y: number, w: number, h: number) => ({ id, x, y, w, h, type: "text", title: "", items: [], metric: "", text: "", uptime: false }) as PanelCfg
 const clash = (a: PanelCfg, b: PanelCfg) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+describe("template", () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it("works on plain HTTP, where browsers leave out crypto.randomUUID", () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const ids = template("wall", "x").panels.map((p) => p.id)
+    expect(ids.every((id) => /^[0-9a-f]{16}$/.test(id))).toBe(true)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+})
 
 describe("place", () => {
   it("pushes covered panels down, and whatever they then cover", () => {

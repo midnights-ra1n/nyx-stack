@@ -16,6 +16,9 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   return data
 }
 
+/** The logo of this app: each page names its own in index.html. */
+export const markUrl = () => document.querySelector("link[rel=icon]")?.getAttribute("href") ?? "/nyx-mark.svg"
+
 export const REFRESH: [number, string][] = [[5000, "5 s"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [0, "Off"]]
 
 // Global auto-refresh, set by the control bar. 0 turns it off.

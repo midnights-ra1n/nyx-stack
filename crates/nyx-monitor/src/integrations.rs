@@ -6,7 +6,7 @@ use anyhow::Context;
 use axum::{extract::State, routing::{get, post}, Json, Router};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeDelta, Utc};
 use md5::{Digest, Md5};
-use nyx_srv::{auth::Session, random_hex, ApiError, ApiResult};
+use nyx_srv::{auth::Session, notify, random_hex, ApiError, ApiResult};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::{Duration, Instant}};
 
@@ -33,14 +33,15 @@ fn tempo_days(calendar: &Value) -> Vec<(NaiveDate, &str)> {
 /// taken from `start_date` so a timezone offset cannot shift them.
 pub fn summarize(calendar: &Value, today: NaiveDate) -> Value {
     let days = tempo_days(calendar);
-    let colour = |d: Option<NaiveDate>| d.and_then(|d| days.iter().find(|x| x.0 == d)).map(|x| x.1);
+    // RTE can list a day as NON_DEFINED until it is decided.
+    let colour = |d: Option<NaiveDate>| d.and_then(|d| days.iter().find(|x| x.0 == d)).map(|x| x.1).filter(|c| QUOTAS.iter().any(|q| q.0 == *c));
     let start = season_start(today);
     let remaining: Value = QUOTAS
         .iter()
         .map(|(c, quota)| (c.to_lowercase(), json!(quota - days.iter().filter(|d| d.0 >= start && d.1 == *c).count() as i64)))
         .collect::<serde_json::Map<_, _>>()
         .into();
-    json!({"today": colour(Some(today)), "tomorrow": colour(today.succ_opt()), "remaining": remaining})
+    json!({"date": today, "today": colour(Some(today)), "tomorrow": colour(today.succ_opt()), "remaining": remaining})
 }
 
 fn last_sunday(year: i32, month: u32) -> NaiveDate {
@@ -116,20 +117,55 @@ async fn fetch_tempo(app: &App, id: &str, secret: &str) -> anyhow::Result<Value>
     Ok(summarize(&fetch_calendar(app, id, secret, today).await?, today))
 }
 
-async fn tempo(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
-    if let Some((at, v)) = app.tempo_cache.lock().unwrap().as_ref() {
-        if at.elapsed() < TEMPO_TTL {
-            return Ok(Json(v.clone()));
-        }
-    }
+async fn refresh_tempo(app: &App) -> anyhow::Result<Value> {
     let cfg = app.core.pb.setting("tempo").await?.unwrap_or_default();
     let Some((id, secret)) = credentials(&cfg) else {
-        return Ok(Json(json!({"configured": false})));
+        return Ok(json!({"configured": false}));
     };
-    let mut v = fetch_tempo(&app, id, secret).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let mut v = fetch_tempo(app, id, secret).await?;
     v["configured"] = true.into();
-    *app.tempo_cache.lock().unwrap() = Some((Instant::now(), v.clone()));
-    Ok(Json(v))
+    app.lock().tempo = Some((Instant::now(), v.clone()));
+    Ok(v)
+}
+
+async fn tempo(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let today = paris_today(Utc::now()).to_string();
+    let fresh = app.lock().tempo.as_ref().filter(|(at, v)| at.elapsed() < TEMPO_TTL && v["date"] == today.as_str()).map(|(_, v)| v.clone());
+    match fresh {
+        Some(v) => Ok(Json(v)),
+        None => refresh_tempo(&app).await.map(Json).map_err(|e| ApiError::bad_request(format!("{e:#}"))),
+    }
+}
+
+/// `(severity, title, message)` of the notification for tomorrow's colour.
+fn tomorrow_notice(v: &Value) -> Option<(&'static str, String, String)> {
+    let (severity, name) = match v["tomorrow"].as_str()? {
+        "BLUE" => ("info", "🔵 Blue"),
+        "WHITE" => ("info", "⚪️ White"),
+        "RED" => ("warn", "🔴 Red"),
+        _ => return None,
+    };
+    let left = &v["remaining"];
+    Some((severity, format!("EDF Tempo tomorrow: {name}"), format!("Days left: {} blue, {} white, {} red", left["blue"], left["white"], left["red"])))
+}
+
+/// Keeps the days fresh for display pages and tells tomorrow's colour once, as soon as
+/// RTE has it. A published day never changes, so RTE is left alone until the next day.
+pub async fn tempo_tick(app: &App) -> anyhow::Result<()> {
+    let today = paris_today(Utc::now());
+    let known = app.lock().tempo.as_ref().map(|(_, v)| v.clone()).filter(|v| v["date"] == today.to_string().as_str() && !v["tomorrow"].is_null());
+    let v = match known {
+        Some(v) => v,
+        None => refresh_tempo(app).await?,
+    };
+    let Some((severity, title, message)) = tomorrow_notice(&v) else { return Ok(()) };
+    let day = today + Days::new(1);
+    let pb = &app.core.pb;
+    if pb.setting("tempo_told").await?.is_some_and(|s| s["day"] == day.to_string().as_str()) {
+        return Ok(());
+    }
+    notify::emit(&app.core, "tempo", severity, &title, &message, "").await;
+    pb.set_setting("tempo_told", &json!({"day": day})).await
 }
 
 /// The Nextcloud calendar that receives the Tempo days.
@@ -397,8 +433,18 @@ mod tests {
 
     #[test]
     fn tomorrow_unknown_until_published() {
-        let cal = json!({"tempo_like_calendars": {"values": [{"start_date": "2026-11-05T00:00:00+01:00", "value": "BLUE"}]}});
+        let cal = json!({"tempo_like_calendars": {"values": [{"start_date": "2026-11-05T00:00:00+01:00", "value": "BLUE"}, {"start_date": "2026-11-06T00:00:00+01:00", "value": "NON_DEFINED"}]}});
         assert!(summarize(&cal, d("2026-11-05"))["tomorrow"].is_null());
+    }
+
+    #[test]
+    fn tomorrow_notice_gives_the_colour_and_the_days_left() {
+        let left = json!({"blue": 299, "white": 42, "red": 21});
+        let (severity, title, message) = tomorrow_notice(&json!({"tomorrow": "RED", "remaining": left})).unwrap();
+        assert_eq!((severity, title.as_str()), ("warn", "EDF Tempo tomorrow: 🔴 Red"));
+        assert_eq!(message, "Days left: 299 blue, 42 white, 21 red");
+        assert_eq!(tomorrow_notice(&json!({"tomorrow": "BLUE", "remaining": left})).unwrap().0, "info");
+        assert!(tomorrow_notice(&json!({"tomorrow": null})).is_none());
     }
 
     #[test]

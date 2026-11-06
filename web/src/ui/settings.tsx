@@ -1,6 +1,6 @@
 import { PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useState } from "react"
-import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Select, Status, Table, Td, TextArea } from "./components"
+import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Progress, Select, Status, Table, Td, TextArea } from "./components"
 import { api, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
 import { MessagePreview } from "./preview"
 import { PageHeader } from "./shell"
@@ -15,7 +15,7 @@ const SERVICES: Record<string, string> = {
   Telegram: "telegram://token@telegram?chats=@channel",
   Teams: "teams://group@tenant/altid/groupowner?host=org.webhook.office.com",
 }
-const EVENTS = [["state", "State changes"], ["update", "Updates detected"], ["smart", "SMART health"], ["temperature", "High temperature"], ["task", "Task and deployment reminders"]]
+const EVENTS = [["state", "State changes"], ["update", "Updates detected"], ["smart", "SMART health"], ["temperature", "High temperature"], ["task", "Task and deployment reminders"], ["tempo", "EDF Tempo colour of tomorrow"]]
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 const HTML_SAMPLE = `<div style="font-family:system-ui,sans-serif;background:#141a22;color:#edf1f6;padding:32px 16px">
@@ -268,12 +268,27 @@ export function SystemUpdates({ agents }: { agents?: boolean }) {
   const { data: channel, reload } = useApi("/api/settings/updates", { poll: false })
   const [latest, setLatest] = useState<{ latest: string; available: boolean }>()
   const [note, setNote] = useState("")
+  const [stage, setStage] = useState<{ pct: number; text: string }>()
   const setBeta = async (beta: boolean) => {
     try { await api("/api/settings/updates", { method: "PUT", body: { beta } }); setLatest(undefined); reload() } catch (e) { setNote((e as Error).message) }
   }
   const check = async () => { try { setLatest(await api("/api/system/check", { method: "POST" })); setNote("") } catch (e) { setNote((e as Error).message) } }
   const update = async () => {
-    try { await api("/api/system/update", { body: { tag: latest!.latest } }); setNote("Update started. This page reconnects when it is done.") } catch (e) { setNote((e as Error).message) }
+    try { await api("/api/system/update", { body: { tag: latest!.latest } }) } catch (e) { return setNote((e as Error).message) }
+    setNote("")
+    setStage({ pct: 10, text: "Downloading and installing…" })
+    // The server does not tell how far it is, but its answers show the stage it reached.
+    for (let i = 0; i < 150; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const now = await api("/api/system/version").catch(() => null)
+      if (!now) setStage({ pct: 60, text: "Restarting…" })
+      else if (now.version !== data?.version) {
+        setStage({ pct: 100, text: `Updated to ${now.version}. Reloading…` })
+        return setTimeout(() => location.reload(), 1500)
+      }
+    }
+    setStage(undefined)
+    setNote("The update did not finish. Run journalctl -u nyx-update on the server to see why.")
   }
   return (
     <Panel title="Software updates">
@@ -282,9 +297,10 @@ export function SystemUpdates({ agents }: { agents?: boolean }) {
         {data?.managed && <Check label="Include beta versions" checked={!!channel?.beta} onChange={(e) => setBeta(e.target.checked)} />}
         {data?.managed && agents && <p className="text-[13px] text-fg3">Agents follow this server: they update to the version it ships.</p>}
         {latest && <p>{latest.available ? `${latest.latest} is available.` : "You are up to date."}</p>}
+        {stage && <><Progress pct={stage.pct} label="Update progress" /><p role="status" className="text-fg2">{stage.text}</p></>}
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={check}>Check on GitHub</Button>
-          {latest?.available && data?.managed && <Button variant="primary" onClick={update}>Update to {latest.latest}</Button>}
+          {latest?.available && data?.managed && <Button variant="primary" disabled={!!stage} onClick={update}>Update to {latest.latest}</Button>}
           <span className="text-[13px] text-fg2">{note}</span>
         </div>
       </div>

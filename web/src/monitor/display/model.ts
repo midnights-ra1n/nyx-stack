@@ -1,7 +1,7 @@
 /** Page model shared by the viewer and the editor: a 24-column grid, like Grafana. */
 export const COLS = 24
 
-export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock"
+export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo"
 export interface Item { kind: "host" | "probe"; id: string; label: string }
 export interface Box { x: number; y: number; w: number; h: number }
 export interface PanelCfg extends Box { id: string; type: PanelType; title: string; items: Item[]; metric: string; text: string; uptime: boolean }
@@ -21,12 +21,16 @@ export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number
   { type: "alerts", label: "Open alerts", w: 8, h: 6, title: "Open alerts" },
   { type: "text", label: "Text", w: 8, h: 3, title: "Notes" },
   { type: "clock", label: "Clock", w: 4, h: 3, title: "" },
+  { type: "tempo", label: "EDF Tempo", w: 24, h: 4, title: "" },
 ]
+
+// Not crypto.randomUUID: browsers only offer it over HTTPS, and Nyx also runs on plain HTTP.
+const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("")
 
 const blank = { items: [], metric: "", text: "", uptime: false }
 const panel = (type: PanelType, box: Box, over: Partial<PanelCfg> = {}): PanelCfg => {
   const d = PANEL_TYPES.find((p) => p.type === type)!
-  return { ...blank, id: crypto.randomUUID(), type, title: d.title, metric: d.metric ?? "", uptime: !!d.uptime, ...box, ...over }
+  return { ...blank, id: newId(), type, title: d.title, metric: d.metric ?? "", uptime: !!d.uptime, ...box, ...over }
 }
 
 /** A new panel goes under everything else, so it never covers existing work. */

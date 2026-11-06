@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest"
-import { buildTree, consoleUrl } from "./hosts"
+import { buildTree, consoleUrl, updateRun } from "./hosts"
 
 const pve = { id: "p", kind: "proxmox", hostname: "pve1", guests: [{ vmid: 101, name: "web", kind: "lxc", node: "pve1" }, { vmid: 102, name: "db", kind: "qemu", node: "pve1" }] }
 const ct = { id: "c", parent: "p", vmid: 101 }
+
+describe("update run", () => {
+  const host = (id: string, started: number, pct: number, done = false) => ({ id, update: { started, pct, done } })
+
+  it("averages the hosts and counts the finished ones", () => {
+    const { run, done, pct, last } = updateRun([host("a", 10, 100, true), host("b", 11, 50), { id: "c" }], 0)
+    expect([run.map((h) => h.id), done, pct, last]).toEqual([["a", "b"], 1, 75, 11])
+  })
+  it("leaves out what was dismissed, until a newer update starts", () => {
+    expect(updateRun([host("a", 10, 100, true)], 10).run).toEqual([])
+    expect(updateRun([host("a", 11, 0)], 10).run).toHaveLength(1)
+  })
+  it("has nothing to show on an idle fleet", () => {
+    expect(updateRun([], 5)).toEqual({ run: [], done: 0, pct: 0, last: 5 })
+  })
+})
 
 describe("host tree", () => {
   it("nests agents and shows only agent-less guests as extra rows", () => {

@@ -72,6 +72,17 @@ pub struct Report {
     pub guests: Option<Vec<Guest>>,
     pub logs: Vec<String>,
     pub results: Vec<CommandResult>,
+    /// The system update running now. Absent from older agents.
+    pub progress: Option<Progress>,
+    /// A restart is needed to run what is installed. False from older agents.
+    #[serde(default)]
+    pub reboot_required: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Progress {
+    pub pct: u8,
+    pub step: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]

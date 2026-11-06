@@ -110,6 +110,8 @@ auto-install from its **Agent** panel.
 | Logs | Once a minute, when there are new lines | Warnings and above, through journald |
 | Live logs | Every 2 s, only while someone watches this host | Info and above, nothing stored. See [live logs](monitoring.md#live-logs) |
 
+| Restart needed | 15 s | `/run/reboot-required`, or a newer kernel in `/lib/modules` than the running one |
+
 Package managers supported for updates are apt and dnf.
 
 ## Files
@@ -143,6 +145,16 @@ An agent inside a Proxmox container is a host of its own, so remove it there. Wi
 Docker, use `docker compose --profile agent down`.
 
 ## Updates
+
+A system update refreshes the package list first, then runs `apt-get upgrade
+--with-new-pkgs`, `apt-get dist-upgrade` on Proxmox, as it requires, or `dnf upgrade`.
+While it runs the agent reports its progress every 5 s. With apt the percentage comes
+from apt itself, with dnf from its package counter. Only one update runs at a time on a
+host, and the agent replaces itself last, as that restarts it.
+
+Packages can restart services when they are replaced. Upgrading Docker restarts the
+containers of that host, including Nyx if it runs there. The run then disappears from
+the page, while the updates themselves go on.
 
 The agent never contacts GitHub. It takes the binary its monitor ships, which keeps its
 version in step with the server. For beta agents, put the monitor on the beta channel,

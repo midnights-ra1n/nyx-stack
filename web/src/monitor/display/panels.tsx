@@ -2,6 +2,7 @@ import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { BarGauge, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
+import { TempoTiles } from "../tempo"
 import { nextScroll, uptimeBar } from "./model"
 
 const OVERALL: Record<string, string> = {
@@ -201,7 +202,8 @@ function useWallPaging(on: boolean) {
 
 /** A compact frame, like a Grafana panel, that fills its grid cell. */
 export function DashPanel({ p, overall, generated, paged }: { p: any; overall: Level; generated: number; paged?: boolean }) {
-  const { ref, label } = useWallPaging(!!paged)
+  const { ref, label } = useWallPaging(!!paged && p.type !== "tempo")
+  if (p.type === "tempo") return p.data ? <TempoTiles tempo={p.data} className="h-full auto-rows-fr" /> : <div className="flex h-full items-center justify-center rounded-panel border border-line bg-surface text-fg3">No EDF Tempo data</div>
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface" aria-label={p.title || p.type}>
       {p.title && <h2 className="flex h-8 shrink-0 items-center truncate px-3 text-[13px] font-medium text-fg2">{p.title}</h2>}

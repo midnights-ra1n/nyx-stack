@@ -65,7 +65,7 @@ pub struct ProbeDef {
     pub dns_server: String,
     pub warn_days: i64,
     pub expect_status: u16,
-    /// On an `https://` website probe, also follow the certificate.
+    /// An `https://` website probe also follows its certificate.
     pub watch_cert: bool,
     pub snmp: Option<Arc<snmp::Config>>,
 }
@@ -172,7 +172,7 @@ fn parse_def(r: &Value) -> ProbeDef {
         dns_server: s("dns_server"),
         warn_days: Some(n("warn_days") as i64).filter(|d| *d > 0).unwrap_or(21),
         expect_status: n("expect_status") as u16,
-        watch_cert: r["watch_cert"].as_bool().unwrap_or(false) && s("target").starts_with("https://"),
+        watch_cert: s("target").starts_with("https://"),
         snmp: (r["type"] == "snmp").then(|| serde_json::from_value(r["snmp"].clone()).unwrap_or_default()).map(Arc::new),
     }
 }
@@ -376,10 +376,9 @@ mod tests {
 
     #[test]
     fn only_an_https_website_can_watch_its_certificate() {
-        let def = |target: &str, watch: bool| parse_def(&json!({"type": "http", "target": target, "watch_cert": watch})).watch_cert;
-        assert!(def("https://cloud.home.lan", true));
-        assert!(!def("https://cloud.home.lan", false));
-        assert!(!def("http://cloud.home.lan", true));
+        let def = |target: &str| parse_def(&json!({"type": "http", "target": target})).watch_cert;
+        assert!(def("https://cloud.home.lan"));
+        assert!(!def("http://cloud.home.lan"));
     }
 
     #[test]

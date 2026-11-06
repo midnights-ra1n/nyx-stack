@@ -34,6 +34,8 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
         "swap": r.map(|r| pct(r.swap_used, r.swap_total)), "uptime_s": r.map(|r| r.uptime_s), "temp": r.and_then(|r| r.temp_c),
         "rx": r.map(|r| r.net_rx_bps), "tx": r.map(|r| r.net_tx_bps),
         "updates": live.map_or(0, |l| l.updates.len()),
+        "reboot_required": r.is_some_and(|r| r.reboot_required),
+        "update": h.update.as_ref().map(|u| u.to_json(now, h.last_seen, r.and_then(|r| r.progress.as_ref()))),
         "containers_running": live.map_or(0, |l| l.containers.iter().filter(|c| c.state == "running").count()),
         "containers_total": live.map_or(0, |l| l.containers.len()),
         "guests": live.map_or(vec![], |l| l.guests.clone()),
@@ -194,8 +196,18 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
         },
         _ => return Err(ApiError::bad_request("unknown action")),
     };
-    let cmd = app.enqueue(&id, action).ok_or_else(ApiError::not_found)?;
+    let cmd = if matches!(action, Action::UpdateSystem | Action::UpdateAgent) {
+        let mut st = app.lock();
+        let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
+        h.start_update(vec![action], Utc::now().timestamp()).ok_or_else(|| ApiError::bad_request("an update is already running on this host"))?
+    } else {
+        app.enqueue(&id, action).ok_or_else(ApiError::not_found)?
+    };
     Ok(Json(json!({"id": cmd})))
+}
+
+async fn update_all(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
+    Json(json!({"started": app.lock().update_all(Utc::now().timestamp())}))
 }
 
 #[derive(Deserialize)]
@@ -358,7 +370,7 @@ async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
     check_setting(&key)?;
     app.core.pb.set_setting(&key, &v).await?;
     if key == "tempo" {
-        *app.tempo_cache.lock().unwrap() = None; // New keys must be tried right away.
+        app.lock().tempo = None; // New keys must be tried right away.
     }
     app.reload_settings().await?;
     Ok(Json(Value::Null))
@@ -368,6 +380,7 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/overview", get(overview))
         .route("/api/hosts", get(hosts).post(add_host))
+        .route("/api/hosts/update-all", post(update_all))
         .route("/api/hosts/{id}", get(host).delete(delete_host))
         .route("/api/hosts/{id}/install", get(install_line))
         .route("/api/hosts/{id}/command", post(command))
@@ -388,7 +401,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
     mcp::Tools {
         list: vec![
             ("infrastructure_status", "Overall health: hosts online, open alerts, containers, availability, average CPU and memory.", empty.clone()),
-            ("list_hosts", "Every monitored host with status, address, CPU, memory, temperature and pending updates.", empty.clone()),
+            ("list_hosts", "Every monitored host with status, address, CPU, memory, temperature, pending updates and whether it needs a restart.", empty.clone()),
             ("get_host", "Full details of one host, by name.", json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]})),
             ("list_alerts", "Currently open alerts.", empty.clone()),
             ("list_probes", "Ping, HTTP, DNS, certificate and SNMP probes with their latest result and readings.", empty),

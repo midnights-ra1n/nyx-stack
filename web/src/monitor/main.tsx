@@ -32,6 +32,7 @@ function useNav(): NavConfig {
   const off = data ? data.hosts_total - data.hosts_online : 0
   return {
     name: "Nyx",
+    role: "Monitoring",
     tabs: ["/", "/hosts", "/containers", "/alerts"],
     groups: [
       { label: "Monitoring", items: [

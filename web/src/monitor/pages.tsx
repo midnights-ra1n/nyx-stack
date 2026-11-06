@@ -2,7 +2,7 @@ import { PlusIcon, TrashIcon, PencilSquareIcon } from "@heroicons/react/24/outli
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TextArea, TimeSeries, Variable } from "../ui/components"
-import { api, fmt, type Level, useApi } from "../ui/lib"
+import { api, fmt, type Level, levelText, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { PRESETS } from "./snmp-presets"
 
@@ -53,7 +53,7 @@ const TARGET_HINT: Record<string, string> = {
 }
 
 function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
-  const [f, setF] = useState<any>(row ?? { name: "", type: "ping", target: "", interval_s: 60, enabled: true, dns_server: "", expect_status: 0, warn_days: 21, watch_cert: false })
+  const [f, setF] = useState<any>(row ?? { name: "", type: "ping", target: "", interval_s: 60, enabled: true, dns_server: "", expect_status: 0, warn_days: 21 })
   const [snmp, setSnmp] = useState<any>(row?.snmp?.items ? row.snmp : { version: "v2c", community: "public", items: PRESETS["Generic device"] })
   const [items, setItems] = useState(JSON.stringify(snmp.items, null, 2))
   const [error, setError] = useState("")
@@ -76,8 +76,7 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Input label="Interval (seconds)" type="number" min={10} value={f.interval_s} onChange={(e) => set("interval_s", Number(e.target.value))} />
         {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the system resolver." onChange={(e) => set("dns_server", e.target.value)} />}
         {f.type === "http" && <Input label="Expected status" type="number" value={f.expect_status || ""} hint="Empty accepts any 2xx or 3xx." onChange={(e) => set("expect_status", Number(e.target.value))} />}
-        {f.type === "http" && f.target.startsWith("https://") && <Check label="Also watch the HTTPS certificate" checked={f.watch_cert} onChange={(e) => set("watch_cert", e.target.checked)} />}
-        {(f.type === "cert" || (f.watch_cert && f.target.startsWith("https://"))) && <Input label="Warn this many days before expiry" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
+        {(f.type === "cert" || (f.type === "http" && f.target.startsWith("https://"))) && <Input label="Warn this many days before the certificate expires" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
         {f.type === "snmp" && <>
           <Select label="Equipment" value="" options={[{ value: "", label: "Load a profile…" }, ...Object.keys(PRESETS).map((p) => ({ value: p, label: p }))]} onChange={(e) => e.target.value && setItems(JSON.stringify(PRESETS[e.target.value], null, 2))} />
           <Select label="Version" value={snmp.version} onChange={(e) => s("version", e.target.value)} options={["v2c", "v3", "v1"]} />
@@ -96,6 +95,13 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
       </form>
     </Modal>
   )
+}
+
+/** Days left on a certificate. The 7 is the critical limit of the alerts, see `CERT_CRIT_DAYS`. */
+function CertDays({ probe: p }: { probe?: any }) {
+  if (p?.cert_days == null) return <Td className="text-fg2">—</Td>
+  const level: Level = p.cert_days <= 7 ? "crit" : p.cert_days <= p.warn_days ? "warn" : "ok"
+  return <Td className={`whitespace-nowrap ${level === "ok" ? "text-fg2" : `font-medium ${levelText[level]}`}`}>{p.cert_days < 0 ? "Expired" : `${p.cert_days} days`}</Td>
 }
 
 function History({ values }: { values: boolean[] }) {
@@ -160,13 +166,13 @@ export function Network() {
     ) },
     { id: "certs", title: "Certificates", render: (edit: any) => (
       <Panel title="Certificates" edit={edit}>
-        {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>No certificate probes.</Empty>}
+        {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>No HTTPS certificates followed.</Empty>}
       </Panel>
     ) },
     { id: "probes", title: "Probes", render: (edit: any) => (
       <Panel title="Probes" flush edit={edit}>
         {defs.data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No probes yet.</Empty></div> : (
-          <Table head={["Name", "Type", "Target", "Latency", "Result", "History", "State", ""]}>
+          <Table head={["Name", "Type", "Target", "Latency", "Certificate", "Result", "History", "State", ""]}>
             {defs.data?.items.map((d: any) => {
               const p = state(d.id)
               return (
@@ -175,6 +181,7 @@ export function Network() {
                   <Td className="text-fg2">{d.type}</Td>
                   <Td mono>{d.target}</Td>
                   <Td className="text-fg2">{p?.up ? `${p.latency_ms.toFixed(0)} ms` : "—"}</Td>
+                  <CertDays probe={p} />
                   <Td className="max-w-64 truncate text-fg2 max-sm:max-w-none max-sm:whitespace-normal">{d.enabled ? p?.message : "Disabled"}</Td>
                   <Td>{p && <History values={p.history} />}</Td>
                   <StateCell level={d.enabled ? level(p) : "off"} label={!d.enabled ? "Disabled" : p?.up == null ? "Pending" : p.up ? undefined : "Down"} />

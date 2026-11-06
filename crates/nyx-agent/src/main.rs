@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 pub enum Msg {
     Result(nyx_proto::CommandResult),
     Updates(Vec<nyx_proto::PackageUpdate>),
+    Progress(nyx_proto::Progress),
     Restart,
 }
 
@@ -63,7 +64,11 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
     loop {
         for msg in msg_rx.try_iter() {
             match msg {
-                Msg::Result(r) => collector.pending_results.push(r),
+                Msg::Result(r) => {
+                    collector.progress = None;
+                    collector.pending_results.push(r);
+                }
+                Msg::Progress(p) => collector.progress = Some(p),
                 Msg::Updates(u) => collector.set_updates(u),
                 Msg::Restart => restart = true,
             }

@@ -80,11 +80,16 @@ Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`
 | GET | `/api/link/results/{id}` | Link | Result of a command |
 | GET | `/install.sh` | Public | Agent installer |
 | GET | `/agent/v1/binary/{name}` | Public | Agent binary. Signed for agents |
+| POST | `/api/hosts/update-all` | Session | Upgrade every online host and its agent. Returns `{"started": n}` |
 | POST | `/agent/v1/report` | Agent | Metrics up, commands down |
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 
 Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
-or `set_kind` with `kind` and `ct_autoinstall`.
+or `set_kind` with `kind` and `ct_autoinstall`. `update_system` and `update_agent` are
+refused while an update runs on that host.
+
+Each host in `/api/hosts` carries `reboot_required`, and `update` once one was sent:
+`{"started", "done", "pct", "step", "error"}`, kept in memory.
 
 ## Manager
 

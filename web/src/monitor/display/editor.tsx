@@ -110,7 +110,7 @@ function PanelForm({ panel, wall, onSave, onClose }: { panel: PanelCfg; wall: bo
   const probes = useApi<any[]>("/api/probes", { poll: false }).data ?? []
   const set = (over: Partial<PanelCfg>) => setP({ ...p, ...over })
   const num = (k: keyof Box, label: string) => <Input label={label} type="number" min={0} value={p[k]} onChange={(e) => set({ [k]: Number(e.target.value) })} />
-  const usesItems = !["overall", "text", "clock", "alerts"].includes(p.type)
+  const usesItems = !["overall", "text", "clock", "alerts", "tempo"].includes(p.type)
   const usesMetric = ["stat", "gauge", "bars", "timeseries"].includes(p.type)
   return (
     <Modal title={PANEL_TYPES.find((t) => t.type === p.type)?.label ?? "Panel"} onClose={onClose} wide>

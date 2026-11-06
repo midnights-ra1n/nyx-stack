@@ -27,6 +27,7 @@ function useNav(): NavConfig {
   const conflicts = data?.conflicts.length ?? 0
   return {
     name: "Nyx",
+    role: "Manager",
     tabs: ["/", "/hardware", "/ipam", "/tasks"],
     groups: [
       { label: "Inventory", items: [
