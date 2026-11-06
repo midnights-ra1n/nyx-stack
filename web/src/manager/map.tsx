@@ -38,6 +38,7 @@ function LinkForm({ nodes, onDone }: { nodes: any[]; onDone: () => void }) {
 export function NetworkMap() {
   const nodes = useApi("/api/c/map_nodes?perPage=500", { poll: false })
   const links = useApi("/api/c/map_links?perPage=500", { poll: false })
+  const vpn = useApi("/api/c/vpn_links?perPage=500", { poll: false })
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({})
   const [form, setForm] = useState<"node" | "link" | any>()
   const [note, setNote] = useState("")
@@ -46,6 +47,9 @@ export function NetworkMap() {
 
   const list: any[] = (nodes.data?.items ?? []).map((n: any) => ({ ...n, ...moved[n.id] }))
   const byId = Object.fromEntries(list.map((n) => [n.id, n]))
+  // Kept on the VPN page, and drawn here when both ends are devices of this map.
+  const nodeId = (name: string) => list.find((n) => n.name === name)?.id
+  const tunnels = (vpn.data?.items ?? []).filter((v: any) => v.side_b && nodeId(v.side_a) && nodeId(v.side_b)).map((v: any) => ({ id: v.id, source: nodeId(v.side_a), target: nodeId(v.side_b), label: v.name, vpn: true }))
   const right = Math.max(600, ...list.map((n) => n.x + W + 40))
   const bottom = Math.max(320, ...list.map((n) => n.y + H + 40))
 
@@ -96,11 +100,11 @@ export function NetworkMap() {
             // Nodes capture touches to drag, the empty canvas keeps scrolling the page.
             <div className="overflow-auto">
               <svg ref={svg} width={right} height={bottom} viewBox={`0 0 ${right} ${bottom}`} role="img" aria-label={`Network map with ${list.length} devices. The same data is listed below.`}>
-                {links.data?.items.map((l: any) => {
+                {[...(links.data?.items ?? []), ...tunnels].map((l: any) => {
                   const [a, b] = [byId[l.source], byId[l.target]]
                   if (!a || !b) return null
                   const [x1, y1, x2, y2] = [a.x + W / 2, a.y + H / 2, b.x + W / 2, b.y + H / 2]
-                  return <g key={l.id}><line x1={x1} y1={y1} x2={x2} y2={y2} className="stroke-line2" />{l.label && <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} textAnchor="middle" className="fill-fg3 text-xs">{l.label}</text>}</g>
+                  return <g key={l.id}><line x1={x1} y1={y1} x2={x2} y2={y2} className={l.vpn ? "stroke-accent" : "stroke-line2"} strokeDasharray={l.vpn ? "6 4" : undefined} />{l.label && <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} textAnchor="middle" className="fill-fg3 text-xs">{l.label}</text>}</g>
                 })}
                 {list.map((n) => (
                   <g key={n.id} transform={`translate(${n.x} ${n.y})`} className="cursor-grab touch-none" onPointerDown={(e) => down(e, n)} onPointerMove={move} onPointerUp={up} onDoubleClick={() => setForm(n)}>

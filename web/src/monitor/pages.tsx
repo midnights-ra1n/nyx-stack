@@ -5,6 +5,7 @@ import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel,
 import { api, fmt, type Level, levelText, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { PRESETS } from "./snmp-presets"
+import { VpnTable } from "./vpn"
 
 export function Containers() {
   const { data, reload } = useApi<any[]>("/api/containers")
@@ -107,7 +108,7 @@ function CertDays({ probe: p }: { probe?: any }) {
 function History({ values }: { values: boolean[] }) {
   return (
     <span className="flex h-5 items-stretch gap-px" role="img" aria-label={`${values.filter(Boolean).length} of ${values.length} checks up`}>
-      {values.slice(-40).map((v, i) => <span key={i} className={`w-1 rounded-full ${v ? "bg-ok" : "bg-crit"}`} />)}
+      {values.slice(-40).map((v, i, all) => <span key={i} title={`${all.length - i === 1 ? "Latest check" : `${all.length - 1 - i} checks ago`}: ${v ? "up" : "down"}`} className={`w-1 rounded-full ${v ? "bg-ok" : "bg-crit"}`} />)}
     </span>
   )
 }
@@ -145,6 +146,8 @@ function ProbeDetail({ probe, onClose }: { probe: any; onClose: () => void }) {
 export function Network() {
   const live = useApi<any[]>("/api/probes")
   const defs = useApi("/api/c/probes?sort=name", { poll: false })
+  const hosts = useApi<any[]>("/api/hosts")
+  const tunnels = hosts.data?.flatMap((host) => (host.vpn ?? []).map((v: any) => ({ ...v, host }))) ?? []
   const [edit, setEdit] = useState<any | null | undefined>()
   const [detail, setDetail] = useState<string>()
   const done = async () => { setEdit(undefined); await api("/api/probes/reload", { method: "POST" }); defs.reload(); live.reload() }
@@ -163,6 +166,9 @@ export function Network() {
           <Stat label="Next certificate" value={certs.length ? `${certs[0].cert_days} d` : "—"} level={certs[0]?.cert_days <= certs[0]?.warn_days ? "warn" : undefined} sub={certs[0]?.name} />
         </div>
       </Panel>
+    ) },
+    { id: "vpn", title: "VPN links", absent: !tunnels.length, render: (edit: any) => (
+      <Panel title="VPN links" flush edit={edit}><VpnTable rows={tunnels} /></Panel>
     ) },
     { id: "certs", title: "Certificates", render: (edit: any) => (
       <Panel title="Certificates" edit={edit}>
@@ -200,7 +206,7 @@ export function Network() {
   return (
     <>
       <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
-      <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes"]], hidden: ["certs"] }} />
+      <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} />
       {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
       {open && <ProbeDetail probe={open} onClose={() => setDetail(undefined)} />}
     </>

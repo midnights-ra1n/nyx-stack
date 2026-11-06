@@ -26,6 +26,7 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "deployments", hidden: &[] },
     crud::Spec { name: "map_nodes", hidden: &[] },
     crud::Spec { name: "map_links", hidden: &[] },
+    crud::Spec { name: "vpn_links", hidden: &[] },
     crud::Spec { name: "sites", hidden: &["ssh_private_key", "webhook_secret"] },
     crud::Spec { name: "mcp_tokens", hidden: &["token_hash"] },
     crud::Spec { name: "notif_channels", hidden: &[] },

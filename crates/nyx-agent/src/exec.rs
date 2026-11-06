@@ -170,12 +170,32 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
     let _ = fs::remove_file(&key_path); // the key only exists for the deploy
     let output = result?;
 
+    if !d.service.is_empty() {
+        restart_existing(d)?;
+        return Ok(output);
+    }
     let unit = format!("nyx-site-{}", d.site);
     fs::write(format!("/etc/systemd/system/{unit}.service"), unit_file(d))?;
     sh(cmd("systemctl", ["daemon-reload"]))?;
     sh(cmd("systemctl", ["enable", &unit]))?;
     sh(cmd("systemctl", ["restart", &unit]))?;
     Ok(output)
+}
+
+/// A site Nyx adopted keeps the service that already runs it.
+// shortcut: pm2 is looked up in the user's login PATH, keep the path in the app if nvm hides it.
+fn restart_existing(d: &Deploy) -> anyhow::Result<String> {
+    if !service_ok(&d.service) {
+        bail!("refusing unsafe service name");
+    }
+    match d.service.strip_prefix("pm2:") {
+        Some(name) => sh(cmd("runuser", ["-u", &d.user, "--", "sh", "-lc", "pm2 restart \"$1\"", "sh", name])),
+        None => sh(cmd("systemctl", ["restart", &d.service])),
+    }
+}
+
+fn service_ok(s: &str) -> bool {
+    !s.is_empty() && !s.starts_with('-') && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:".contains(c))
 }
 
 fn unit_file(d: &Deploy) -> String {
@@ -203,8 +223,14 @@ mod tests {
 
     #[test]
     fn unit_escapes_start_command() {
-        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into() };
+        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into(), service: "".into() };
         assert!(unit_file(&d).contains(r#"ExecStart=/bin/sh -c "node \"a$$b\" 100%%""#));
+    }
+
+    #[test]
+    fn service_names_cannot_become_options_or_commands() {
+        assert!(service_ok("my-app.service") && service_ok("pm2:api_1") && service_ok("app@1.service"));
+        assert!(!service_ok("") && !service_ok("--now") && !service_ok("a b") && !service_ok("a;reboot"));
     }
 
     #[test]

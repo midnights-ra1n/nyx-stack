@@ -1,17 +1,40 @@
-import { ArrowPathIcon, ChevronRightIcon, CommandLineIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Check, Copy, Empty, ErrorNote, Gauge, Input, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries } from "../ui/components"
+import { ProxmoxIcon } from "../ui/brand-icons"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries } from "../ui/components"
 import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
 import { HostLogs } from "./logs"
 import { hostLevel } from "./overview"
+import { VpnTable } from "./vpn"
 
 const KINDS = [{ value: "vm", label: "VM" }, { value: "physical", label: "Physical server" }, { value: "proxmox", label: "Physical server (Proxmox)" }, { value: "vps", label: "VPS" }]
 // The path keeps working where sudo does not search /usr/local/bin, as on RHEL.
 const UNINSTALL = 'sudo "$(command -v nyx-agent)" uninstall'
 const kindLabel = (k: string) => KINDS.find((x) => x.value === k)?.label ?? k
+
+/** A container is a host of kind `vm` that its Proxmox parent lists as `lxc`, or that the agent adopted there. */
+export function hostType(h: any, hosts: any[]): string {
+  const parent = hosts.find((p) => p.id === h.parent)
+  const guest = parent?.guests?.find((g: any) => g.vmid === h.vmid || g.name === h.name)
+  return h.kind === "vm" && (h.vmid > 0 || guest?.kind === "lxc") ? "ct" : h.kind
+}
+
+const HOST_TYPES: Record<string, { label: string; icon: Icon }> = {
+  vm: { label: "VM", icon: ComputerDesktopIcon },
+  ct: { label: "Container", icon: CubeIcon },
+  oci: { label: "OCI container", icon: CubeTransparentIcon },
+  physical: { label: "Physical server", icon: ServerIcon },
+  proxmox: { label: "Physical server (Proxmox)", icon: ProxmoxIcon },
+  vps: { label: "VPS", icon: CloudIcon },
+}
+
+export function HostIcon({ type }: { type: string }) {
+  const { icon: I = ServerIcon, label = type } = HOST_TYPES[type] ?? {}
+  return <span title={label} role="img" aria-label={label} className="inline-flex shrink-0 text-fg2"><I className="size-5" aria-hidden /></span>
+}
 
 const UPDATE_POLL_MS = 5000
 const OCI_LIMITS = "No CPU, memory, disk, network, updates or logs: an OCI image has no systemd to run the agent."
@@ -132,9 +155,12 @@ function AddHost({ hosts, onDone }: { hosts: any[]; onDone: () => void }) {
   const [f, setF] = useState({ name: "", kind: "vm", parent: "", ct_autoinstall: false })
   const [res, setRes] = useState<any>()
   const [error, setError] = useState("")
+  // Only a VM runs on something, and only on one of your physical servers.
+  const nested = f.kind === "vm"
+  const servers = hosts.filter((h) => h.kind === "physical" || h.kind === "proxmox")
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    try { setRes(await api("/api/hosts", { body: f })) } catch (err) { setError((err as Error).message) }
+    try { setRes(await api("/api/hosts", { body: { ...f, parent: nested ? f.parent : "" } })) } catch (err) { setError((err as Error).message) }
   }
   if (res) return <Modal title="Install the agent" onClose={onDone}><InstallCommand id={res.id} /></Modal>
   return (
@@ -142,7 +168,7 @@ function AddHost({ hosts, onDone }: { hosts: any[]; onDone: () => void }) {
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <Input label="Name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <Select label="Deployment type" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} options={KINDS} hint={f.kind === "physical" || f.kind === "proxmox" ? "SMART monitoring is included; smartmontools is installed if missing." : undefined} />
-        <Select label="Runs on" value={f.parent} onChange={(e) => setF({ ...f, parent: e.target.value })} options={[{ value: "", label: "Nothing (top level)" }, ...hosts.map((h) => ({ value: h.id, label: h.name }))]} />
+        {nested && <Select label="Runs on" value={f.parent} onChange={(e) => setF({ ...f, parent: e.target.value })} options={[{ value: "", label: "Nothing (top level)" }, ...servers.map((h) => ({ value: h.id, label: `${h.name} (${h.kind === "proxmox" ? "Proxmox" : "physical"})` }))]} />}
         {f.kind === "proxmox" && <Check label="Install the agent in containers, including new ones" checked={f.ct_autoinstall} onChange={(e) => setF({ ...f, ct_autoinstall: e.target.checked })} />}
         <ErrorNote>{error}</ErrorNote>
         <div><Button variant="primary" type="submit">Generate install command</Button></div>
@@ -190,10 +216,11 @@ export function Hosts() {
                     {r.hasChildren
                       ? <button aria-label="Toggle children" aria-expanded={!collapsed.has(r.host.id)} className="text-fg3" onClick={() => toggle(r.host.id)}><ChevronRightIcon className={`size-4 ${collapsed.has(r.host.id) ? "" : "rotate-90"}`} aria-hidden /></button>
                       : <span className="w-4" />}
-                    <Link to={`/hosts/${r.host.id}`} className="hover:text-accent">{r.host.name}</Link>
+                    <HostIcon type={hostType(r.host, list)} />
+                    <Link to={`/hosts/${r.host.id}`} className="ml-1 hover:text-accent">{r.host.name}</Link>
                   </span>
                 </Td>
-                <Td className="text-fg2">{kindLabel(r.host.kind)}</Td>
+                <Td className="text-fg2">{HOST_TYPES[hostType(r.host, list)]?.label ?? r.host.kind}</Td>
                 <Td mono>{r.host.ip || "—"}</Td>
                 <Td className="text-fg2">{fmt.pct(r.host.cpu)}</Td>
                 <Td className="text-fg2">{fmt.pct(r.host.mem)}</Td>
@@ -203,7 +230,7 @@ export function Hosts() {
               </tr>
             ) : (
               <tr key={r.key}>
-                <Td className="text-fg2"><span style={{ paddingLeft: r.depth * 24 + 16 }}>{r.guest.name}</span></Td>
+                <Td className="text-fg2"><span className="flex items-center gap-2 whitespace-nowrap" style={{ paddingLeft: r.depth * 24 + 20 }}><HostIcon type={r.guest.oci ? "oci" : r.guest.kind === "lxc" ? "ct" : "vm"} />{r.guest.name}</span></Td>
                 <Td className="text-fg3">{r.guest.oci ? "OCI container" : r.guest.kind === "lxc" ? "Container" : "VM"} {r.guest.vmid}, no agent</Td>
                 {r.guest.oci ? <Td colSpan={5} className="text-warn">{OCI_LIMITS}</Td> : <><Td /><Td /><Td /><Td /><Td /></>}
                 <Td>{proxmox.data?.url && <a className="text-accent" target="_blank" rel="noreferrer" href={consoleUrl(proxmox.data.url, r.parent, r.guest)}>Console</a>}</Td>
@@ -289,10 +316,13 @@ export function HostDetail({ id }: { id: string }) {
         </Table>
       </Panel>
     ) },
-    { id: "node", title: "Node.js", absent: !h.node, render: (edit: any) => (
+    { id: "vpn", title: "VPN links", absent: !h.vpn?.length, render: (edit: any) => (
+      <Panel title="VPN links" flush edit={edit}><VpnTable rows={h.vpn ?? []} /></Panel>
+    ) },
+    { id: "node", title: "Node.js", absent: !h.node?.version && !h.node?.apps.length, render: (edit: any) => (
       <Panel title="Node.js" edit={edit}>
-        <p className="text-fg2">Node <Mono>{h.node?.version}</Mono></p>
-        {h.node?.apps.map((a: any) => <p key={a.path} className="mt-2">{a.name} <Mono className="text-fg3">{a.path}</Mono></p>)}
+        {h.node?.version && <p className="text-fg2">Node <Mono>{h.node.version}</Mono></p>}
+        {h.node?.apps.map((a: any) => <p key={a.path} className="mt-2">{a.name} <Mono className="text-fg3">{a.path}</Mono>{a.manager && <span className="ml-2 text-fg3">{a.manager}</span>}</p>)}
       </Panel>
     ) },
     { id: "updates", title: "Updates", render: (edit: any) => (
@@ -348,8 +378,8 @@ export function HostDetail({ id }: { id: string }) {
       />
       {h.oci && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">{h.installed ? "This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker." : OCI_LIMITS}</p>}
       <Board id="host" panels={panels}
-        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "node", "updates", "agent"]], hidden: [] }}
-        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
+        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "vpn", "node", "updates", "agent"]], hidden: [] }}
+        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "vpn", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
       {removing && (
         <Modal title={`Delete ${h.name}`} onClose={() => setRemoving(false)}>
           <div className="flex flex-col gap-4">

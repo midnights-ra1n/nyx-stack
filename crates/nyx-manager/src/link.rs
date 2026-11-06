@@ -2,7 +2,7 @@
 
 use crate::App;
 use anyhow::Context;
-use nyx_proto::Deploy;
+use nyx_proto::{is_vpn_ip, Deploy};
 use nyx_srv::pb_quote;
 use serde_json::{json, Value};
 
@@ -15,7 +15,16 @@ pub async fn config(app: &App) -> anyhow::Result<Option<(String, String)>> {
 pub async fn hosts(app: &App) -> anyhow::Result<Option<Vec<Value>>> {
     let Some((url, token)) = config(app).await? else { return Ok(None) };
     let res = app.http.get(format!("{url}/api/link/hosts")).bearer_auth(token).send().await?.error_for_status()?;
-    Ok(Some(res.json().await?))
+    let mut hosts: Vec<Value> = res.json().await?;
+    hosts.iter_mut().for_each(drop_vpn_ip);
+    Ok(Some(hosts))
+}
+
+/// An older monitor can still hand out a mesh address, which means nothing in the inventory.
+fn drop_vpn_ip(h: &mut Value) {
+    if h["ip"].as_str().is_some_and(is_vpn_ip) {
+        h["ip"] = "".into();
+    }
 }
 
 pub async fn deploy(app: &App, host: &str, d: &Deploy) -> anyhow::Result<String> {
@@ -71,6 +80,7 @@ fn differs(row: &Value, wanted: &Value) -> bool {
 pub async fn sync(app: &App) -> anyhow::Result<()> {
     let Some(hosts) = hosts(app).await? else { return Ok(()) };
     let pb = &app.core.pb;
+    remove_vpn_ips(app).await?;
     let existing = pb.list("virtual_assets", "source = 'monitor'", "").await?;
     let wanted = inventory(&hosts);
     for (ext, fields) in &wanted {
@@ -99,9 +109,31 @@ pub async fn sync(app: &App) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Rows written before mesh addresses were filtered. Addresses typed by hand stay.
+async fn remove_vpn_ips(app: &App) -> anyhow::Result<()> {
+    let pb = &app.core.pb;
+    for r in pb.list("ip_addresses", "note = 'From monitoring'", "").await?.iter().filter(|r| r["address"].as_str().is_some_and(is_vpn_ip)) {
+        pb.delete("ip_addresses", r["id"].as_str().unwrap_or_default()).await?;
+    }
+    for n in pb.list("map_nodes", "", "").await?.iter().filter(|n| n["ip"].as_str().is_some_and(is_vpn_ip)) {
+        pb.update("map_nodes", n["id"].as_str().unwrap_or_default(), &json!({"ip": ""})).await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mesh_addresses_are_dropped_from_hosts() {
+        let mut h = json!({"ip": "100.87.1.2"});
+        drop_vpn_ip(&mut h);
+        assert_eq!(h["ip"], "");
+        let mut lan = json!({"ip": "192.168.1.2"});
+        drop_vpn_ip(&mut lan);
+        assert_eq!(lan["ip"], "192.168.1.2");
+    }
 
     #[test]
     fn hosts_expand_into_guests_and_containers() {

@@ -45,8 +45,11 @@ Proxmox paths have not been run on real systems. You can also
 - **Notifications:** email, Discord, Matrix, Slack, Gotify, Ntfy, Telegram, Teams and
   more through Shoutrrr. Custom templates with emojis, a live preview that looks like
   the app receiving them, and grouping into daily, weekly or monthly digests.
-- **Node.js platform:** detects running apps, deploys from Git with a deploy key, and
-  redeploys on push through a signed webhook.
+- **Node.js platform:** detects running apps and how they run, adopts them or deploys
+  from Git with a deploy key, and redeploys on push through a signed webhook.
+- **VPN links:** agents report Tailscale, NetBird, WireGuard and other tunnels and alert
+  when one drops. The manager keeps them on their page and on the network map.
+- **Tasks and deployments:** Kanban board or list, with states, tags and due dates.
 - **Integrations:** Nextcloud tasks and calendar, EDF Tempo (RTE), Proxmox noVNC
   console, Meross power plugs, an MCP server for AI assistants, and passkeys.
 - **Update channels:** stable releases by default, or opt in to beta from the settings.

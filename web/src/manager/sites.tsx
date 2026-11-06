@@ -1,4 +1,4 @@
-import { PlusIcon, RocketLaunchIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { PencilSquareIcon, PlusIcon, RocketLaunchIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { Button, Copy, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, Select, Status, Table, Td, TextArea } from "../ui/components"
@@ -26,18 +26,34 @@ function Details({ site, onClose }: { site: any; onClose: () => void }) {
   )
 }
 
+/** The form starts from what the agent saw, so that an adopted site keeps how it runs today. */
+function presetOf(a: any) {
+  return { name: a.name.replace(/^@[^/]+\//, "").replace(/[^\w-]/g, "-"), host: a.host.id, path: a.path, repo: a.repo, branch: a.branch, run_user: a.user, install_cmd: a.install_cmd, build_cmd: a.build_cmd, start_cmd: a.start_cmd, service: a.service }
+}
+
+const runsUnder = (a: any) => ({ systemd: `systemd: ${a.service}`, pm2: `PM2: ${a.service.replace("pm2:", "")}`, docker: "Docker" } as Record<string, string>)[a.manager] ?? "Started by hand"
+
+const EDITABLE = ["host", "repo", "branch", "path", "run_user", "install_cmd", "build_cmd", "start_cmd", "service"]
+
 function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone: (site?: any) => void }) {
-  const [f, setF] = useState<any>({ name: "", host: "", repo: "", branch: "main", path: "", run_user: "", install_cmd: "", build_cmd: "", start_cmd: "", ssh_private_key: "", ...preset })
+  const editing = !!preset.id
+  const [f, setF] = useState<any>({ name: "", host: "", repo: "", branch: "main", path: "", run_user: "", install_cmd: "", build_cmd: "", start_cmd: "", service: "", ssh_private_key: "", ...preset })
   const [error, setError] = useState("")
   const input = (k: string, label: string, p: any = {}) => <Input label={label} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...p} />
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
-    try { const r = await api("/api/sites", { body: f }); onDone({ ...f, id: r.id }) } catch (err) { setError((err as Error).message) }
+    try {
+      if (editing) {
+        const body = Object.fromEntries(EDITABLE.map((k) => [k, f[k]]))
+        await api(`/api/c/sites/${f.id}`, { method: "PATCH", body })
+        onDone()
+      } else { const r = await api("/api/sites", { body: f }); onDone({ ...f, id: r.id }) }
+    } catch (err) { setError((err as Error).message) }
   }
   return (
-    <Modal title="Add site" onClose={() => onDone()} wide>
+    <Modal title={editing ? `Edit ${preset.name}` : "Add site"} onClose={() => onDone()} wide>
       <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={save}>
-        {input("name", "Name", { required: true, hint: "Letters, digits, - and _." })}
+        {input("name", "Name", { required: true, disabled: editing, hint: editing ? "Fixed: the service of the site is named after it." : "Letters, digits, - and _." })}
         {hosts.length
           ? <Select label="Host" required value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} options={[{ value: "", label: "Choose…" }, ...hosts.map((h) => ({ value: h.id, label: h.name }))]} />
           : input("host", "Host ID", { required: true, hint: "Link a monitor in Settings to pick from a list." })}
@@ -45,11 +61,13 @@ function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone
         {input("branch", "Branch")}
         {input("path", "Directory", { placeholder: "/srv/<name>", className: "font-mono" })}
         {input("run_user", "Run as", { placeholder: "www-data" })}
+        {input("service", "Existing service", { className: "font-mono", placeholder: "my-app.service or pm2:my-app", hint: "Restarted after a deploy. Empty: Nyx creates and runs its own service." })}
         {input("install_cmd", "Install command", { placeholder: "npm ci", className: "font-mono" })}
         {input("build_cmd", "Build command", { placeholder: "npm run build --if-present", className: "font-mono" })}
-        {input("start_cmd", "Start command", { placeholder: "npm start", className: "font-mono" })}
-        <div className="col-span-full"><TextArea label="SSH private key" rows={3} className="font-mono" value={f.ssh_private_key} onChange={(e) => setF({ ...f, ssh_private_key: e.target.value })} hint="Leave empty to generate a new ed25519 deploy key." /></div>
-        <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">Create site</Button></div></div>
+        {input("start_cmd", "Start command", { placeholder: "npm start", className: "font-mono", hint: f.service ? "Not used: the existing service starts the site." : undefined })}
+        {!editing && <div className="col-span-full"><TextArea label="SSH private key" rows={3} className="font-mono" value={f.ssh_private_key} onChange={(e) => setF({ ...f, ssh_private_key: e.target.value })} hint="Leave empty to generate a new ed25519 deploy key." /></div>}
+        {f.path && !editing && preset.path && <p role="note" className="col-span-full rounded-panel bg-warn-soft px-4 py-2.5 text-warn">A deploy resets tracked files in this directory to the branch. Commit local changes first. Ignored files, such as .env, stay.</p>}
+        <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">{editing ? "Save" : "Create site"}</Button></div></div>
       </form>
     </Modal>
   )
@@ -63,7 +81,9 @@ export function Sites() {
   const [note, setNote] = useState("")
   const hosts = monitor.data ?? []
   const nameOf = (id: string) => hosts.find((h) => h.id === id)?.name ?? id
-  const apps = hosts.flatMap((h) => (h.node?.apps ?? []).map((a: any) => ({ ...a, host: h, version: h.node.version })))
+  const apps = hosts.flatMap((h) => (h.node?.apps ?? []).map((a: any) => ({ ...a, host: h, version: a.version || h.node.version })))
+  const running = (s: any) => apps.some((a) => a.host.id === s.host && a.path === s.path)
+  const siteOf = (a: any) => data?.items.find((s: any) => s.host === a.host.id && s.path === a.path)
   const deploy = async (s: any) => {
     try { await api(`/api/sites/${s.id}/deploy`, { method: "POST" }); setNote(`Deploy of ${s.name} queued.`); reload() } catch (e) { setNote((e as Error).message) }
   }
@@ -73,16 +93,18 @@ export function Sites() {
         <Panel title="Sites" flush edit={edit}>
           <ErrorNote>{error}</ErrorNote>
           {data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No sites yet.</Empty></div> : (
-            <Table head={["Name", "Host", "Branch", "Last deploy", "State", ""]}>
+            <Table head={["Name", "Host", "Branch", "Process", "Last deploy", "State", ""]}>
               {data?.items.map((s: any) => (
                 <tr key={s.id}>
                   <Td className="font-medium"><button className="min-h-9 max-sm:min-h-11 text-left text-accent" onClick={() => setOpen(s)}>{s.name}</button></Td>
                   <Td className="text-fg2">{nameOf(s.host)}</Td>
                   <Td mono>{s.branch}</Td>
+                  <Td>{monitor.data ? <Status cell level={running(s) ? "ok" : "off"} label={running(s) ? "Running" : "Not detected"} /> : "—"}</Td>
                   <Td className="text-fg2">{fmt.date(s.last_deploy)}</Td>
                   <Td><Status level={deployLevel(s.last_status)} label={s.last_status || "never"} /></Td>
-                  <Td className="w-24 whitespace-nowrap text-right">
+                  <Td className="w-32 whitespace-nowrap text-right">
                     <IconButton label="Deploy" icon={RocketLaunchIcon} onClick={() => deploy(s)} />
+                    <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setForm(s)} />
                     <IconButton label="Delete" icon={TrashIcon} onClick={() => remove(s)} />
                   </Td>
                 </tr>
@@ -93,15 +115,19 @@ export function Sites() {
     ) },
     { id: "apps", title: "Detected Node.js apps", render: (edit: any) => (
         <Panel title="Detected Node.js apps" flush edit={edit}>
-          {apps.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No Node.js apps detected on your hosts." : "Link a monitor in Settings to detect Node.js apps."}</Empty></div> : (
-            <Table head={["App", "Host", "Node.js", "Directory", ""]}>
+          {apps.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No Node.js apps detected on your hosts. Agents look every 5 minutes." : "Link a monitor in Settings to detect Node.js apps."}</Empty></div> : (
+            <Table head={["App", "Host", "Node.js", "Directory", "Git", "Runs under", ""]}>
               {apps.map((a) => (
-                <tr key={`${a.host.id}${a.pid}`}>
+                <tr key={`${a.host.id}${a.path}`}>
                   <Td className="font-medium">{a.name}</Td>
                   <Td className="text-fg2">{a.host.name}</Td>
-                  <Td mono>{a.version}</Td>
+                  <Td mono>{a.version || "—"}</Td>
                   <Td><Mono>{a.path}</Mono></Td>
-                  <Td className="text-right"><Button variant="ghost" onClick={() => setForm({ name: a.name.replace(/[^\w-]/g, "-"), host: a.host.id, path: a.path })}>Manage</Button></Td>
+                  <Td className="max-w-64 truncate" title={a.repo}>{a.repo ? <Mono className="text-fg2">{a.branch ? `${a.branch} · ` : ""}{a.repo}</Mono> : <span className="text-fg3">No Git origin</span>}</Td>
+                  <Td className="text-fg2">{runsUnder(a)}</Td>
+                  <Td className="text-right">
+                    {siteOf(a) ? <span className="text-fg3">Managed</span> : a.manager === "docker" ? <span className="text-fg3" title="Nyx deploys on the host, not inside containers.">Not supported</span> : <Button variant="ghost" onClick={() => setForm(presetOf(a))}>Manage</Button>}
+                  </Td>
                 </tr>
               ))}
             </Table>

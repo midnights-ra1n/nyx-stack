@@ -1,10 +1,12 @@
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { BarGauge, Empty, ErrorNote, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
+import { Empty, ErrorNote, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
 import { fmt, type Level, levelSoft, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskHealth } from "./disks"
+import { HostIcon, hostType } from "./hosts"
 import { RecentLogs } from "./logs"
+import { StoragePanel } from "./storage-tree"
 import { TempoTiles } from "./tempo"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
@@ -17,7 +19,7 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
         <Table head={["Host", "Address", "CPU", "Mem.", "State"]}>
           {hosts.map((h) => (
             <tr key={h.id} className="cursor-pointer hover:bg-raised" onClick={() => navigate(`/hosts/${h.id}`)}>
-              <Td className="font-medium"><Link to={`/hosts/${h.id}`}>{h.name}</Link></Td>
+              <Td className="font-medium"><span className="flex items-center gap-2"><HostIcon type={hostType(h, hosts)} /><Link to={`/hosts/${h.id}`}>{h.name}</Link></span></Td>
               <Td mono>{h.ip || "—"}</Td>
               <Td className={h.cpu >= th.warn ? "text-warn" : "text-fg2"}>{fmt.pct(h.cpu)}</Td>
               <Td className={h.mem >= th.warn ? "text-warn" : "text-fg2"}>{fmt.pct(h.mem)}</Td>
@@ -30,7 +32,7 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
         {hosts.map((h) => (
           <li key={h.id}>
             <Link to={`/hosts/${h.id}`} className="grid h-[68px] grid-cols-[1fr_auto] items-stretch">
-              <span className="flex flex-col justify-center px-4"><span className="font-medium">{h.name}</span><Mono className="text-fg2">{h.ip || "—"}</Mono></span>
+              <span className="flex flex-col justify-center px-4"><span className="flex items-center gap-2 font-medium"><HostIcon type={hostType(h, hosts)} />{h.name}</span><Mono className="text-fg2">{h.ip || "—"}</Mono></span>
               <span className={`flex flex-col items-end justify-center px-4 ${levelSoft[hostLevel(h.status)]}`}>
                 <Status cell level={hostLevel(h.status)} />
                 <span className="text-xs text-fg2">CPU {fmt.pct(h.cpu)} · Mem. {fmt.pct(h.mem)}</span>
@@ -125,11 +127,7 @@ export function Overview() {
     { id: "hosts", title: "Hosts", render: (edit: any) => (
       <Panel title="Hosts" edit={edit} flush actions={[{ label: "All hosts", onClick: () => navigate("/hosts") }]}><HostList hosts={visible} th={th} /></Panel>
     ) },
-    { id: "storage", title: "Storage", render: (edit: any) => (
-      <Panel title="Storage" edit={edit}>
-        {o?.storage.length ? <BarGauge warn={th.warn} crit={th.crit} rows={o.storage.map((s: any) => ({ label: `${s.host} ${s.mount}`, pct: s.pct }))} /> : <Empty>No disks reported.</Empty>}
-      </Panel>
-    ) },
+    { id: "storage", title: "Storage", render: (edit: any) => <StoragePanel edit={edit} hosts={visible} allHosts={hosts.data ?? []} storage={o?.storage ?? []} th={th} /> },
     { id: "power", title: "Power", render: (edit: any) => (
       <Panel title="Power" edit={edit}>
         <Stat label="Total draw" value={`${(power.data?.total ?? 0).toFixed(0)} W`} sub={`${power.data?.plugs.length ?? 0} plugs`} />

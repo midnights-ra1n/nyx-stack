@@ -18,6 +18,20 @@ fn name_of<'a>(nodes: &'a [Value], id: &str) -> Option<&'a Value> {
     nodes.iter().find(|n| s(n, "id") == id)
 }
 
+/// VPN links are kept on their own page, and join the map through the device names.
+pub fn with_vpn(nodes: &[Value], links: &[Value], vpn: &[Value]) -> Vec<Value> {
+    let id_of = |name: &str| nodes.iter().find(|n| !name.is_empty() && s(n, "name") == name).map(|n| n["id"].clone());
+    let drawn = vpn.iter().filter_map(|v| {
+        let (a, b) = (id_of(s(v, "side_a"))?, id_of(s(v, "side_b"))?);
+        Some(json!({"id": v["id"], "source": a, "target": b, "label": s(v, "name"), "kind": "vpn"}))
+    });
+    links.iter().cloned().chain(drawn).collect()
+}
+
+fn is_vpn(l: &Value) -> bool {
+    l["kind"] == "vpn"
+}
+
 const W: f64 = 140.0;
 const H: f64 = 56.0;
 
@@ -30,7 +44,8 @@ pub fn svg(nodes: &[Value], links: &[Value]) -> String {
         if let (Some(a), Some(b)) = (name_of(nodes, s(l, "source")), name_of(nodes, s(l, "target"))) {
             let ((ax, ay), (bx, by)) = (xy(a), xy(b));
             let (x1, y1, x2, y2) = (ax + W / 2.0 + 20.0, ay + H / 2.0 + 20.0, bx + W / 2.0 + 20.0, by + H / 2.0 + 20.0);
-            out += &format!(r##"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#6e7d8f"/>"##);
+            let dash = if is_vpn(l) { r#" stroke-dasharray="6 4""# } else { "" };
+            out += &format!(r##"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#6e7d8f"{dash}/>"##);
             if !s(l, "label").is_empty() {
                 out += &format!(r##"<text x="{}" y="{}" font-size="12" fill="#9aa6b5" text-anchor="middle">{}</text>"##, (x1 + x2) / 2.0, (y1 + y2) / 2.0 - 4.0, xml(s(l, "label")));
             }
@@ -51,7 +66,8 @@ pub fn dot(nodes: &[Value], links: &[Value]) -> String {
         out += &format!("  \"{}\" [label=\"{}\\n{}\"];\n", quoted(s(n, "id")), quoted(s(n, "name")), quoted(s(n, "ip")));
     }
     for l in links {
-        out += &format!("  \"{}\" -- \"{}\" [label=\"{}\"];\n", quoted(s(l, "source")), quoted(s(l, "target")), quoted(s(l, "label")));
+        let style = if is_vpn(l) { ", style=dashed" } else { "" };
+        out += &format!("  \"{}\" -- \"{}\" [label=\"{}\"{style}];\n", quoted(s(l, "source")), quoted(s(l, "target")), quoted(s(l, "label")));
     }
     out + "}\n"
 }
@@ -64,7 +80,8 @@ pub fn mermaid(nodes: &[Value], links: &[Value]) -> String {
     }
     for l in links {
         let label = s(l, "label");
-        let edge = if label.is_empty() { "---".to_string() } else { format!("---|\"{}\"|", safe(label)) };
+        let line = if is_vpn(l) { "-.-" } else { "---" };
+        let edge = if label.is_empty() { line.to_string() } else { format!("{line}|\"{}\"|", safe(label)) };
         out += &format!("  n{} {edge} n{}\n", s(l, "source"), s(l, "target"));
     }
     out
@@ -79,7 +96,8 @@ pub fn drawio(nodes: &[Value], links: &[Value]) -> String {
             xml(s(n, "id")), n["x"].as_f64().unwrap_or(0.0), n["y"].as_f64().unwrap_or(0.0));
     }
     for l in links {
-        out += &format!(r#"<mxCell id="{}" value="{}" edge="1" parent="1" source="{}" target="{}"><mxGeometry relative="1" as="geometry"/></mxCell>"#,
+        let style = if is_vpn(l) { "dashed=1;" } else { "" };
+        out += &format!(r#"<mxCell id="{}" value="{}" style="{style}" edge="1" parent="1" source="{}" target="{}"><mxGeometry relative="1" as="geometry"/></mxCell>"#,
             xml(s(l, "id")), xml(s(l, "label")), xml(s(l, "source")), xml(s(l, "target")));
     }
     out + "</root></mxGraphModel></diagram></mxfile>"
@@ -125,6 +143,17 @@ mod tests {
         assert!(drawio(&n, &l).contains("sw &quot;core&quot;"));
         assert!(dot(&n, &l).contains(r#"sw \"core\""#));
         assert!(mermaid(&n, &l).contains("sw #quot;core#quot;"));
+    }
+
+    #[test]
+    fn vpn_links_join_by_device_name_and_are_dashed() {
+        let n = [json!({"id": "a", "name": "paris", "x": 0, "y": 0}), json!({"id": "b", "name": "lyon", "x": 200, "y": 0})];
+        let vpn = [json!({"id": "v", "name": "tunnel", "side_a": "paris", "side_b": "lyon"}), json!({"id": "w", "name": "mesh", "side_a": "paris", "side_b": ""})];
+        let l = with_vpn(&n, &[], &vpn);
+        assert_eq!(l.len(), 1, "a tunnel with one known end cannot be drawn");
+        assert_eq!((l[0]["source"].as_str(), l[0]["target"].as_str()), (Some("a"), Some("b")));
+        assert!(svg(&n, &l).contains("stroke-dasharray") && dot(&n, &l).contains("style=dashed"));
+        assert!(mermaid(&n, &l).contains("-.-|") && drawio(&n, &l).contains("dashed=1"));
     }
 
     #[test]

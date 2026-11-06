@@ -1,25 +1,33 @@
-import { ArrowPathIcon, CheckCircleIcon, PencilSquareIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, ArrowsRightLeftIcon, BoltIcon, CheckCircleIcon, CircleStackIcon, CubeIcon, PencilSquareIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, TrashIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Copy, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, Select, Stat, Status, Table, Tabs, Td, TextArea } from "../ui/components"
-import { type Col, CrudPage } from "../ui/crud"
+import { Button, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Select, Stat, Status, Table, Tabs, Td, TextArea } from "../ui/components"
+import { type Col, CrudPage, RecordForm } from "../ui/crud"
 import { api, fmt, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { deployLevel } from "./overview"
+import { parseTags, type WorkItem, WorkView } from "./work"
+
+const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, Printer: PrinterIcon, Other: CubeIcon }
+const categoryCell = (h: any) => {
+  const I = CATEGORIES[h.category]
+  return h.category ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{h.category}</span> : "—"
+}
 
 const HARDWARE: Col[] = [
-  { key: "name", label: "Name", required: true },
-  { key: "category", label: "Category", type: "select", options: ["Server", "Switch", "Router", "Firewall", "NAS", "UPS", "Access point", "Printer", "Other"] },
-  { key: "manufacturer", label: "Manufacturer" },
-  { key: "model", label: "Model" },
+  { key: "category", label: "Category", type: "select", options: Object.keys(CATEGORIES), icons: CATEGORIES, formOnly: true },
+  { key: "name", label: "Name", required: true, section: "Identity" },
+  { key: "category", label: "Category", type: "select", options: Object.keys(CATEGORIES), render: categoryCell, listOnly: true },
+  { key: "manufacturer", label: "Manufacturer", suggest: true },
+  { key: "model", label: "Model", suggest: true },
   { key: "serial", label: "Serial number", mono: true },
-  { key: "location", label: "Location" },
+  { key: "location", label: "Location", suggest: true, section: "Where it is" },
   { key: "status", label: "Status", type: "select", options: ["In service", "Spare", "Broken", "Retired"] },
-  { key: "purchased_at", label: "Purchased", type: "date", formOnly: true },
+  { key: "purchased_at", label: "Purchased", type: "date", formOnly: true, section: "Dates" },
   { key: "warranty_until", label: "Warranty until", type: "date" },
   { key: "notes", label: "Notes", type: "area", formOnly: true },
 ]
-export const Hardware = () => <CrudPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} />
+export const Hardware = () => <CrudPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} defaults={{ category: "Server", status: "In service" }} />
 
 function consoleUrl(pve: string, a: any) {
   if (!pve || !a.vmid || !a.pve_node) return ""
@@ -51,13 +59,40 @@ const DEPLOYMENTS: Col[] = [
   { key: "name", label: "Name", required: true },
   { key: "target", label: "Target" },
   { key: "version", label: "Version", mono: true },
-  { key: "status", label: "Status", type: "select", options: ["planned", "running", "ok", "failed"], render: (d) => <Status level={deployLevel(d.status)} label={d.status || "planned"} /> },
-  { key: "scheduled_at", label: "Scheduled", type: "date" },
+  { key: "status", label: "State", type: "select", options: ["planned", "running", "ok", "failed"] },
+  { key: "scheduled_at", label: "Due date", type: "date" },
   { key: "done_at", label: "Done", type: "date" },
-  { key: "owner", label: "Owner", formOnly: true },
-  { key: "notes", label: "Notes", type: "area", formOnly: true },
+  { key: "owner", label: "Owner" },
+  { key: "tags", label: "Tags", hint: "Separated by commas." },
+  { key: "notes", label: "Notes", type: "area" },
 ]
-export const Deployments = () => <CrudPage title="Deployments" singular="deployment" collection="deployments" cols={DEPLOYMENTS} sort="-created" />
+const DEPLOY_STATES = [{ id: "planned", label: "Planned", level: "off" as const }, { id: "running", label: "Running", level: "info" as const }, { id: "ok", label: "Succeeded", level: "ok" as const }, { id: "failed", label: "Failed", level: "crit" as const }]
+
+export function Deployments() {
+  const { data, reload, error } = useApi("/api/c/deployments?sort=-created&perPage=500")
+  const [edit, setEdit] = useState<any | null | undefined>()
+  const done = () => { setEdit(undefined); reload() }
+  const move = async (d: any, status: string) => {
+    const finished = (status === "ok" || status === "failed") && !d.done_at
+    await api(`/api/c/deployments/${d.id}`, { method: "PATCH", body: { status, ...(finished ? { done_at: new Date().toISOString().replace("T", " ") } : {}) } })
+    reload()
+  }
+  const remove = async (d: any) => { if (confirm(`Delete ${d.name}?`)) { await api(`/api/c/deployments/${d.id}`, { method: "DELETE" }); reload() } }
+  const items: WorkItem[] = (data?.items ?? []).map((d: any) => ({
+    id: d.id, title: d.name, state: d.status || "planned", tags: parseTags(d.tags), due: d.scheduled_at, open: d.status === "planned" || !d.status,
+    detail: [d.target, d.version].filter(Boolean).join(" · "), row: d,
+  }))
+  return (
+    <>
+      <PageHeader title="Deployments" onRefresh={reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add deployment</Button>} />
+      <Panel title="Deployments">
+        <ErrorNote>{error}</ErrorNote>
+        <WorkView id="deployments" states={DEPLOY_STATES} items={items} empty="No deployments yet." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "Target", value: (w) => w.row.target }, { label: "Version", value: (w) => w.row.version }]} />
+      </Panel>
+      {edit !== undefined && <RecordForm cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? "Edit deployment" : "Add deployment"} defaults={{ status: "planned" }} />}
+    </>
+  )
+}
 
 const SUBNETS: Col[] = [
   { key: "name", label: "Name", required: true },
@@ -150,8 +185,11 @@ export function Ipam() {
   )
 }
 
+const TASK_STATES = [{ id: "todo", label: "To do", level: "off" as const }, { id: "doing", label: "In progress", level: "info" as const }, { id: "done", label: "Done", level: "ok" as const }, { id: "cancelled", label: "Cancelled", level: "warn" as const }]
+const taskState = (t: any) => t.status || (t.done ? "done" : "todo")
+
 function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
-  const [f, setF] = useState({ title: row?.title ?? "", description: row?.description ?? "", due: row?.due?.slice(0, 10) ?? "", done: row?.done ?? false })
+  const [f, setF] = useState({ title: row?.title ?? "", description: row?.description ?? "", due: row?.due?.slice(0, 10) ?? "", status: row ? taskState(row) : "todo", tags: row?.tags?.replaceAll(",", ", ") ?? "" })
   const [error, setError] = useState("")
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -160,12 +198,13 @@ function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
   }
   return (
     <Modal title={row ? "Edit task" : "Add task"} onClose={onDone}>
-      <form className="flex flex-col gap-4" onSubmit={save}>
-        <Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
-        <TextArea label="Description" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
-        <Input label="Due" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
-        <ErrorNote>{error}</ErrorNote>
-        <div><Button variant="primary" type="submit">Save</Button></div>
+      <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={save}>
+        <div className="col-span-full"><Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+        <div className="col-span-full"><TextArea label="Description" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+        <Select label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} options={TASK_STATES.map((s) => ({ value: s.id, label: s.label }))} />
+        <Input label="Due date" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
+        <div className="col-span-full"><Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} hint="Separated by commas. They sync with Nextcloud as categories." /></div>
+        <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">Save</Button></div></div>
       </form>
     </Modal>
   )
@@ -176,33 +215,20 @@ export function Tasks() {
   const [edit, setEdit] = useState<any | null | undefined>()
   const [note, setNote] = useState("")
   const done = () => { setEdit(undefined); reload() }
-  const toggle = async (t: any) => { await api(`/api/tasks/${t.id}`, { method: "PATCH", body: { ...t, done: !t.done } }); reload() }
+  const move = async (t: any, status: string) => { await api(`/api/tasks/${t.id}`, { method: "PATCH", body: { ...t, status } }); reload() }
   const remove = async (t: any) => { if (confirm(`Delete ${t.title}?`)) { await api(`/api/tasks/${t.id}`, { method: "DELETE" }); reload() } }
   const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote("Synced."); reload() } catch (e) { setNote((e as Error).message) } }
   const open = data?.filter((t) => !t.done).length ?? 0
+  const items: WorkItem[] = (data ?? []).map((t) => ({
+    id: t.id, title: t.title, state: taskState(t), tags: parseTags(t.tags), due: t.due, open: !t.done, readOnly: t.kind === "event", row: t,
+    detail: t.kind === "event" ? "Calendar" : t.uid ? "Nextcloud" : "",
+  }))
   const panels = [
     { id: "open", title: "Open", render: (edit: any) => <Panel title="Open" edit={edit}><Stat label="Tasks" value={open} /></Panel> },
     { id: "tasks", title: "Tasks and events", render: (edit: any) => (
-        <Panel title="Tasks and events" flush edit={edit}>
+        <Panel title="Tasks and events" edit={edit}>
           <ErrorNote>{error}</ErrorNote>
-          {data?.length === 0 ? <div className="px-4 pb-4"><Empty>No tasks. Link Nextcloud in Settings to sync them.</Empty></div> : (
-            <Table head={["Title", "Due", "From", ""]}>
-              {data?.map((t) => (
-                <tr key={t.id}>
-                  <Td className={t.done ? "text-fg3 line-through" : "font-medium"}>{t.title}</Td>
-                  <Td className="text-fg2">{fmt.date(t.due)}</Td>
-                  <Td className="text-fg2">{t.kind === "event" ? "Calendar" : t.uid ? "Nextcloud" : "Nyx"}</Td>
-                  <Td className="w-32 whitespace-nowrap text-right">
-                    {t.kind !== "event" && <>
-                      <IconButton label={t.done ? "Reopen" : "Mark done"} icon={CheckCircleIcon} onClick={() => toggle(t)} />
-                      <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setEdit(t)} />
-                      <IconButton label="Delete" icon={TrashIcon} onClick={() => remove(t)} />
-                    </>}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
-          )}
+          <WorkView id="tasks" states={TASK_STATES} items={items} empty="No tasks. Add one, or link Nextcloud in Settings to sync them." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "From", value: (w) => w.detail || "Nyx" }]} />
         </Panel>
     ) },
   ]
@@ -219,12 +245,59 @@ export function Tasks() {
   )
 }
 
+const VPN: Col[] = [
+  { key: "name", label: "Name", required: true },
+  { key: "kind", label: "Type", type: "select", options: ["WireGuard", "Tailscale", "NetBird", "OpenVPN", "ZeroTier", "IPsec", "Mesh VPN", "Other"] },
+  { key: "side_a", label: "From", suggest: true, hint: "A device name. With both ends on the network map, the link is drawn there." },
+  { key: "side_b", label: "To", suggest: true, hint: "Leave empty for a mesh." },
+  { key: "subnet", label: "Tunnel subnet", mono: true },
+  { key: "endpoint", label: "Public endpoint", mono: true },
+  { key: "status", label: "Status", type: "select", options: ["Active", "Planned", "Disabled"] },
+  { key: "notes", label: "Notes", type: "area", formOnly: true },
+]
+
+/** Hand-kept links, and the tunnels agents report that could become one. */
+export function Vpn() {
+  const monitor = useApi<any[] | null>("/api/monitor/hosts", { poll: false })
+  const known = useApi("/api/c/vpn_links?perPage=500", { poll: false })
+  const [track, setTrack] = useState<any>()
+  const [version, setVersion] = useState(0)
+  const changed = () => { known.reload(); setVersion(version + 1) }
+  const tracked = (host: string, v: any) => known.data?.items.some((l: any) => l.side_a === host && l.kind === v.kind)
+  const seen = (monitor.data ?? []).flatMap((h) => (h.vpn ?? []).map((v: any) => ({ ...v, host: h.name, hostId: h.id })))
+  const detected = (
+    <Panel title="Detected on your hosts" flush>
+      {seen.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No agent reports a tunnel." : "Link a monitor in Settings to detect VPN tunnels."}</Empty></div> : (
+        <Table head={["Host", "Interface", "Type", "Address", "State", ""]}>
+          {seen.map((v) => (
+            <tr key={`${v.hostId}${v.iface}`}>
+              <Td className="font-medium">{v.host}</Td>
+              <Td mono>{v.iface}</Td>
+              <Td className="text-fg2">{v.kind}</Td>
+              <Td mono>{v.ip || "—"}</Td>
+              <Td><Status level={v.up ? "ok" : "crit"} label={v.up ? "Up" : "Down"} /></Td>
+              <Td className="text-right">{tracked(v.host, v) ? <span className="text-fg3">Tracked</span> : <Button variant="ghost" onClick={() => setTrack({ name: `${v.host} ${v.kind}`, kind: v.kind, side_a: v.host, status: "Active" })}>Track</Button>}</Td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </Panel>
+  )
+  return (
+    <>
+      <CrudPage key={version} title="VPN links" singular="VPN link" collection="vpn_links" cols={VPN} extra={detected} defaults={{ status: "Active" }} onChanged={known.reload} />
+      {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title="Track VPN link" defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
+    </>
+  )
+}
+
 
 const SEARCHED = [
   { coll: "hardware", to: "/hardware", fields: ["name", "serial", "model", "location"] },
   { coll: "virtual_assets", to: "/virtual", fields: ["name", "hostname", "ip"] },
   { coll: "ip_addresses", to: "/ipam", fields: ["address", "device", "hostname", "mac"] },
   { coll: "sites", to: "/sites", fields: ["name", "repo"] },
+  { coll: "vpn_links", to: "/vpn", fields: ["name", "side_a", "side_b", "subnet"] },
 ]
 
 function Hits({ q, coll, to, fields }: { q: string; coll: string; to: string; fields: string[] }) {

@@ -77,6 +77,25 @@ pub struct Report {
     /// A restart is needed to run what is installed. False from older agents.
     #[serde(default)]
     pub reboot_required: bool,
+    /// Tunnels of this host. Empty from older agents.
+    #[serde(default)]
+    pub vpn: Vec<VpnLink>,
+}
+
+/// A VPN interface. Its address stays out of `ip`: it only means something inside the VPN.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct VpnLink {
+    pub iface: String,
+    /// `Tailscale`, `NetBird`, `WireGuard`, `OpenVPN`, `ZeroTier`, `IPsec` or `Mesh VPN`.
+    pub kind: String,
+    pub ip: String,
+    /// The interface exists and holds an address.
+    pub up: bool,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    /// Set by the monitor: when the tunnel was last up.
+    #[serde(default)]
+    pub seen: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -159,6 +178,28 @@ pub struct NodeApp {
     pub name: String,
     pub path: String,
     pub pid: u32,
+    /// Version of the runtime of this app. The fields below are absent from older agents.
+    #[serde(default)]
+    pub version: String,
+    /// Origin of its Git clone, without credentials.
+    #[serde(default)]
+    pub repo: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub user: String,
+    /// `systemd`, `pm2` or `docker`. Empty when it was started by hand.
+    #[serde(default)]
+    pub manager: String,
+    /// What restarts it: a systemd unit, or `pm2:<name>`.
+    #[serde(default)]
+    pub service: String,
+    #[serde(default)]
+    pub install_cmd: String,
+    #[serde(default)]
+    pub build_cmd: String,
+    #[serde(default)]
+    pub start_cmd: String,
 }
 
 /// A Proxmox guest seen by an agent of kind `proxmox`.
@@ -232,6 +273,9 @@ pub struct Deploy {
     pub build_cmd: String,
     pub start_cmd: String,
     pub ssh_private_key: String,
+    /// The service already running this site, see [`NodeApp::service`]. Empty: Nyx creates its own.
+    #[serde(default)]
+    pub service: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -272,6 +316,12 @@ pub fn verify_webhook(secret: &str, body: &[u8], sig_hex: &str) -> bool {
     unhex(sig_hex).is_some_and(|b| m.verify_slice(&b).is_ok())
 }
 
+/// True for 100.64.0.0/10 (RFC 6598), where Tailscale and NetBird take their addresses.
+/// Nothing outside the mesh can reach them, so they never describe where a host is.
+pub fn is_vpn_ip(ip: &str) -> bool {
+    ip.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.octets()[0] == 100 && ip.octets()[1] & 0xc0 == 64)
+}
+
 pub fn sha256_hex(data: &[u8]) -> String {
     hex(&Sha256::digest(data))
 }
@@ -308,6 +358,12 @@ mod tests {
         let sig = "88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b";
         assert!(verify_webhook("secret", b"hello", sig));
         assert!(!verify_webhook("secret", b"hello!", sig));
+    }
+
+    #[test]
+    fn mesh_addresses_are_the_whole_shared_range() {
+        assert!(is_vpn_ip("100.64.0.1") && is_vpn_ip("100.101.102.103") && is_vpn_ip("100.127.255.254"));
+        assert!(!is_vpn_ip("100.63.0.1") && !is_vpn_ip("100.128.0.1") && !is_vpn_ip("192.168.1.1") && !is_vpn_ip("") && !is_vpn_ip("fd7a::1"));
     }
 
     #[test]

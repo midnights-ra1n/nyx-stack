@@ -12,6 +12,7 @@ links. The full dependency lists are in `Cargo.lock`, `web/pnpm-lock.yaml` and
 | [Shoutrrr](https://github.com/nicholas-fedor/shoutrrr), maintained fork | MIT | Notification delivery, in the separate `nyx-notify` program |
 | [Ubuntu font](https://design.ubuntu.com/font), through `@fontsource` | Ubuntu Font Licence 1.0 | UI typeface, served by Nyx. See below |
 | [Heroicons](https://github.com/tailwindlabs/heroicons) | MIT | UI icons |
+| [Simple Icons](https://simpleicons.org) | CC0-1.0 | Proxmox mark in the host list. Proxmox is a trademark of Proxmox Server Solutions GmbH |
 | [React](https://react.dev) | MIT | UI |
 | [Tailwind CSS](https://tailwindcss.com) | MIT | UI |
 

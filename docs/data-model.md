@@ -49,9 +49,10 @@ contains the texts, theme, panels and the `embed` option.
 | `subnets` | CIDR, gateway, VLAN |
 | `ip_addresses` | Address, device, hostname, MAC |
 | `routes` | Device, destination, next hop, metric, for the simulation |
-| `deployments` | Deployment log and planned dates |
+| `deployments` | Deployment log, due dates and tags |
 | `map_nodes`, `map_links` | Network map |
-| `sites` | Node.js sites, deploy keys and webhook secrets |
-| `tasks` | Tasks and calendar events, with CalDAV `uid`, `etag` and `href` |
+| `vpn_links` | VPN links kept by hand |
+| `sites` | Node.js sites, deploy keys, webhook secrets and the existing `service` they run under |
+| `tasks` | Tasks and calendar events, with state, tags and CalDAV `uid`, `etag` and `href` |
 
 A task with an empty `etag` is a local change that still has to reach Nextcloud.

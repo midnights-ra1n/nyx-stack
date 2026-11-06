@@ -21,6 +21,41 @@ pub struct Entry {
     pub due: String,
     pub done: bool,
     pub kind: String,
+    /// `todo`, `doing`, `done` or `cancelled`.
+    pub status: String,
+    pub tags: String,
+}
+
+fn status_from_ics(v: &str) -> &'static str {
+    match v {
+        "COMPLETED" => "done",
+        "IN-PROCESS" => "doing",
+        "CANCELLED" => "cancelled",
+        _ => "todo",
+    }
+}
+
+fn status_to_ics(v: &str) -> &'static str {
+    match v {
+        "done" => "COMPLETED",
+        "doing" => "IN-PROCESS",
+        "cancelled" => "CANCELLED",
+        _ => "NEEDS-ACTION",
+    }
+}
+
+/// Splits on the commas that are not escaped, and keeps the rest of each value as is.
+fn categories(v: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut chars = v.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => { out.last_mut().unwrap().push(chars.next().unwrap_or('\\')); }
+            ',' => out.push(String::new()),
+            c => out.last_mut().unwrap().push(c),
+        }
+    }
+    out
 }
 
 fn unescape(v: &str) -> String {
@@ -52,6 +87,7 @@ pub fn parse_ics(text: &str) -> Option<Entry> {
     let unfolded = text.replace("\r\n", "\n").replace("\n ", "").replace("\n\t", "");
     let mut e = Entry::default();
     let mut inside = false;
+    let mut tags = vec![];
     for line in unfolded.lines() {
         match line {
             "BEGIN:VTODO" => { inside = true; e.kind = "task".into(); continue }
@@ -69,14 +105,21 @@ pub fn parse_ics(text: &str) -> Option<Entry> {
             "DESCRIPTION" => e.description = unescape(value),
             "DUE" => e.due = ics_date(value),
             "DTSTART" if e.due.is_empty() => e.due = ics_date(value),
-            "STATUS" => e.done = value == "COMPLETED",
+            "STATUS" => e.status = status_from_ics(value).into(),
+            "CATEGORIES" => tags.extend(categories(value)),
             _ => {}
         }
     }
+    e.done = matches!(e.status.as_str(), "done" | "cancelled");
+    if e.status.is_empty() {
+        e.status = "todo".into();
+    }
+    // A comma cannot be part of a tag here: it separates them in the database too.
+    e.tags = tags.iter().map(|t| t.replace(',', " ").trim().to_string()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(",");
     (!e.uid.is_empty()).then_some(e)
 }
 
-pub fn build_vtodo(uid: &str, title: &str, description: &str, due: &str, done: bool) -> String {
+pub fn build_vtodo(uid: &str, title: &str, description: &str, due: &str, status: &str, tags: &str) -> String {
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
     let mut lines = vec!["BEGIN:VCALENDAR".to_string(), "VERSION:2.0".into(), "PRODID:-//Nyx//Manager//EN".into(), "BEGIN:VTODO".into(), format!("UID:{uid}"), format!("DTSTAMP:{stamp}"), format!("SUMMARY:{}", escape(title))];
     if !description.is_empty() {
@@ -86,7 +129,10 @@ pub fn build_vtodo(uid: &str, title: &str, description: &str, due: &str, done: b
     if !due.is_empty() {
         lines.push(format!("DUE:{due}"));
     }
-    lines.push(format!("STATUS:{}", if done { "COMPLETED" } else { "NEEDS-ACTION" }));
+    if !tags.is_empty() {
+        lines.push(format!("CATEGORIES:{}", tags.split(',').map(escape).collect::<Vec<_>>().join(",")));
+    }
+    lines.push(format!("STATUS:{}", status_to_ics(status)));
     lines.extend(["END:VTODO".to_string(), "END:VCALENDAR".into(), String::new()]);
     lines.join("\r\n")
 }
@@ -150,7 +196,7 @@ pub async fn sync(app: &App) -> anyhow::Result<()> {
     for (href, etag, ics) in items {
         let Some(e) = parse_ics(&ics) else { continue };
         remote_uids.push(e.uid.clone());
-        let body = json!({"title": e.title, "description": e.description, "due": e.due, "done": e.done, "uid": e.uid, "etag": etag, "href": href, "kind": e.kind});
+        let body = json!({"title": e.title, "description": e.description, "due": e.due, "done": e.done, "status": e.status, "tags": e.tags, "uid": e.uid, "etag": etag, "href": href, "kind": e.kind});
         match local.iter().find(|t| t["uid"] == e.uid.as_str()) {
             Some(t) if t["etag"] == etag.as_str() => {}
             Some(t) => { pb.update("tasks", t["id"].as_str().unwrap_or_default(), &body).await?; }
@@ -168,7 +214,9 @@ async fn push(app: &App, d: &Dav, t: &Value) -> anyhow::Result<()> {
     let s = |k: &str| t[k].as_str().unwrap_or_default();
     let uid = if s("uid").is_empty() { random_hex(16) } else { s("uid").to_string() };
     let href = if s("href").is_empty() { format!("{}{uid}.ics", d.base) } else { format!("{}{}", d.origin, s("href")) };
-    let ics = build_vtodo(&uid, s("title"), s("description"), s("due"), t["done"].as_bool().unwrap_or(false));
+    // Tasks from before states existed only have `done`.
+    let status = if s("status").is_empty() && t["done"].as_bool().unwrap_or(false) { "done" } else { s("status") };
+    let ics = build_vtodo(&uid, s("title"), s("description"), s("due"), status, s("tags"));
     let res = app.http.put(&href).basic_auth(&d.user, Some(&d.password)).header("content-type", "text/calendar; charset=utf-8").body(ics).send().await?;
     if !res.status().is_success() {
         bail!("Nextcloud refused the task: {}", res.status());
@@ -210,7 +258,7 @@ mod tests {
     fn parses_folded_escaped_vtodo() {
         let ics = "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:abc\r\nSUMMARY:Replace\\, the\r\n  disk\r\nDESCRIPTION:line1\\nline2\r\nDUE;VALUE=DATE:20261110\r\nSTATUS:COMPLETED\r\nEND:VTODO\r\nEND:VCALENDAR\r\n";
         let e = parse_ics(ics).unwrap();
-        assert_eq!(e, Entry { uid: "abc".into(), title: "Replace, the disk".into(), description: "line1\nline2".into(), due: "2026-11-10 00:00:00.000Z".into(), done: true, kind: "task".into() });
+        assert_eq!(e, Entry { uid: "abc".into(), title: "Replace, the disk".into(), description: "line1\nline2".into(), due: "2026-11-10 00:00:00.000Z".into(), done: true, kind: "task".into(), status: "done".into(), tags: "".into() });
     }
 
     #[test]
@@ -222,10 +270,25 @@ mod tests {
 
     #[test]
     fn built_vtodo_parses_back() {
-        let ics = build_vtodo("u1", "A, b; c", "x\ny", "2026-11-10 08:30:00.000Z", false);
+        let ics = build_vtodo("u1", "A, b; c", "x\ny", "2026-11-10 08:30:00.000Z", "doing", "web,a;b");
         let e = parse_ics(&ics).unwrap();
         assert_eq!((e.title.as_str(), e.description.as_str(), e.due.as_str(), e.done), ("A, b; c", "x\ny", "2026-11-10 08:30:00.000Z", false));
+        assert_eq!((e.status.as_str(), e.tags.as_str()), ("doing", "web,a;b"));
         assert!(ics.contains("\r\n"));
+    }
+
+    #[test]
+    fn every_state_round_trips_and_closed_ones_count_as_done() {
+        for (status, done) in [("todo", false), ("doing", false), ("done", true), ("cancelled", true)] {
+            let e = parse_ics(&build_vtodo("u", "t", "", "", status, "")).unwrap();
+            assert_eq!((e.status.as_str(), e.done), (status, done));
+        }
+    }
+
+    #[test]
+    fn categories_from_several_lines_become_tags() {
+        let e = parse_ics("BEGIN:VTODO\nUID:u\nCATEGORIES:home,a\\,b\nCATEGORIES:work\nEND:VTODO\n").unwrap();
+        assert_eq!((e.tags.as_str(), e.status.as_str()), ("home,a b,work", "todo"));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 mod collect;
 mod config;
 mod exec;
+mod node;
 mod packages;
 mod proxmox;
 mod smart;

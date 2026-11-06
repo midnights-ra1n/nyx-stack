@@ -22,6 +22,10 @@ and comes back on the hosts that have it.
 
 ## Hosts
 
+Each type has its own icon in the host list: VM, container, physical server, Proxmox
+server and VPS. **Add host** only offers **Runs on** for a VM, and only lists your
+physical and Proxmox servers.
+
 **Update all**, on the Hosts page, upgrades the packages of every online host and brings
 its agent to the version of this server. A bar follows the whole run, with one per host,
 and failures keep their output on screen. The same page lists the hosts that need a
@@ -30,6 +34,20 @@ See [agent updates](agent.md#updates).
 
 The host list is a tree: guests appear under their Proxmox host. OCI containers appear there with a
 note, since no agent can run in them: see [OCI containers](agent.md#oci-containers).
+
+## VPN links
+
+Agents report their tunnels: Tailscale, NetBird, WireGuard, OpenVPN, ZeroTier and IPsec,
+recognised by interface name, and any interface holding a 100.64.0.0/10 address. The
+**Network** page lists them for the fleet, and each host for itself, with traffic.
+
+A tunnel is down when its interface has no address, or disappears. That opens a warning
+alert, sent like any state change. A tunnel gone for a day counts as removed on purpose:
+it leaves the list and its alert closes.
+
+Tunnel traffic is not counted in a host's network figures, as it would count twice, and
+a tunnel address is never used as the address of a host. Tailscale in userspace
+networking mode, common in unprivileged containers, has no interface and is not seen.
 
 ## Probes
 
@@ -88,6 +106,13 @@ The **Storage** page lists every file system, fullest first, with its host, moun
 point, type, device, used, free and total space. Filter it by host, or select a host
 name to open its page. An offline host keeps its last known figures, marked Offline.
 Older agents do not send the type and device, which then show a dash.
+
+The **Storage** block of the overview is a tree: hosts under their Proxmox server, and
+mount points under each host. A host with one mount point is one row, and a collapsed
+host shows its fullest mount point, so closing it hides no problem. The list scrolls
+when it gets long. Its menu, **Choose mount points**, picks what to show, per mount point
+or per host. The choice is saved on this device, and new mount points show until you
+hide them. Alerts and the **Storage** page always cover every file system.
 
 ## SMART
 

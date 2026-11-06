@@ -18,6 +18,9 @@ Manager, **Settings, Integrations**. Tasks and calendar sync over CalDAV.
 - CalDAV cannot push to clients, so Nyx polls every 30 seconds. It only downloads data
   when the calendar's change tag moved, so an idle poll is one small request.
 - Calendar events are shown read-only. Edit them in Nextcloud.
+- Task states and tags sync too: to do, in progress, done and cancelled are the
+  `STATUS` values of a task, and tags are its `CATEGORIES`. A comma cannot be part of a
+  tag: Nyx turns it into a space.
 - When a task changes on both sides between two syncs, the Nextcloud version wins.
 - Times with a time zone (`TZID`) are read as UTC for now, so a due time can be off by
   your UTC offset.
@@ -104,7 +107,7 @@ internet and may insist on OAuth, which Nyx does not implement.
 | Server | Tools |
 | --- | --- |
 | Monitor | `infrastructure_status`, `list_hosts`, `get_host`, `list_alerts`, `list_probes` |
-| Manager | `list_hardware`, `list_virtual`, `ipam_report`, `list_deployments`, `list_tasks`, `trace_route` |
+| Manager | `list_hardware`, `list_virtual`, `ipam_report`, `list_deployments`, `list_tasks`, `list_vpn_links`, `trace_route` |
 
 Example prompt: *"Give me the overall state of my infrastructure."*
 

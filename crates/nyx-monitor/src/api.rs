@@ -39,6 +39,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
         "containers_running": live.map_or(0, |l| l.containers.iter().filter(|c| c.state == "running").count()),
         "containers_total": live.map_or(0, |l| l.containers.len()),
         "guests": live.map_or(vec![], |l| l.guests.clone()),
+        "vpn": live.map_or(vec![], |l| l.vpn.clone()),
     })
 }
 
@@ -69,7 +70,7 @@ pub fn overview_json(app: &App) -> Value {
         mem += pct(l.report.mem_used, l.report.mem_total);
         n += 1.0;
         for d in &l.report.disks {
-            storage.push(json!({"host": h.name, "mount": d.mount, "used": d.used, "total": d.total, "pct": pct(d.used, d.total)}));
+            storage.push(json!({"host": h.name, "host_id": h.id, "mount": d.mount, "used": d.used, "total": d.total, "pct": pct(d.used, d.total)}));
         }
     }
     let crit = st.alerts.values().filter(|a| a.severity == "crit").count();
@@ -133,6 +134,9 @@ async fn add_host(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewHost
         return Err(ApiError::bad_request("name is required"));
     }
     let ct = b.ct_autoinstall && kind == HostKind::Proxmox;
+    if !b.parent.is_empty() && !app.lock().hosts.get(&b.parent).is_some_and(|p| HostKind::parse(&p.kind).is_some_and(HostKind::has_physical_disks)) {
+        return Err(ApiError::bad_request("a host can only run on a physical server"));
+    }
     let (token, key, id) = ingest::create_host(&app, b.name.trim(), kind.as_str(), &b.parent, 0, ct, "").await?;
     let mut info = install_info(&app.core.env.public_url, &token, &key, kind.as_str(), ct);
     info["id"] = id.into();

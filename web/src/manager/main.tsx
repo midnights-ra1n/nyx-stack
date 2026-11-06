@@ -1,8 +1,8 @@
 import "../ui/tokens.css"
-import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, MapIcon, RectangleStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
-import { Deployments, Hardware, Ipam, SearchPage, Tasks, Virtual } from "./inventory"
+import { Deployments, Hardware, Ipam, SearchPage, Tasks, Virtual, Vpn } from "./inventory"
 import { NetworkMap } from "./map"
 import { Overview } from "./overview"
 import { Settings } from "./settings"
@@ -14,6 +14,7 @@ function route(path: string) {
   if (path === "/virtual") return <Virtual />
   if (path === "/ipam") return <Ipam />
   if (path === "/map") return <NetworkMap />
+  if (path === "/vpn") return <Vpn />
   if (path === "/deployments") return <Deployments />
   if (path === "/sites") return <Sites />
   if (path === "/tasks") return <Tasks />
@@ -38,6 +39,7 @@ function useNav(): NavConfig {
       { label: "Network", items: [
         { to: "/ipam", label: "IPAM", icon: GlobeAltIcon, badge: conflicts },
         { to: "/map", label: "Network map", icon: MapIcon },
+        { to: "/vpn", label: "VPN links", icon: LockClosedIcon },
       ] },
       { label: "Operations", items: [
         { to: "/deployments", label: "Deployments", icon: RocketLaunchIcon },

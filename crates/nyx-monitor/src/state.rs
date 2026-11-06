@@ -26,6 +26,7 @@ pub const TAIL_LINES: usize = 1000;
 pub const LIVE_WATCH_S: i64 = 15;
 /// Points (percent or °C) a metric must recede before an alert eases.
 const HYSTERESIS: f32 = 3.0;
+const VPN_FORGET_S: i64 = 86400;
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(default)]
@@ -114,6 +115,7 @@ pub struct Live {
     pub updates: Vec<PackageUpdate>,
     pub node: Option<NodeInfo>,
     pub guests: Vec<Guest>,
+    pub vpn: Vec<VpnLink>,
     pub logs: VecDeque<String>,
     pub series: VecDeque<Point>,
 }
@@ -239,7 +241,7 @@ impl Host {
             vmid: r["vmid"].as_u64().unwrap_or(0) as u32,
             ct_autoinstall: r["ct_autoinstall"].as_bool().unwrap_or(false),
             hostname: s("hostname"),
-            ip: s("ip"),
+            ip: Some(s("ip")).filter(|ip| !is_vpn_ip(ip)).unwrap_or_default(),
             os: s("os"),
             kernel: s("kernel"),
             arch: s("arch"),
@@ -613,6 +615,9 @@ impl State {
             self.results.push_back(json!({"id": res.id, "host": h.id, "ok": res.ok, "output": res.output, "t": now}));
         }
 
+        if is_vpn_ip(&r.ip) { r.ip.clear(); } // Older agents can report a mesh address.
+        merge_vpn(&mut live.vpn, std::mem::take(&mut r.vpn), now);
+
         let disk = r.disks.iter().map(|d| pct(d.used, d.total)).fold(0.0, f32::max);
         let point = Point { t: now, cpu: r.cpu_pct, mem: pct(r.mem_used, r.mem_total), disk, temp: r.temp_c.unwrap_or(0.0), rx: r.net_rx_bps, tx: r.net_tx_bps };
         if live.series.len() == RAM_POINTS { live.series.pop_front(); }
@@ -632,6 +637,25 @@ impl State {
         });
         Some(Applied { patch, first, new_updates })
     }
+}
+
+/// Latest tunnels, plus those that vanished, as down. A day later a missing tunnel
+/// counts as removed on purpose, which also closes its alert.
+fn merge_vpn(known: &mut Vec<VpnLink>, fresh: Vec<VpnLink>, now: i64) {
+    let mut merged: Vec<VpnLink> = fresh
+        .into_iter()
+        .map(|mut f| {
+            f.seen = if f.up { now } else { known.iter().find(|k| k.iface == f.iface).map_or(now, |k| k.seen) };
+            f
+        })
+        .collect();
+    for mut k in known.drain(..) {
+        if now - k.seen < VPN_FORGET_S && !merged.iter().any(|m| m.iface == k.iface) {
+            (k.up, k.rx_bps, k.tx_bps) = (false, 0, 0);
+            merged.push(k);
+        }
+    }
+    *known = merged;
 }
 
 /// Level for an alert already open at `current`: it only eases once the value is
@@ -666,6 +690,9 @@ pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) ->
     }
     if let Some(t) = r.temp_c {
         push("temp".into(), "temperature", held("temp", t, th.temp_warn, th.temp_crit), format!("{}: {t:.0} °C", h.name));
+    }
+    for v in live.vpn.iter().filter(|v| !v.up) {
+        push(format!("vpn:{}", v.iface), "state", "warn", format!("{}: VPN {} ({}) is down", h.name, v.iface, v.kind));
     }
     for d in &live.smart {
         let severity = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
@@ -840,6 +867,29 @@ mod tests {
         assert_eq!(t.since(0).len(), TAIL_LINES); // older lines are gone, not an error
         t.clear();
         assert!(t.since(0).is_empty());
+    }
+
+    #[test]
+    fn a_vanished_tunnel_stays_down_for_a_day_then_is_forgotten() {
+        let up = || VpnLink { iface: "wg0".into(), kind: "WireGuard".into(), ip: "10.8.0.1".into(), up: true, rx_bps: 5, ..VpnLink::default() };
+        let mut known = vec![];
+        merge_vpn(&mut known, vec![up()], 100);
+        assert!(known[0].up && known[0].seen == 100);
+        merge_vpn(&mut known, vec![], 200);
+        assert!(!known[0].up && known[0].rx_bps == 0 && known[0].seen == 100);
+        merge_vpn(&mut known, vec![], 100 + VPN_FORGET_S);
+        assert!(known.is_empty());
+
+        merge_vpn(&mut known, vec![up()], 300);
+        merge_vpn(&mut known, vec![VpnLink { up: false, ..up() }], 400);
+        assert_eq!((known.len(), known[0].up, known[0].seen), (1, false, 300));
+    }
+
+    #[test]
+    fn mesh_addresses_never_become_the_host_address() {
+        let mut st = state();
+        st.apply("h1", Report { ip: "100.100.1.2".into(), ..report(1.0, 1, 1) }, 1).unwrap();
+        assert_eq!(st.hosts["h1"].ip, "");
     }
 
     #[test]

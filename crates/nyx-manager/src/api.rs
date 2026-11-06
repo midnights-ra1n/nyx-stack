@@ -51,7 +51,7 @@ async fn simulate(_: Session, State(app): State<Arc<App>>, Json(b): Json<Simulat
 
 async fn map_export(_: Session, State(app): State<Arc<App>>, Path(format): Path<String>) -> ApiResult<impl IntoResponse> {
     let nodes = app.core.pb.list("map_nodes", "", "").await?;
-    let links = app.core.pb.list("map_links", "", "").await?;
+    let links = map::with_vpn(&nodes, &app.core.pb.list("map_links", "", "").await?, &app.core.pb.list("vpn_links", "", "").await?);
     let (body, mime, ext) = map::export(&format, &nodes, &links).ok_or_else(ApiError::not_found)?;
     Ok(([(header::CONTENT_TYPE, mime.to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"nyx-network.{ext}\""))], body))
 }
@@ -108,6 +108,26 @@ struct TaskBody {
     due: String,
     #[serde(default)]
     done: bool,
+    /// `todo`, `doing`, `done` or `cancelled`. Without it, `done` decides.
+    #[serde(default)]
+    status: String,
+    /// Comma separated, as iCalendar categories are.
+    #[serde(default)]
+    tags: String,
+}
+
+impl TaskBody {
+    /// The fields of a task, with `done` following its state: a cancelled task needs no reminder.
+    fn fields(&self) -> ApiResult<Value> {
+        let status = match self.status.as_str() {
+            "" if self.done => "done",
+            "" => "todo",
+            s @ ("todo" | "doing" | "done" | "cancelled") => s,
+            _ => return Err(ApiError::bad_request("unknown task state")),
+        };
+        let tags = self.tags.split(',').map(str::trim).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(",");
+        Ok(json!({"title": self.title, "description": self.description, "due": self.due, "done": matches!(status, "done" | "cancelled"), "status": status, "tags": tags}))
+    }
 }
 
 /// Tasks skip the generic CRUD: every write must reach Nextcloud right away.
@@ -117,7 +137,9 @@ async fn tasks(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>
 }
 
 async fn create_task(_: Session, State(app): State<Arc<App>>, Json(b): Json<TaskBody>) -> ApiResult<Json<Value>> {
-    let rec = app.core.pb.create("tasks", &json!({"title": b.title, "description": b.description, "due": b.due, "done": b.done, "kind": "task"})).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let mut body = b.fields()?;
+    body["kind"] = "task".into();
+    let rec = app.core.pb.create("tasks", &body).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     nextcloud::push_now(&app, &rec).await;
     Ok(Json(rec))
 }
@@ -133,7 +155,9 @@ async fn writable_task(app: &App, id: &str) -> ApiResult<Value> {
 
 async fn update_task(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<TaskBody>) -> ApiResult<Json<Value>> {
     writable_task(&app, &id).await?;
-    let rec = app.core.pb.update("tasks", &id, &json!({"title": b.title, "description": b.description, "due": b.due, "done": b.done, "etag": ""})).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let mut body = b.fields()?;
+    body["etag"] = "".into();
+    let rec = app.core.pb.update("tasks", &id, &body).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     nextcloud::push_now(&app, &rec).await;
     Ok(Json(rec))
 }
@@ -211,6 +235,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
             ("ipam_report", "Subnet usage and addressing conflicts.", empty.clone()),
             ("list_deployments", "Recent and planned deployments.", empty.clone()),
             ("list_tasks", "Open tasks and upcoming events.", empty.clone()),
+            ("list_vpn_links", "VPN links between sites and devices.", empty.clone()),
             ("trace_route", "Simulate the path from a device to an IP address.", json!({"type": "object", "properties": {"from": {"type": "string"}, "destination": {"type": "string"}}, "required": ["from", "destination"]})),
         ],
         call: Box::new(move |name, args| {
@@ -223,6 +248,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                     "ipam_report" => { let (s, a, _) = ipam_data(&app).await?; Ok(ipam::report(&s, &a)) }
                     "list_deployments" => Ok(pb.list_page("deployments", &[("sort", "-created"), ("perPage", "50")]).await?["items"].clone()),
                     "list_tasks" => Ok(json!(pb.list("tasks", "done = false", "due").await?)),
+                    "list_vpn_links" => Ok(json!(pb.list("vpn_links", "", "name").await?)),
                     "trace_route" => {
                         let (s, a, r) = ipam_data(&app).await?;
                         let dest = args["destination"].as_str().unwrap_or_default().parse()?;
@@ -232,5 +258,28 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                 }
             })
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(status: &str, done: bool, tags: &str) -> TaskBody {
+        TaskBody { title: "t".into(), description: String::new(), due: String::new(), done, status: status.into(), tags: tags.into() }
+    }
+
+    #[test]
+    fn a_task_state_decides_whether_it_is_closed() {
+        for (status, done, closed, kept) in [("doing", false, false, "doing"), ("done", false, true, "done"), ("cancelled", false, true, "cancelled"), ("", true, true, "done"), ("", false, false, "todo")] {
+            let f = body(status, done, "").fields().ok().unwrap();
+            assert_eq!((f["done"].as_bool(), f["status"].as_str()), (Some(closed), Some(kept)));
+        }
+        assert!(body("nonsense", false, "").fields().is_err());
+    }
+
+    #[test]
+    fn tags_are_tidied() {
+        assert_eq!(body("", false, " web, ,urgent ").fields().ok().unwrap()["tags"], "web,urgent");
     }
 }

@@ -53,7 +53,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days`), `tempo`, `meross`
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/overview` | Session | Fleet summary |
-| GET, POST | `/api/hosts` | Session | List hosts, or add one |
+| GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host. Each host carries its `vpn` tunnels |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
@@ -102,7 +102,7 @@ Each host in `/api/hosts` carries `reboot_required`, and `update` once one was s
 | GET | `/api/map/export/{format}` | Session | `svg`, `drawio`, `mermaid`, `dot` or `json` |
 | POST | `/api/map/import` | Session | Add monitored hosts to the map |
 | GET, POST | `/api/tasks` | Session | List tasks, or create one |
-| PATCH, DELETE | `/api/tasks/{id}` | Session | Change or delete a task. Syncs to Nextcloud |
+| PATCH, DELETE | `/api/tasks/{id}` | Session | Change or delete a task. `status` is `todo`, `doing`, `done` or `cancelled`, `tags` is comma separated. Syncs to Nextcloud |
 | POST | `/api/sync` | Session | Sync Nextcloud and the monitor now |
 | GET | `/api/monitor/hosts` | Session | Hosts from the linked monitor |
 | POST | `/api/sites` | Session | Create a site and its deploy key |

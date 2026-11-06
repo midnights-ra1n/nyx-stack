@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest"
-import { buildTree, consoleUrl, updateRun } from "./hosts"
+import { buildTree, consoleUrl, hostType, updateRun } from "./hosts"
 
 const pve = { id: "p", kind: "proxmox", hostname: "pve1", guests: [{ vmid: 101, name: "web", kind: "lxc", node: "pve1" }, { vmid: 102, name: "db", kind: "qemu", node: "pve1" }] }
 const ct = { id: "c", parent: "p", vmid: 101 }
+
+describe("hostType", () => {
+  const hosts = [pve, { id: "v", kind: "vm", parent: "p", name: "db" }, { id: "n", kind: "vm", parent: "p", name: "web" }]
+  it("tells containers from VMs through the Proxmox parent", () => {
+    expect(hostType({ kind: "vm", vmid: 101 }, hosts)).toBe("ct")
+    expect(hostType(hosts[1], hosts)).toBe("vm")
+    expect(hostType(hosts[2], hosts)).toBe("ct")
+  })
+  it("keeps the kind of everything else", () => {
+    expect(["vps", "physical", "proxmox"].map((kind) => hostType({ kind }, hosts))).toEqual(["vps", "physical", "proxmox"])
+    expect(hostType({ kind: "vm" }, [])).toBe("vm")
+  })
+})
 
 describe("update run", () => {
   const host = (id: string, started: number, pct: number, done = false) => ({ id, update: { started, pct, done } })

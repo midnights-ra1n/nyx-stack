@@ -1,6 +1,6 @@
 import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
-import { BarGauge, Empty, Status } from "../../ui/components"
+import { BarGauge, ChartHover, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
 import { TempoTiles } from "../tempo"
 import { nextScroll, uptimeBar } from "./model"
@@ -120,12 +120,15 @@ function Chart({ data }: { data: any }) {
     <div className="flex h-full min-h-0 flex-col gap-1">
       <div className="grid min-h-0 flex-1 grid-cols-[auto_1fr] gap-2">
         <div className="flex flex-col justify-between text-right text-xs text-fg3" aria-hidden><span>{top.toFixed(0)}</span><span>0</span></div>
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full min-h-0 w-full" role="img" aria-label={`Chart of ${series.map((s: any) => s.name).join(", ")}`}>
-          {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
-          {series.map((s: any, i: number) => (
-            <path key={s.name} d={s.values.map((p: any, n: number) => `${n ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")} fill="none" stroke={COLORS[i % COLORS.length]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-          ))}
-        </svg>
+        <div className="relative min-h-0">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full min-h-0 w-full" role="img" aria-label={`Chart of ${series.map((s: any) => s.name).join(", ")}`}>
+            {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
+            {series.map((s: any, i: number) => (
+              <path key={s.name} d={s.values.map((p: any, n: number) => `${n ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")} fill="none" stroke={COLORS[i % COLORS.length]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            ))}
+          </svg>
+          <ChartHover series={series} top={top} unit={` ${data.unit}`} colors={series.map((_: any, i: number) => COLORS[i % COLORS.length])} />
+        </div>
       </div>
       <ul className="flex max-h-10 flex-wrap gap-x-4 overflow-hidden text-xs text-fg2">
         {series.map((s: any, i: number) => <li key={s.name} className="whitespace-nowrap"><span className="mr-1.5 inline-block h-0.5 w-3 align-middle" style={{ background: COLORS[i % COLORS.length] }} />{s.name} <span className="font-medium text-fg">{s.values[s.values.length - 1].v.toFixed(data.unit === "%" ? 0 : 1)} {data.unit}</span></li>)}

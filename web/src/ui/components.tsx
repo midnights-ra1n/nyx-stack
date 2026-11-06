@@ -1,9 +1,9 @@
 import {
-  CheckCircleIcon, ChevronDownIcon, ChevronUpDownIcon, ClockIcon, EllipsisVerticalIcon, ExclamationTriangleIcon,
+  ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, ChevronDownIcon, ChevronUpDownIcon, ClockIcon, EllipsisVerticalIcon, ExclamationTriangleIcon,
   InformationCircleIcon, MinusCircleIcon, XCircleIcon, XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { Children, cloneElement, type ComponentType, isValidElement, type ReactElement, type ReactNode, type SVGProps, useEffect, useId, useRef, useState } from "react"
-import { type Level, levelBg, levelOf, levelSoft, levelText } from "./lib"
+import { type Level, levelBg, levelOf, levelSoft, levelText, samplesAt } from "./lib"
 
 export type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -137,10 +137,55 @@ export function BarGauge({ rows, warn = 75, crit = 90 }: { rows: { label: string
 
 export interface Series { name: string; color: string; values: { t: number; v: number }[]; unit?: string }
 
+/**
+ * Hairline and readout over a plot. Snaps to the nearest sample and lists every series
+ * there, so the pointer never has to land on a line. The arrow keys do the same.
+ */
+export function ChartHover({ series, top, unit, colors }: { series: { name: string; values: { t: number; v: number }[] }[]; top: number; unit: string; colors: string[] }) {
+  const [t, setT] = useState<number>()
+  const times = [...new Set(series.flatMap((s) => s.values.map((p) => p.t)))].sort((a, b) => a - b)
+  const t0 = times[0], t1 = times[times.length - 1]
+  const share = (at: number) => ((at - t0) / (t1 - t0 || 1)) * 100
+  const follow = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = e.currentTarget.getBoundingClientRect()
+    const at = t0 + ((e.clientX - box.left) / box.width) * (t1 - t0)
+    setT(times.reduce((a, b) => (Math.abs(b - at) < Math.abs(a - at) ? b : a)))
+  }
+  const step = (e: React.KeyboardEvent) => {
+    const by = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0
+    if (!by) return
+    e.preventDefault()
+    setT(times[Math.max(0, Math.min(times.length - 1, (t == null ? times.length : times.indexOf(t)) + by))])
+  }
+  const label = (at: number) => new Date(at * 1000).toLocaleString([], { ...(t1 - t0 > 86400 ? { day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })
+  const flip = t != null && share(t) > 55
+  return (
+    <div tabIndex={0} role="group" aria-label="Chart values. Use the arrow keys to move in time." className="absolute inset-0 touch-pan-y" onPointerMove={follow} onPointerDown={follow} onPointerLeave={(e) => { if (e.pointerType === "mouse") setT(undefined) }} onBlur={() => setT(undefined)} onKeyDown={step}>
+      {t != null && (
+        <>
+          <div className="pointer-events-none absolute inset-y-0 w-px bg-fg3" style={{ left: `${share(t)}%` }} />
+          {samplesAt(series, t).map(({ series: s, point }, i) => <span key={s.name} className="pointer-events-none absolute size-2 -translate-1/2 rounded-full border border-surface" style={{ left: `${share(t)}%`, top: `${100 - (Math.min(point.v, top) / top) * 100}%`, background: colors[i] }} />)}
+          <div role="status" className="pointer-events-none absolute top-1 z-10 min-w-36 rounded-box border border-line2 bg-raised px-3 py-2 text-[13px] whitespace-nowrap" style={flip ? { right: `calc(${100 - share(t)}% + 8px)` } : { left: `calc(${share(t)}% + 8px)` }}>
+            <div className="mb-1 text-xs text-fg3">{label(t)}</div>
+            {samplesAt(series, t).map(({ series: s, point }, i) => (
+              <div key={s.name} className="flex items-center gap-2">
+                <span className="inline-block h-0.5 w-3" style={{ background: colors[i] }} />
+                <span className="mr-auto pr-3 text-fg2">{s.name}</span>
+                <span className="font-medium">{point.v.toFixed(point.v < 10 ? 1 : 0)}{unit}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** Time series with a legend table: mean, max, last. At most one per screen. */
 export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[]; max?: number; unit?: string }) {
   const W = 600, H = 180
   const all = series.flatMap((s) => s.values)
+  const drawn = series.filter((s) => s.values.length)
   if (all.length < 2) return <Empty>Not enough data yet.</Empty>
   const t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W, y = (v: number) => H - (Math.min(v, max) / max) * H
@@ -149,19 +194,22 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
     <div>
       <div className="grid grid-cols-[32px_1fr] gap-2">
         <div className="flex h-44 flex-col justify-between text-right text-xs text-fg3" aria-hidden><span>{max}</span><span>{max / 2}</span><span>0</span></div>
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={`Chart of ${series.map((s) => s.name).join(" and ")}`}>
-          {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
-          {series.map((s) => {
-            const line = s.values.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")
-            const last = s.values[s.values.length - 1], first = s.values[0]
-            return (
-              <g key={s.name}>
-                <path d={`${line} L${x(last.t)} ${H} L${x(first.t)} ${H} Z`} fill={s.color} fillOpacity="0.14" />
-                <path d={line} fill="none" stroke={s.color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-              </g>
-            )
-          })}
-        </svg>
+        <div className="relative h-44">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={`Chart of ${series.map((s) => s.name).join(" and ")}`}>
+            {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
+            {series.map((s) => {
+              const line = s.values.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")
+              const last = s.values[s.values.length - 1], first = s.values[0]
+              return (
+                <g key={s.name}>
+                  <path d={`${line} L${x(last.t)} ${H} L${x(first.t)} ${H} Z`} fill={s.color} fillOpacity="0.14" />
+                  <path d={line} fill="none" stroke={s.color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                </g>
+              )
+            })}
+          </svg>
+          <ChartHover series={drawn} top={max} unit={unit} colors={drawn.map((s) => s.color)} />
+        </div>
       </div>
       <div className="mt-2 ml-10 flex justify-between text-xs text-fg3"><span>{clock(t0)}</span><span>{clock((t0 + t1) / 2)}</span><span>Now</span></div>
       <table className="mt-3 w-full border-t border-line text-[13px]">
@@ -185,7 +233,7 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
 }
 
 /** Below 640 px the CSS turns rows into touch lists, using `data-label` for headers. */
-export function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
+export function Table({ head, children, sort, onSort }: { head: ReactNode[]; children: ReactNode; sort?: { col: number; desc: boolean }; onSort?: (col: number) => void }) {
   const rows = Children.map(children, (row) => {
     if (!isValidElement(row)) return row
     const r = row as ReactElement<{ children?: ReactNode }>
@@ -194,7 +242,15 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
   return (
     <div className="overflow-x-auto max-sm:overflow-visible">
       <table className="rt w-full text-left">
-        <thead className="bg-raised text-xs text-fg2"><tr>{head.map((h, i) => <th key={i} scope="col" className="h-8 px-3 font-medium first:pl-4 whitespace-nowrap">{h}</th>)}</tr></thead>
+        <thead className="bg-raised text-xs text-fg2"><tr>{head.map((h, i) => {
+          const active = sort?.col === i
+          const Arrow = sort?.desc ? ArrowDownIcon : ArrowUpIcon
+          return (
+            <th key={i} scope="col" aria-sort={active ? (sort.desc ? "descending" : "ascending") : undefined} className="h-8 px-3 font-medium first:pl-4 whitespace-nowrap">
+              {onSort && h ? <button type="button" className={`inline-flex h-8 items-center gap-1 font-medium hover:text-fg ${active ? "text-fg" : ""}`} onClick={() => onSort(i)}>{h}{active && <Arrow className="size-3" aria-hidden />}</button> : h}
+            </th>
+          )
+        })}</tr></thead>
         <tbody className="divide-y divide-line">{rows}</tbody>
       </table>
     </div>

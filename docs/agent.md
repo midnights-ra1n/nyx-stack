@@ -104,7 +104,8 @@ auto-install from its **Agent** panel.
 | Uptime, CPU, RAM, swap, network, disk usage | 15 s | |
 | Temperature | 15 s | Highest sensor |
 | Docker containers | When changed | Through `/var/run/docker.sock`, skipped if absent |
-| Node.js apps and version | When changed | From running processes |
+| Node.js apps and version | When changed, looked for every 5 min | From running processes: folder, Git origin and branch, user, what runs them. Credentials in a Git URL stay on the host, and the binaries found are never run |
+| VPN tunnels | 15 s | Interface, type, address and traffic |
 | Pending system updates | Daily | At the hour set in the monitor |
 | SMART health and remaining life | Periodically | Physical hosts. Summarised as a simple state |
 | Logs | Once a minute, when there are new lines | Warnings and above, through journald |

@@ -1,16 +1,15 @@
 //! Gathers host metrics. Slow-changing data is read on its own schedule and sent
 //! only when it changed, which keeps both CPU use and reports small.
 
-use crate::{config::Config, packages, proxmox, smart};
+use crate::{config::Config, node, packages, proxmox, smart};
 use nyx_proto::*;
 use std::{
     io::{Read, Write},
     os::unix::net::UnixStream,
-    path::Path,
     process::Command,
     time::{Duration, Instant},
 };
-use sysinfo::{Components, Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{Components, Disks, NetworkData, Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
 
 const SLOW: Duration = Duration::from_secs(60);
 const RARE: Duration = Duration::from_secs(300);
@@ -119,7 +118,7 @@ impl Collector {
 
         let secs = self.last_net.elapsed().as_secs_f64().max(1.0);
         self.last_net = Instant::now();
-        let real = || self.nets.iter().filter(|(n, _)| is_physical_nic(&n.to_string_lossy()));
+        let real = || self.nets.iter().filter(|(n, d)| is_lan_nic(&n.to_string_lossy(), d));
         let rx: u64 = real().map(|(_, d)| d.received()).sum();
         let tx: u64 = real().map(|(_, d)| d.transmitted()).sum();
 
@@ -142,6 +141,7 @@ impl Collector {
             net_tx_bps: (tx as f64 / secs) as u64,
             disks: real_disks(&self.disks),
             temp_c: self.temps.iter().filter_map(|c| c.temperature()).filter(|t| t.is_finite() && *t > 0.0).reduce(f32::max),
+            vpn: vpn_links(&self.nets, secs),
             logs: std::mem::take(&mut self.pending_logs),
             results: std::mem::take(&mut self.pending_results),
             progress: self.progress.clone(),
@@ -170,25 +170,28 @@ impl Collector {
         r
     }
 
+    /// Always `Some`, also without Node.js: "no apps left" must reach the monitor.
     fn node_info(&mut self) -> Option<NodeInfo> {
-        let out = Command::new("node").arg("--version").output().ok().filter(|o| o.status.success())?;
-        let kind = ProcessRefreshKind::nothing().with_cwd(UpdateKind::Always);
+        let out = Command::new("node").arg("--version").output().ok().filter(|o| o.status.success());
+        let version = out.map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        let kind = ProcessRefreshKind::nothing().with_cwd(UpdateKind::Always).with_exe(UpdateKind::Always).with_cmd(UpdateKind::Always).with_user(UpdateKind::Always);
         self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+        let users = Users::new_with_refreshed_list().ok();
         let mut apps: Vec<NodeApp> = self
             .sys
             .processes()
             .iter()
-            .filter(|(_, p)| p.thread_kind().is_none() && p.name() == "node")
+            .filter(|(_, p)| p.thread_kind().is_none() && node::is_node(p.exe(), &p.name().to_string_lossy()))
             .filter_map(|(pid, p)| {
-                let path = p.cwd()?.to_string_lossy().to_string();
-                Some(NodeApp { name: package_name(Path::new(&path))?, path, pid: pid.as_u32() })
+                let user = p.user_id().and_then(|u| users.as_ref()?.get_user_by_id(u)).map_or(String::new(), |u| u.name().to_string());
+                let args: Vec<String> = p.cmd().iter().map(|a| a.to_string_lossy().to_string()).collect();
+                node::inspect(pid.as_u32(), p.cwd()?, p.exe(), &args, &user, &version)
             })
             .collect();
-        apps.sort_by(|a, b| (&a.name, a.pid).cmp(&(&b.name, b.pid)));
+        apps.sort_by(|a, b| a.path.cmp(&b.path));
         apps.dedup_by(|a, b| a.path == b.path);
-        // Keep PIDs out of change detection: a restart is not a new app.
-        apps.iter_mut().for_each(|a| a.pid = 0);
-        Some(NodeInfo { version: String::from_utf8_lossy(&out.stdout).trim().to_string(), apps })
+        apps.sort_by(|a, b| a.name.cmp(&b.name));
+        Some(NodeInfo { version, apps })
     }
 }
 
@@ -209,13 +212,59 @@ fn is_physical_nic(name: &str) -> bool {
         .any(|p| name.starts_with(p))
 }
 
+/// Tunnels, told apart by their usual interface names.
+fn vpn_kind(name: &str) -> Option<&'static str> {
+    // Digits matter here: `wlan0` starts like nothing below, `tunl0` is the kernel's idle IPIP device.
+    let numbered = |p: &str| name.strip_prefix(p).is_some_and(|n| n.starts_with(|c: char| c.is_ascii_digit()));
+    match () {
+        _ if name.starts_with("tailscale") => Some("Tailscale"),
+        _ if numbered("wt") => Some("NetBird"),
+        _ if name.starts_with("wg") => Some("WireGuard"),
+        _ if numbered("tun") => Some("OpenVPN"),
+        _ if name.starts_with("zt") => Some("ZeroTier"),
+        _ if numbered("ipsec") || numbered("vti") || name.starts_with("xfrm") => Some("IPsec"),
+        _ => None,
+    }
+}
+
+/// A renamed interface still gives itself away by its address.
+fn tunnel(name: &str, data: &NetworkData) -> Option<&'static str> {
+    vpn_kind(name).or(data.ip_networks().iter().any(|n| is_vpn_ip(&n.addr.to_string())).then_some("Mesh VPN"))
+}
+
+/// Tunnels ride on the LAN: counting them would count their traffic twice.
+fn is_lan_nic(name: &str, data: &NetworkData) -> bool {
+    is_physical_nic(name) && tunnel(name, data).is_none()
+}
+
 fn primary_ip(nets: &Networks) -> String {
     nets.iter()
-        .filter(|(n, _)| is_physical_nic(&n.to_string_lossy()))
+        .filter(|(n, d)| is_lan_nic(&n.to_string_lossy(), d))
         .flat_map(|(_, d)| d.ip_networks())
         .map(|ip| ip.addr)
-        .find(|ip| ip.is_ipv4() && !ip.is_loopback() && !ip.is_unspecified())
+        .find(|ip| ip.is_ipv4() && !ip.is_loopback() && !ip.is_unspecified() && !is_vpn_ip(&ip.to_string()))
         .map_or(String::new(), |ip| ip.to_string())
+}
+
+fn vpn_links(nets: &Networks, secs: f64) -> Vec<VpnLink> {
+    let mut links: Vec<VpnLink> = nets
+        .iter()
+        .filter_map(|(name, d)| {
+            let name = name.to_string_lossy();
+            let ip = d.ip_networks().iter().map(|n| n.addr).filter(|a| !a.is_loopback()).min_by_key(|a| a.is_ipv6()).map_or(String::new(), |a| a.to_string());
+            Some(VpnLink {
+                kind: tunnel(&name, d)?.into(),
+                iface: name.into(),
+                up: !ip.is_empty(),
+                ip,
+                rx_bps: (d.received() as f64 / secs) as u64,
+                tx_bps: (d.transmitted() as f64 / secs) as u64,
+                seen: 0,
+            })
+        })
+        .collect();
+    links.sort_by(|a, b| a.iface.cmp(&b.iface));
+    links
 }
 
 fn real_disks(disks: &Disks) -> Vec<Disk> {
@@ -236,12 +285,6 @@ fn real_disks(disks: &Disks) -> Vec<Disk> {
             device: d.name().to_string_lossy().into(),
         })
         .collect()
-}
-
-fn package_name(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join("package.json")).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    Some(json["name"].as_str().map_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().to_string(), str::to_string))
 }
 
 fn docker_containers() -> Option<Vec<Container>> {
@@ -347,6 +390,16 @@ mod tests {
     fn nic_filter_skips_virtual_interfaces() {
         assert!(is_physical_nic("eth0") && is_physical_nic("enp3s0") && is_physical_nic("vmbr0"));
         assert!(!is_physical_nic("veth12ab") && !is_physical_nic("docker0") && !is_physical_nic("lo"));
+    }
+
+    #[test]
+    fn tunnels_are_named_and_lookalikes_are_not() {
+        let kind = |n: &str| vpn_kind(n);
+        assert_eq!((kind("tailscale0"), kind("wt0"), kind("wg0"), kind("wg-home"), kind("tun1")), (Some("Tailscale"), Some("NetBird"), Some("WireGuard"), Some("WireGuard"), Some("OpenVPN")));
+        assert_eq!((kind("ztabcd12"), kind("ipsec0"), kind("xfrm1")), (Some("ZeroTier"), Some("IPsec"), Some("IPsec")));
+        for lan in ["eth0", "enp3s0", "wlan0", "wlp2s0", "vmbr0", "tunl0", "wtf0"] {
+            assert_eq!(kind(lan), None, "{lan}");
+        }
     }
 
     #[test]

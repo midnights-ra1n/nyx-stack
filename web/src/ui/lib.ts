@@ -137,3 +137,18 @@ export const levelOf = (v: number | null | undefined, warn = 75, crit = 90): Lev
 export const levelText: Record<Level, string> = { ok: "text-ok", warn: "text-warn", crit: "text-crit", info: "text-info", off: "text-off" }
 export const levelBg: Record<Level, string> = { ok: "bg-ok", warn: "bg-warn", crit: "bg-crit", info: "bg-info", off: "bg-off" }
 export const levelSoft: Record<Level, string> = { ok: "bg-ok-soft", warn: "bg-warn-soft", crit: "bg-crit-soft", info: "bg-info-soft", off: "bg-off-soft" }
+
+const isBlank = (v: unknown) => v == null || v === ""
+
+/** Natural order, so that `srv-10` follows `srv-9`. Rows without a value stay last either way. */
+export function sortRows<T>(rows: T[], value: (r: T) => unknown, desc = false) {
+  const filled = rows.filter((r) => !isBlank(value(r))).sort((a, b) => String(value(a)).localeCompare(String(value(b)), undefined, { numeric: true, sensitivity: "base" }))
+  return [...(desc ? filled.reverse() : filled), ...rows.filter((r) => isBlank(value(r)))]
+}
+
+/** A date PocketBase stores, in the past of today. */
+export const isOverdue = (date?: string | null) => !!date && Date.parse(date.replace(" ", "T")) < new Date().setHours(0, 0, 0, 0)
+
+/** The sample of each series nearest to time `t`. */
+export const samplesAt = <S extends { values: { t: number; v: number }[] }>(series: S[], t: number) =>
+  series.map((s) => ({ series: s, point: s.values.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a)) }))
