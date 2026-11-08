@@ -1,6 +1,6 @@
 //! Optional link used by nyx-manager, authenticated with a bearer token.
 
-use crate::{api, state::App};
+use crate::{api, integrations, state::App};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -36,6 +36,19 @@ async fn hosts(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Jso
     Ok(Json(json!(list)))
 }
 
+/// Fleet health for the manager's dashboard.
+async fn overview(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    authorize(&app, &headers).await?;
+    let mut v = api::overview_json(&app);
+    v["storage"] = Value::Null; // the manager shows counts, not every mount point
+    Ok(Json(v))
+}
+
+async fn tempo(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    authorize(&app, &headers).await?;
+    integrations::tempo_now(&app).await.map(Json).map_err(|e| ApiError::bad_request(format!("{e:#}")))
+}
+
 async fn deploy(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>, Json(d): Json<Deploy>) -> ApiResult<Json<Value>> {
     authorize(&app, &headers).await?;
     let cmd = app.enqueue(&id, Action::Deploy(d)).ok_or_else(ApiError::not_found)?;
@@ -58,6 +71,8 @@ async fn new_token(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Va
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/link/hosts", get(hosts))
+        .route("/api/link/overview", get(overview))
+        .route("/api/link/tempo", get(tempo))
         .route("/api/link/hosts/{id}/deploy", post(deploy))
         .route("/api/link/results/{id}", get(result))
         .route("/api/link/token", post(new_token))

@@ -1,9 +1,9 @@
-import { ArrowPathIcon, ArrowsRightLeftIcon, BoltIcon, CheckCircleIcon, CircleStackIcon, CubeIcon, PencilSquareIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, TrashIcon, WifiIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, ArrowsRightLeftIcon, BoltIcon, CircleStackIcon, CubeIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Select, Stat, Status, Table, Tabs, Td, TextArea } from "../ui/components"
-import { type Col, CrudPage, RecordForm } from "../ui/crud"
-import { api, fmt, useApi } from "../ui/lib"
+import { Button, Empty, ErrorNote, type Icon, Input, Panel, Select, Stat, Status, Table, Td, TextArea } from "../ui/components"
+import { type Col, CrudPage, Editor, EditorGroup, RecordForm } from "../ui/crud"
+import { api, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { deployLevel } from "./overview"
 import { parseTags, type WorkItem, WorkView } from "./work"
@@ -85,102 +85,11 @@ export function Deployments() {
   return (
     <>
       <PageHeader title="Deployments" onRefresh={reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add deployment</Button>} />
+      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? `Edit ${edit.name}` : "Add deployment"} defaults={{ status: "planned" }} />}
       <Panel title="Deployments">
         <ErrorNote>{error}</ErrorNote>
         <WorkView id="deployments" states={DEPLOY_STATES} items={items} empty="No deployments yet." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "Target", value: (w) => w.row.target }, { label: "Version", value: (w) => w.row.version }]} />
       </Panel>
-      {edit !== undefined && <RecordForm cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? "Edit deployment" : "Add deployment"} defaults={{ status: "planned" }} />}
-    </>
-  )
-}
-
-const SUBNETS: Col[] = [
-  { key: "name", label: "Name", required: true },
-  { key: "cidr", label: "CIDR", mono: true, required: true, hint: "IPv4 or IPv6, for example 192.168.10.0/24." },
-  { key: "gateway", label: "Gateway", mono: true },
-  { key: "vlan", label: "VLAN", type: "number" },
-  { key: "description", label: "Description" },
-]
-const ADDRESSES: Col[] = [
-  { key: "address", label: "Address", mono: true, required: true },
-  { key: "device", label: "Device" },
-  { key: "hostname", label: "Hostname" },
-  { key: "mac", label: "MAC", mono: true },
-  { key: "note", label: "Note" },
-]
-const ROUTES: Col[] = [
-  { key: "device", label: "Device", required: true, hint: "Same name as in the addresses list." },
-  { key: "destination", label: "Destination", mono: true, required: true, hint: "CIDR. Use 0.0.0.0/0 for a default route." },
-  { key: "next_hop", label: "Next hop", mono: true },
-  { key: "metric", label: "Metric", type: "number" },
-]
-
-function Usage({ report, edit }: { report: any; edit: any }) {
-  const [free, setFree] = useState<Record<string, string>>({})
-  const next = async (id: string) => { const r = await api(`/api/ipam/next/${id}`); setFree({ ...free, [id]: r.address ?? "Subnet full" }) }
-  return (
-    <Panel title="Subnet usage" flush edit={edit}>
-      {report?.subnets.length ? (
-        <Table head={["Subnet", "CIDR", "VLAN", "Used", "Free address"]}>
-          {report.subnets.map((s: any) => (
-            <tr key={s.id}>
-              <Td className="font-medium">{s.name}</Td><Td mono>{s.cidr}</Td><Td>{s.vlan || "—"}</Td>
-              <Td className="text-fg2">{s.used} of {Number(s.capacity) > 1e9 ? "a lot" : s.capacity}</Td>
-              <Td>{free[s.id] ? <Copy text={free[s.id]} /> : <Button variant="ghost" onClick={() => next(s.id)}>Find next</Button>}</Td>
-            </tr>
-          ))}
-        </Table>
-      ) : <div className="px-4 pb-4"><Empty>Add a subnet to see its usage.</Empty></div>}
-    </Panel>
-  )
-}
-
-function Simulator({ edit }: { edit: any }) {
-  const [from, setFrom] = useState("")
-  const [destination, setDestination] = useState("")
-  const [result, setResult] = useState<any>()
-  const [error, setError] = useState("")
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try { setResult(await api("/api/ipam/simulate", { body: { from, destination } })); setError("") } catch (err) { setError((err as Error).message); setResult(undefined) }
-  }
-  const level = result?.status === "reached" ? "ok" : result?.status === "loop" ? "warn" : "crit"
-  return (
-    <Panel title="Routing simulation" edit={edit}>
-      <form className="grid grid-cols-[1fr_1fr_auto] items-end gap-4 max-sm:grid-cols-1" onSubmit={run}>
-        <Input label="From device" required value={from} onChange={(e) => setFrom(e.target.value)} />
-        <Input label="To address" required className="font-mono" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="10.0.2.20" />
-        <Button type="submit" variant="primary">Trace</Button>
-      </form>
-      <div className="mt-4 flex flex-col gap-3">
-        <ErrorNote>{error}</ErrorNote>
-        {result && <>
-          <div className="flex items-baseline gap-3"><Status level={level} /><span>{result.summary}</span></div>
-          <ol className="flex flex-col gap-1">{result.hops.map((h: any, i: number) => <li key={i} className="flex flex-wrap gap-x-3"><span className="w-6 text-fg3">{i + 1}</span><span className="font-medium">{h.device}</span><Mono className="text-fg2">{h.detail}</Mono></li>)}</ol>
-        </>}
-      </div>
-    </Panel>
-  )
-}
-
-const IPAM_TABS = [{ id: "usage", label: "Usage" }, { id: "subnets", label: "Subnets" }, { id: "addresses", label: "Addresses" }, { id: "routes", label: "Routes" }]
-
-export function Ipam() {
-  const [tab, setTab] = useState("usage")
-  const { data, reload } = useApi("/api/ipam/report", { poll: false })
-  const tabs = <Tabs tabs={IPAM_TABS} value={tab} onChange={setTab} />
-  if (tab === "subnets") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Subnets" singular="subnet" collection="subnets" cols={SUBNETS} onChanged={reload} />
-  if (tab === "addresses") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Addresses" singular="address" collection="ip_addresses" cols={ADDRESSES} sort="address" onChanged={reload} />
-  if (tab === "routes") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Routes" singular="route" collection="routes" cols={ROUTES} sort="device" />
-  return (
-    <>
-      <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />
-      <Board id="ipam" desktop={{ cols: [["conflicts", "usage", "simulator"]], hidden: [] }} phone={{ cols: [["conflicts", "usage", "simulator"]], hidden: [] }} panels={[
-        { id: "conflicts", title: "Conflicts", render: (edit: any) => <Panel title="Conflicts" edit={edit}>
-          {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>No conflicts.</Empty>}</Panel> },
-        { id: "usage", title: "Subnet usage", render: (edit: any) => <Usage report={data} edit={edit} /> },
-        { id: "simulator", title: "Routing simulation", render: (edit: any) => <Simulator edit={edit} /> },
-      ]} />
     </>
   )
 }
@@ -197,16 +106,17 @@ function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
     try { await api(row ? `/api/tasks/${row.id}` : "/api/tasks", { method: row ? "PATCH" : "POST", body }); onDone() } catch (err) { setError((err as Error).message) }
   }
   return (
-    <Modal title={row ? "Edit task" : "Add task"} onClose={onDone}>
-      <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={save}>
+    <Editor title={row ? `Edit ${row.title}` : "Add task"} onCancel={onDone} onSubmit={save} error={error}>
+      <EditorGroup title="Task">
         <div className="col-span-full"><Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
         <div className="col-span-full"><TextArea label="Description" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+      </EditorGroup>
+      <EditorGroup title="Planning">
         <Select label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} options={TASK_STATES.map((s) => ({ value: s.id, label: s.label }))} />
         <Input label="Due date" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
         <div className="col-span-full"><Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} hint="Separated by commas. They sync with Nextcloud as categories." /></div>
-        <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">Save</Button></div></div>
-      </form>
-    </Modal>
+      </EditorGroup>
+    </Editor>
   )
 }
 
@@ -239,8 +149,8 @@ export function Tasks() {
         <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />Sync</Button>
         <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add task</Button>
       </>} />
+      {edit !== undefined && <TaskForm key={edit?.id ?? "new"} row={edit} onDone={done} />}
       <Board id="tasks" panels={panels} desktop={{ cols: [["open", "tasks"]], hidden: [] }} phone={{ cols: [["open", "tasks"]], hidden: [] }} />
-      {edit !== undefined && <TaskForm row={edit} onDone={done} />}
     </>
   )
 }
@@ -285,8 +195,10 @@ export function Vpn() {
   )
   return (
     <>
-      <CrudPage key={version} title="VPN links" singular="VPN link" collection="vpn_links" cols={VPN} extra={detected} defaults={{ status: "Active" }} onChanged={known.reload} />
-      {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title="Track VPN link" defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
+      <CrudPage key={version} title="VPN links" singular="VPN link" collection="vpn_links" cols={VPN} defaults={{ status: "Active" }} onChanged={known.reload} extra={<>
+        {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title="Track VPN link" defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
+        {detected}
+      </>} />
     </>
   )
 }
@@ -296,6 +208,8 @@ const SEARCHED = [
   { coll: "hardware", to: "/hardware", fields: ["name", "serial", "model", "location"] },
   { coll: "virtual_assets", to: "/virtual", fields: ["name", "hostname", "ip"] },
   { coll: "ip_addresses", to: "/ipam", fields: ["address", "device", "hostname", "mac"] },
+  { coll: "subnets", to: "/ipam", fields: ["name", "cidr", "description", "section"] },
+  { coll: "vlans", to: "/ipam", fields: ["name", "domain", "description"] },
   { coll: "sites", to: "/sites", fields: ["name", "repo"] },
   { coll: "vpn_links", to: "/vpn", fields: ["name", "side_a", "side_b", "subnet"] },
 ]

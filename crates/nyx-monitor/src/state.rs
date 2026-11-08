@@ -166,6 +166,8 @@ pub struct Host {
     pub arch: String,
     pub agent_version: String,
     pub pve_node: String,
+    /// Kept out of alerts and their notifications, still measured and shown.
+    pub muted: bool,
     pub last_seen: i64,
     pub live: Option<Live>,
     pub queue: Vec<Command>,
@@ -254,6 +256,7 @@ impl Host {
             arch: s("arch"),
             agent_version: s("agent_version"),
             pve_node: s("pve_node"),
+            muted: r["muted"].as_bool().unwrap_or(false),
             last_seen: chrono::DateTime::parse_from_rfc3339(&s("last_seen").replacen(' ', "T", 1)).map_or(0, |d| d.timestamp()),
             live: None,
             queue: vec![],
@@ -462,6 +465,20 @@ impl App {
         Ok(())
     }
 
+    /// Closes the open alerts of a host without telling anyone: muting it is no recovery.
+    pub async fn silence(&self, id: &str) -> anyhow::Result<()> {
+        let ids: Vec<String> = {
+            let mut st = self.lock();
+            let (state, prefix) = (format!("offline:{id}"), format!("host:{id}:"));
+            let keys: Vec<String> = st.alerts.keys().filter(|k| **k == state || k.starts_with(&prefix)).cloned().collect();
+            keys.iter().filter_map(|k| st.alerts.remove(k)).map(|a| a.id).collect()
+        };
+        for aid in ids {
+            self.core.pb.update("alerts", &aid, &json!({"open": false, "resolved_at": pb_date(Utc::now())})).await?;
+        }
+        Ok(())
+    }
+
     pub async fn sweep_offline(&self) -> anyhow::Result<()> {
         if !self.settled() {
             return Ok(());
@@ -470,7 +487,7 @@ impl App {
         let hosts: Vec<(String, String, bool)> = {
             let st = self.lock();
             // A host that never reported is pending installation, not down.
-            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), now - h.last_seen > offline_after_s())).collect()
+            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), !h.muted && now - h.last_seen > offline_after_s())).collect()
         };
         for (id, name, down) in hosts {
             let wanted = down.then(|| Wanted { key: format!("offline:{id}"), kind: "state", severity: "crit", message: format!("{name} is not responding"), host: name.clone() });

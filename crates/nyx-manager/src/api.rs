@@ -2,7 +2,7 @@
 
 use crate::{ipam, link, map, nextcloud, App};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::header,
     response::IntoResponse,
     routing::{get, patch, post},
@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 5] = ["link", "nextcloud", "proxmox", "updates", "reminders"];
+const SETTINGS: [&str; 6] = ["link", "nextcloud", "proxmox", "updates", "reminders", "dashboard"];
 
 /// Days from the `reminders` setting, kept above zero so a blank field keeps the default.
 async fn lead_days(app: &App, key: &str, default: i64) -> anyhow::Result<i64> {
@@ -35,6 +35,76 @@ async fn next_free(_: Session, State(app): State<Arc<App>>, Path(id): Path<Strin
     let (subnets, addresses, _) = ipam_data(&app).await?;
     let subnet = subnets.iter().find(|s| s["id"] == id.as_str()).ok_or_else(ApiError::not_found)?;
     Ok(Json(json!({"address": ipam::next_free(subnet, &addresses)})))
+}
+
+/// Addresses other records give inside a subnet that the IPAM does not list yet.
+async fn seen_elsewhere(app: &App, recorded: &[Value]) -> anyhow::Result<Vec<Value>> {
+    let pb = &app.core.pb;
+    let mut out: Vec<Value> = vec![];
+    for (coll, ip, name) in [("virtual_assets", "ip", "name"), ("map_nodes", "ip", "name")] {
+        for r in pb.list(coll, &format!("{ip} != ''"), "").await? {
+            let addr = r[ip].as_str().unwrap_or_default();
+            if !recorded.iter().any(|a| a["address"] == addr) && !out.iter().any(|o| o["address"] == addr) {
+                out.push(json!({"address": addr, "device": r[name], "from": coll}));
+            }
+        }
+    }
+    Ok(out)
+}
+
+async fn subnet_detail(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let (subnets, addresses, _) = ipam_data(&app).await?;
+    let subnet = subnets.iter().find(|s| s["id"] == id.as_str()).ok_or_else(ApiError::not_found)?;
+    let mut d = ipam::detail(subnet, &subnets, &addresses).ok_or_else(|| ApiError::bad_request("invalid CIDR"))?;
+    let net: ipnet::IpNet = subnet["cidr"].as_str().unwrap_or_default().parse().map_err(|_| ApiError::bad_request("invalid CIDR"))?;
+    let seen = seen_elsewhere(&app, &addresses).await?;
+    d["seen"] = seen.into_iter().filter(|r| r["address"].as_str().and_then(|a| a.parse::<std::net::IpAddr>().ok()).is_some_and(|ip| net.contains(&ip))).collect();
+    Ok(Json(d))
+}
+
+#[derive(Deserialize)]
+struct CalcQuery {
+    cidr: String,
+}
+
+/// Subnet calculator for any prefix, recorded or not.
+async fn calc(_: Session, Query(q): Query<CalcQuery>) -> ApiResult<Json<Value>> {
+    let d = ipam::detail(&json!({"cidr": q.cidr.trim()}), &[], &[]).ok_or_else(|| ApiError::bad_request("not a prefix: write it like 192.168.1.0/24"))?;
+    Ok(Json(d["calc"].clone()))
+}
+
+/// Pings every address of a small IPv4 subnet once. Answers stamp `last_seen` on the
+/// addresses already recorded; the others are returned for the user to add.
+async fn scan(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let (subnets, addresses, _) = ipam_data(&app).await?;
+    let subnet = subnets.iter().find(|s| s["id"] == id.as_str()).ok_or_else(ApiError::not_found)?;
+    let targets = ipam::scan_targets(subnet).map_err(ApiError::bad_request)?;
+    let client = surge_ping::Client::new(&surge_ping::Config::default())
+        .map_err(|e| ApiError::bad_request(format!("ICMP socket unavailable ({e}), see the deployment docs")))?;
+    let mut set = tokio::task::JoinSet::new();
+    for (i, ip) in targets.into_iter().enumerate() {
+        let client = client.clone();
+        set.spawn(async move {
+            let mut pinger = client.pinger(ip, surge_ping::PingIdentifier(i as u16)).await;
+            pinger.timeout(std::time::Duration::from_millis(1500));
+            pinger.ping(surge_ping::PingSequence(0), &[0; 16]).await.ok().map(|_| ip)
+        });
+    }
+    let mut alive: Vec<std::net::IpAddr> = set.join_all().await.into_iter().flatten().collect();
+    alive.sort();
+    let now = pb_date(Utc::now());
+    for r in addresses.iter().filter(|r| r["address"].as_str().and_then(|a| a.parse().ok()).is_some_and(|ip| alive.contains(&ip))) {
+        app.core.pb.update("ip_addresses", r["id"].as_str().unwrap_or_default(), &json!({"last_seen": now})).await?;
+    }
+    Ok(Json(json!({"alive": alive, "at": now})))
+}
+
+/// Fleet health or EDF Tempo from the linked monitor, `null` without a link.
+async fn from_monitor(_: Session, State(app): State<Arc<App>>, Path(what): Path<String>) -> ApiResult<Json<Value>> {
+    if what != "overview" && what != "tempo" {
+        return Err(ApiError::not_found());
+    }
+    Ok(Json(link::get(&app, &what).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?.unwrap_or(Value::Null)))
 }
 
 #[derive(Deserialize)]
@@ -91,7 +161,15 @@ async fn overview(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Val
     let tasks = pb.list_page("tasks", &[("filter", &format!("done = false && due != '' && due <= {}", pb_quote(&soon))), ("sort", "due"), ("perPage", "6")]).await?;
     let deployments = pb.list_page("deployments", &[("sort", "-created"), ("perPage", "6")]).await?;
     let warranty = pb.list_page("hardware", &[("filter", &format!("warranty_until != '' && warranty_until <= {}", pb_quote(&pb_date(Utc::now() + Duration::days(lead_days(&app, "warranty_days", 60).await?))))), ("perPage", "6")]).await?;
+    let mut categories: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+    for h in pb.list("hardware", "", "").await? {
+        let c = categories.entry(h["category"].as_str().filter(|c| !c.is_empty()).unwrap_or("Other").to_string()).or_default();
+        c.0 += 1;
+        c.1 += u64::from(h["status"] == "In service" || h["status"].as_str().is_none_or(str::is_empty));
+    }
     Ok(Json(json!({
+        "categories": categories.into_iter().map(|(name, (total, active))| json!({"name": name, "total": total, "in_service": active})).collect::<Vec<_>>(),
+        "addresses": addresses.len(), "vlans": count("vlans", "").await?, "running_deploys": count("deployments", "status = 'running'").await?,
         "hardware": count("hardware", "").await?, "virtual": count("virtual_assets", "").await?, "sites": count("sites", "").await?,
         "open_tasks": count("tasks", "done = false").await?,
         "subnets": report["subnets"], "conflicts": report["conflicts"], "tasks": tasks["items"], "deployments": deployments["items"], "warranty": warranty["items"],
@@ -216,6 +294,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/ipam/report", get(ipam_report))
         .route("/api/ipam/next/{subnet}", get(next_free))
         .route("/api/ipam/simulate", post(simulate))
+        .route("/api/ipam/subnet/{id}", get(subnet_detail))
+        .route("/api/ipam/scan/{id}", post(scan))
+        .route("/api/ipam/calc", get(calc))
+        .route("/api/monitor/{what}", get(from_monitor))
         .route("/api/map/export/{format}", get(map_export))
         .route("/api/map/import", post(map_import))
         .route("/api/tasks", get(tasks).post(create_task))

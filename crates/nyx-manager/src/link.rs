@@ -12,10 +12,15 @@ pub async fn config(app: &App) -> anyhow::Result<Option<(String, String)>> {
     Ok((!url.is_empty() && !token.is_empty()).then(|| (url.trim_end_matches('/').to_string(), token.to_string())))
 }
 
-pub async fn hosts(app: &App) -> anyhow::Result<Option<Vec<Value>>> {
+/// `GET /api/link/{path}` on the linked monitor, `None` without a link.
+pub async fn get<T: serde::de::DeserializeOwned>(app: &App, path: &str) -> anyhow::Result<Option<T>> {
     let Some((url, token)) = config(app).await? else { return Ok(None) };
-    let res = app.http.get(format!("{url}/api/link/hosts")).bearer_auth(token).send().await?.error_for_status()?;
-    let mut hosts: Vec<Value> = res.json().await?;
+    let res = app.http.get(format!("{url}/api/link/{path}")).bearer_auth(token).send().await?.error_for_status()?;
+    Ok(Some(res.json().await?))
+}
+
+pub async fn hosts(app: &App) -> anyhow::Result<Option<Vec<Value>>> {
+    let Some(mut hosts): Option<Vec<Value>> = get(app, "hosts").await? else { return Ok(None) };
     hosts.iter_mut().for_each(drop_vpn_ip);
     Ok(Some(hosts))
 }

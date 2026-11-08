@@ -19,6 +19,9 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/nyx/update /var/lib/nyx/manager
+# IPAM scans ping a subnet.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target

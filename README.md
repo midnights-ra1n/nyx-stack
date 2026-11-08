@@ -12,7 +12,7 @@ Nyx has three parts. Each one works without the others.
 | Part | What it does | Port |
 | --- | --- | --- |
 | **Monitor** | Dashboards, hosts, containers, SMART, alerts, logs, status pages, wall displays, and ICMP, HTTP, DNS, certificate and SNMP probes | 8081 |
-| **Manager** | Hardware and virtual inventory, IPAM with conflict detection, routing simulation, network map, deployments, Node.js sites, tasks | 8082 |
+| **Manager** | Hardware and virtual inventory, IPAM (nested subnets, VLANs, VRFs, address map, ping scan, conflict detection), routing simulation, dashboard widgets, network map, deployments, Node.js sites, tasks | 8082 |
 | **Agent** | One small Rust binary on each host. It opens no port and only calls the monitor | none |
 
 Run the manager alone, the monitor with its agents alone, or link them. When linked,

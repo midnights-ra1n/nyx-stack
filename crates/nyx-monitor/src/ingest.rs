@@ -65,19 +65,20 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
 /// Returns whether it is the first one since this monitor started.
 async fn absorb(app: &App, id: &str, report: Report) -> ApiResult<bool> {
     let pending_updates = report.updates.as_ref().map(|u| (u.len(), u.iter().filter(|p| p.security).count()));
-    let (applied, wanted, name) = {
+    let (applied, wanted, name, muted) = {
         let mut st = app.lock();
         let applied = st.apply(id, report, Utc::now().timestamp()).ok_or_else(ApiError::not_found)?;
         let th = st.thresholds;
         let h = st.hosts.get(id).ok_or_else(ApiError::not_found)?;
-        (applied, evaluate(h, &th, &st.alerts), h.name.clone())
+        let wanted = if h.muted { vec![] } else { evaluate(h, &th, &st.alerts) };
+        (applied, wanted, h.name.clone(), h.muted)
     };
     if let Some(patch) = &applied.patch {
         app.core.pb.update("hosts", id, patch).await?;
     }
     app.reconcile(&format!("offline:{id}"), vec![]).await?;
     app.reconcile(&format!("host:{id}:"), wanted).await?;
-    if let (true, Some((n, security))) = (applied.new_updates, pending_updates) {
+    if let (true, false, Some((n, security))) = (applied.new_updates, muted, pending_updates) {
         notify::emit(&app.core, "update", "info", &format!("{name}: {n} updates available"), &format!("{security} security updates"), &name).await;
     }
     Ok(applied.first)

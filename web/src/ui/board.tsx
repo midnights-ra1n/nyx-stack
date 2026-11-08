@@ -78,6 +78,13 @@ export function reconcile(l: Layout, ids: string[]): Layout {
   return { cols, hidden: [...l.hidden.filter((p) => ids.includes(p)), ...ids.filter((p) => !known.includes(p))] }
 }
 
+/** Shows a panel added by the user, which `reconcile` would otherwise surface as hidden. */
+export function reveal(board: string, pid: string, defaults: { desktop: Layout; phone: Layout }) {
+  for (const [key, def] of [[`nyx.layout.${board}`, defaults.desktop], [`nyx.layout.${board}.phone`, defaults.phone]] as const) {
+    try { localStorage.setItem(key, JSON.stringify(show(JSON.parse(localStorage.getItem(key) ?? "null") ?? def, pid))) } catch { /* storage off: it shows up among hidden panels */ }
+  }
+}
+
 /** `absent` marks a panel with nothing to show here that keeps its place for pages that do. */
 export interface BoardPanel { id: string; title: string; absent?: boolean; render: (edit?: ReactNode) => ReactNode }
 

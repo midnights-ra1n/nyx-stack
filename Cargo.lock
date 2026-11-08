@@ -1726,6 +1726,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ssh-key",
+ "surge-ping",
  "tokio",
 ]
 

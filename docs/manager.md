@@ -18,28 +18,92 @@ copied into **Hardware**, because agents do not report serial or warranty data.
 With a Proxmox URL in the settings, assets with a VMID and node get a noVNC **Console**
 button. You sign in to Proxmox itself.
 
+## Overview
+
+The overview sums up the inventory: every figure opens its page. Panels show hardware
+per category, the fullest subnets, addressing conflicts, tasks due within seven days,
+recent deployments and warranties ending soon. **Customize** moves and hides them;
+the layout is kept per device.
+
+**Add widget** puts your own panels next to them. Widgets are kept on the server, so
+every browser sees the same ones; open a widget's menu to edit or remove it.
+
+| Widget | Shows |
+| --- | --- |
+| EDF Tempo | Today's and tomorrow's colour and the days left. Read from the linked monitor, where the RTE keys are set |
+| Monitoring | Hosts online, open alerts, containers and average load, from the linked monitor |
+| Note | Free text |
+| Links | Bookmarks, one `Label \| https://address` per line. Only `http` and `https` addresses are kept |
+| Clock | Time and date, in the browser's time zone or one you name, such as `Europe/Paris` |
+| Web page | A page of your own in a frame, such as a Grafana panel. Your browser loads it directly, and the page must allow being framed |
+
+Tempo and Monitoring need a [linked monitor](deployment.md#linking-manager-and-monitor). Without one, they say so.
+
+## Forms
+
+Adding or editing a record opens a form at the top of the page, above the list, rather
+than in a window. Fields are grouped under headings on the left. **Escape** or
+**Cancel** closes it without saving.
+
 ## IPAM
 
-Add **Subnets**, then **Addresses**. IPv4 and IPv6 both work. **Usage** shows
-occupancy and can suggest the next free address, skipping the network, broadcast and
-gateway addresses.
+IPAM keeps the address plan: subnets, the addresses in them, VLANs, VRFs and routes.
+IPv4 and IPv6 both work. Its tabs:
 
-Conflicts detected:
+| Tab | Contents |
+| --- | --- |
+| Overview | Counts, conflicts, the fullest subnets, a subnet calculator and the routing simulation |
+| Subnets | Every subnet as a tree, one table per section, with its VLAN, VRF, gateway and usage |
+| Addresses | Every address with its state (Active, Reserved, DHCP, Offline), device, hostname, MAC, owner and when a scan last saw it |
+| VLANs | Numbers, names and the domain they belong to, with the subnets that use them |
+| VRFs | Routing tables, with an optional route distinguisher |
+| Routes | Routes per device, for the simulation |
 
-- Overlapping subnets
+### Subnets
+
+A subnet inside another one nests under it: add the large ranges first, then cut them
+up. A **section** groups subnets, for example per site. The same prefix may be recorded
+once per **VRF**. With an **Alert above** threshold, a subnet that fills up past it is
+listed among the conflicts.
+
+Open a subnet to see:
+
+- the calculator figures: network, netmask, wildcard, broadcast, first and last host, size
+- an **address map** for IPv4 subnets up to /22, one square per address, coloured by state.
+  Press a free square to record it, a used one to edit it
+- its addresses, its free ranges and its nested subnets
+- **Not recorded**: addresses the virtual inventory or the network map give inside this
+  subnet, and those that answered the last scan, each with a **Record** button
+
+### Scanning
+
+**Scan** pings every address of an IPv4 subnet of /22 or smaller once, from the manager.
+Recorded addresses that answer get their **Last seen** date; the others are listed under
+**Not recorded**. Nothing scans on its own: a scan only runs when you press the button,
+and only writes the dates of the addresses that answered.
+
+The manager needs to send ICMP: the package grants it `CAP_NET_RAW` and the Docker
+service sets `net.ipv4.ping_group_range`, as the monitor does. See
+[ICMP probes](deployment.md#icmp-probes). A host that blocks ping looks free.
+
+### Conflicts
+
+- The same prefix twice in one VRF
 - The same address on two devices
 - An address outside every subnet
-- A network or broadcast address assigned to a device
+- A network or broadcast address assigned to a device, judged against the smallest subnet that holds it
 - A gateway outside its subnet
 - A MAC address on several IP addresses
+- A subnet past its threshold
 - Invalid CIDRs and addresses
 
 Assigning the same address to one device twice is not a conflict. The device name is
-the identity, so spell it consistently.
+the identity, so spell it consistently. Addresses belong to the subnets that contain
+them, whatever their VRF, so the same address recorded twice in two VRFs reads as a conflict.
 
 ### Routing simulation
 
-Add **Routes** for each device: a destination, a next hop, and a metric. In **Usage**,
+Add **Routes** for each device: a destination, a next hop, and a metric. In **Overview**,
 choose a device and an address and press **Trace**.
 
 At each device the simulation picks the longest matching prefix, then the lowest
@@ -50,12 +114,25 @@ It reads your records, not your network, so firewalls and NAT are not considered
 
 ## Network map
 
-Drag devices to arrange them. Double-click one to edit it, or use the list below the
-map, which is the easier way on a phone. **Import hosts** adds monitored hosts and
-links guests to their parents. Positions are saved when you let go.
+The map follows the hierarchy of your machines. A VM, container or other device linked
+to a Proxmox, physical or server node is its guest: it is listed under that host, inside
+a frame, joined to it by a tree line. Links between two hosts, or to network gear, are
+drawn as blue curves that bend around the cards.
+
+**Arrange** places every device again: routers and switches on top, then one column per
+host with its guests in name order (`PVE-2` before `PVE-10`), then the devices that stand
+alone, such as a VPS. It replaces the places you set by hand, so it asks first.
+
+**Import hosts** adds monitored hosts and links guests to their parents. The first import
+arranges the map; later ones put new hosts in free spots and leave the rest alone, so
+press **Arrange** when you want them tidied.
+
+Drag a device to move it; its place is saved when you let go. Double-click one to edit
+it, or use the list below the map, which is the easier way on a phone. The type of a
+device sets its icon and decides whether it is a host or a guest.
 
 A VPN link whose **From** and **To** are both device names of the map is drawn there as
-a dashed line, and exported the same way.
+a dashed orange line, and exported the same way.
 
 Exports: SVG, draw.io, Mermaid, Graphviz DOT and JSON.
 

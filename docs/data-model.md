@@ -25,7 +25,7 @@ and are rebuilt from agents and rollups after a restart.
 
 | Collection | Purpose | Kept |
 | --- | --- | --- |
-| `hosts` | Enrolled hosts, with their token and key | Until deleted |
+| `hosts` | Enrolled hosts, with their token and key, and whether they are kept out of alerts (`muted`) | Until deleted |
 | `rollups` | Host averages, every five minutes then every hour | Chosen retention |
 | `alerts` | Open and resolved alerts | Chosen retention once resolved |
 | `probes` | Probe definitions, with SNMP items as JSON | Until deleted |
@@ -46,8 +46,10 @@ contains the texts, theme, panels and the `embed` option.
 | --- | --- |
 | `hardware` | Physical inventory, warranty dates |
 | `virtual_assets` | VMs, containers and Docker services. `source = monitor` rows are synced |
-| `subnets` | CIDR, gateway, VLAN |
-| `ip_addresses` | Address, device, hostname, MAC |
+| `subnets` | CIDR, gateway, VLAN number, section, VRF name, location, usage threshold |
+| `ip_addresses` | Address, state, device, hostname, MAC, owner, last time a scan saw it |
+| `vlans` | Number, name, domain |
+| `vrfs` | Name, route distinguisher |
 | `routes` | Device, destination, next hop, metric, for the simulation |
 | `deployments` | Deployment log, due dates and tags |
 | `map_nodes`, `map_links` | Network map |

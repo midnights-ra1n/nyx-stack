@@ -1,4 +1,4 @@
-import { ArrowPathIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { ProxmoxIcon } from "../ui/brand-icons"
@@ -224,6 +224,7 @@ export function Hosts() {
                       : <span className="w-4" />}
                     <HostIcon type={hostType(r.host, list)} />
                     <Link to={`/hosts/${r.host.id}`} className="ml-1 hover:text-accent">{r.host.name}</Link>
+                    {r.host.muted && <BellSlashIcon className="size-4 text-fg3" aria-label="Excluded from alerts" />}
                   </span>
                 </Td>
                 <Td className="text-fg2">{HOST_TYPES[hostType(r.host, list)]?.label ?? r.host.kind}</Td>
@@ -277,6 +278,10 @@ export function HostDetail({ id }: { id: string }) {
   const remove = async () => {
     await api(`/api/hosts/${id}`, { method: "DELETE" })
     navigate("/hosts")
+  }
+  const mute = async () => {
+    if (!h.muted && !confirm(`Keep ${h.name} out of alerts and notifications? It stays measured, and its open alerts close without a notice.`)) return
+    try { await api(`/api/hosts/${id}`, { method: "PATCH", body: { muted: !h.muted } }); reload() } catch (e) { setNote((e as Error).message) }
   }
   const consoleLink = consoleUrl(proxmox.data?.url ?? "", h)
   const points = series.data ?? []
@@ -378,11 +383,13 @@ export function HostDetail({ id }: { id: string }) {
         onRefresh={reload}
         actions={<>
           <Status level={hostLevel(h.status)} />
+          <Button aria-pressed={!!h.muted} onClick={mute}>{h.muted ? <><BellIcon className="size-5" aria-hidden />Alert again</> : <><BellSlashIcon className="size-5" aria-hidden />Exclude from alerts</>}</Button>
           {consoleLink && <a href={consoleLink} target="_blank" rel="noreferrer"><Button><CommandLineIcon className="size-5" aria-hidden />Console</Button></a>}
           <CustomizeButton />
           <RangeSelect value={range} onChange={setRange} />
         </>}
       />
+      {h.muted && <p role="note" className="mb-4 flex items-center gap-2 rounded-panel bg-raised px-4 py-2.5 text-fg2"><BellSlashIcon className="size-5 shrink-0" aria-hidden />Excluded from alerts: nothing about this host opens an alert or sends a notification.</p>}
       {watched && <p role="note" className="mb-4 rounded-panel bg-raised px-4 py-2.5 text-fg2">Measured by its Proxmox host, with no agent inside. Logs, updates and Docker state need an agent.</p>}
       {h.oci && !watched && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker.</p>}
       <Board id="host" panels={panels}

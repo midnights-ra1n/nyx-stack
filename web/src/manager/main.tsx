@@ -2,7 +2,8 @@ import "../ui/tokens.css"
 import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
-import { Deployments, Hardware, Ipam, SearchPage, Tasks, Virtual, Vpn } from "./inventory"
+import { Deployments, Hardware, SearchPage, Tasks, Virtual, Vpn } from "./inventory"
+import { Ipam, SubnetPage } from "./ipam"
 import { NetworkMap } from "./map"
 import { Overview } from "./overview"
 import { Settings } from "./settings"
@@ -13,6 +14,7 @@ function route(path: string) {
   if (path === "/hardware") return <Hardware />
   if (path === "/virtual") return <Virtual />
   if (path === "/ipam") return <Ipam />
+  if (path.startsWith("/ipam/subnet/")) return <SubnetPage id={path.slice(13)} />
   if (path === "/map") return <NetworkMap />
   if (path === "/vpn") return <Vpn />
   if (path === "/deployments") return <Deployments />

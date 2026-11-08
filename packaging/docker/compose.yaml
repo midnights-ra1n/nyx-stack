@@ -40,6 +40,9 @@ services:
       - 8082:8082
     volumes:
       - manager-data:/data
+    sysctls:
+      # Unprivileged ICMP for IPAM scans.
+      net.ipv4.ping_group_range: 0 2147483647
 
   # From the servers of this file, its address is http://db:8090.
   db:

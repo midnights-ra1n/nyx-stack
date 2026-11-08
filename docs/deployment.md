@@ -113,7 +113,7 @@ Then set the `https://` URLs in `.env`, run `up -d` again and follow [HTTPS](#ht
 ### ICMP probes
 
 The monitor's service sets `net.ipv4.ping_group_range` so ICMP probes work as a non-root
-user. If your platform forbids this sysctl, add `cap_add: [NET_RAW]` and run the container
+user, and the manager's does the same for IPAM scans. If your platform forbids this sysctl, add `cap_add: [NET_RAW]` and run the container
 as root (`user: root`).
 
 ### Data and backups

@@ -4,7 +4,7 @@ import { Button, Mono, Panel } from "../ui/components"
 import { api } from "../ui/lib"
 import { AboutPanel, AccountSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 
-const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "routes", "deployments", "map_nodes", "map_links"]
+const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
 
 /** These collections hold no secrets, so the file is safe to pass around. */
 async function exportInventory() {

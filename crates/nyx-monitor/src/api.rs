@@ -26,7 +26,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     let r = live.map(|l| &l.report);
     json!({
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
-        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node,
+        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted,
         "ct_autoinstall": h.ct_autoinstall, "last_seen": h.last_seen, "status": host_status(h, now, th),
         "installed": h.last_seen > 0,
         "oci": parent.is_some_and(|p| p.guests.iter().any(|g| g.vmid == h.vmid && g.oci)),
@@ -190,6 +190,22 @@ async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Str
         ingest::forget_host(&app, &c).await?;
     }
     ingest::forget_host(&app, &id).await?;
+    Ok(Json(Value::Null))
+}
+
+#[derive(Deserialize)]
+struct HostPatch {
+    muted: bool,
+}
+
+/// Keeps a host out of alerts and notifications, or brings it back. Its open alerts
+/// close quietly; unmuted, it alerts again from its next report.
+async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<HostPatch>) -> ApiResult<Json<Value>> {
+    app.lock().hosts.get_mut(&id).ok_or_else(ApiError::not_found)?.muted = b.muted;
+    app.core.pb.update("hosts", &id, &json!({"muted": b.muted})).await?;
+    if b.muted {
+        app.silence(&id).await?;
+    }
     Ok(Json(Value::Null))
 }
 
@@ -400,7 +416,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/map", get(map))
         .route("/api/hosts", get(hosts).post(add_host))
         .route("/api/hosts/update-all", post(update_all))
-        .route("/api/hosts/{id}", get(host).delete(delete_host))
+        .route("/api/hosts/{id}", get(host).patch(patch_host).delete(delete_host))
         .route("/api/hosts/{id}/install", get(install_line))
         .route("/api/hosts/{id}/command", post(command))
         .route("/api/hosts/{id}/logs/live", get(live_logs))

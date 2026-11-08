@@ -55,6 +55,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/overview` | Session | Fleet summary |
 | GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host, and a name can only be used once. Each host carries its `vpn` tunnels |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it. Its LXC containers go with it, other children stay at the top level |
+| PATCH | `/api/hosts/{id}` | Session | `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
 | GET | `/api/hosts/{id}/logs/live` | Session | Live log lines after `?after=<seq>`, with the new `seq` and whether the agent is `connected`. Each request keeps the live view running for 15 seconds |
@@ -78,6 +79,8 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/status/{slug}` | Public | The status page itself, framable if the page allows it |
 | POST | `/api/link/token` | Session | Create the manager link token |
 | GET | `/api/link/hosts` | Link | Hosts for the manager |
+| GET | `/api/link/overview` | Link | Fleet health for the manager's dashboard |
+| GET | `/api/link/tempo` | Link | EDF Tempo summary for the manager's dashboard |
 | POST | `/api/link/hosts/{id}/deploy` | Link | Queue a deploy |
 | GET | `/api/link/results/{id}` | Link | Result of a command |
 | GET | `/install.sh` | Public | Agent installer |
@@ -101,6 +104,10 @@ Each host in `/api/hosts` carries `reboot_required`, and `update` once one was s
 | GET | `/api/ipam/report` | Session | Usage and conflicts |
 | GET | `/api/ipam/next/{subnet}` | Session | Next free address |
 | POST | `/api/ipam/simulate` | Session | Trace a route, `{"from", "destination"}` |
+| GET | `/api/ipam/subnet/{id}` | Session | Calculator figures, addresses, nested subnets, free ranges and addresses known elsewhere but not recorded |
+| POST | `/api/ipam/scan/{id}` | Session | Ping an IPv4 subnet of /22 or smaller once. Stamps `last_seen` on recorded addresses that answer and returns `alive` |
+| GET | `/api/ipam/calc?cidr=` | Session | Subnet calculator for any prefix |
+| GET | `/api/monitor/overview`, `/api/monitor/tempo` | Session | Fleet health or EDF Tempo from the linked monitor, `null` without a link |
 | GET | `/api/map/export/{format}` | Session | `svg`, `drawio`, `mermaid`, `dot` or `json` |
 | POST | `/api/map/import` | Session | Add monitored hosts to the map |
 | GET, POST | `/api/tasks` | Session | List tasks, or create one |

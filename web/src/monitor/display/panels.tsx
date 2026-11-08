@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { BarGauge, ChartHover, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
 import { LiveMap } from "../map"
-import { TempoTiles } from "../tempo"
+import { TempoTiles } from "../../ui/tempo"
 import { nextScroll, uptimeBar } from "./model"
 
 const OVERALL: Record<string, string> = {

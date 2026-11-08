@@ -128,13 +128,18 @@ async fn refresh_tempo(app: &App) -> anyhow::Result<Value> {
     Ok(v)
 }
 
-async fn tempo(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+/// Today's summary, from memory while it is fresh. Also served to a linked manager.
+pub async fn tempo_now(app: &App) -> anyhow::Result<Value> {
     let today = paris_today(Utc::now()).to_string();
     let fresh = app.lock().tempo.as_ref().filter(|(at, v)| at.elapsed() < TEMPO_TTL && v["date"] == today.as_str()).map(|(_, v)| v.clone());
     match fresh {
-        Some(v) => Ok(Json(v)),
-        None => refresh_tempo(&app).await.map(Json).map_err(|e| ApiError::bad_request(format!("{e:#}"))),
+        Some(v) => Ok(v),
+        None => refresh_tempo(app).await,
     }
+}
+
+async fn tempo(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    tempo_now(&app).await.map(Json).map_err(|e| ApiError::bad_request(format!("{e:#}")))
 }
 
 /// `(severity, title, message)` of the notification for tomorrow's colour.

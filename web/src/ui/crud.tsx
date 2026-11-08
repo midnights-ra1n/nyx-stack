@@ -1,6 +1,6 @@
-import { PencilSquareIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
-import { Fragment, type ReactNode, useState } from "react"
-import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Panel, Select, Table, Td, TextArea, Variable } from "./components"
+import { PencilSquareIcon, PlusIcon, TrashIcon, XMarkIcon } from "@heroicons/react/24/outline"
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react"
+import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable } from "./components"
 import { api, fmt, sortRows, useApi, useStored } from "./lib"
 import { PageHeader, Section } from "./shell"
 
@@ -51,7 +51,53 @@ function Tiles({ col, value, onChange }: { col: Col; value: string; onChange: (v
   )
 }
 
-export function RecordForm({ cols: all, row, collection, onDone, title, defaults, rows = [] }: { cols: Col[]; row: any | null; collection: string; onDone: () => void; title: string; defaults?: any; rows?: any[] }) {
+/** Fields grouped under their `section` heading. Fields before the first heading form an untitled group. */
+export function groups(cols: Col[]) {
+  const out: { title?: string; cols: Col[] }[] = []
+  for (const c of cols) {
+    if (c.section || out.length === 0) out.push({ title: c.section, cols: [] })
+    out[out.length - 1].cols.push(c)
+  }
+  return out
+}
+
+/** A flat editor in the page, above what it edits: headings on the left, fields on the right. */
+export function Editor({ title, onCancel, onSubmit, error, children, footer }: { title: string; onCancel: () => void; onSubmit: (e: React.FormEvent) => void; error?: string; children: ReactNode; footer?: ReactNode }) {
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "start", behavior: "smooth" })
+    ref.current?.querySelector<HTMLElement>("input:not([type=radio]), select, textarea")?.focus({ preventScroll: true })
+  }, [])
+  return (
+    <section ref={ref} aria-label={title} className="mb-6 scroll-mt-4 rounded-panel border border-accent/40 bg-surface" onKeyDown={(e) => e.key === "Escape" && onCancel()}>
+      <header className="flex h-12 items-center justify-between gap-3 border-b border-line pl-5 pr-2">
+        <h2 className="text-[15px] font-medium">{title}</h2>
+        <IconButton label="Close" icon={XMarkIcon} onClick={onCancel} />
+      </header>
+      <form onSubmit={onSubmit}>
+        <div className="divide-y divide-line">{children}</div>
+        <footer className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-3">
+          <Button variant="primary" type="submit">Save</Button>
+          <Button type="button" onClick={onCancel}>Cancel</Button>
+          {footer}
+          <div className="ml-auto"><ErrorNote>{error}</ErrorNote></div>
+        </footer>
+      </form>
+    </section>
+  )
+}
+
+/** One group of an `Editor`. */
+export function EditorGroup({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[180px_1fr] gap-6 px-5 py-5 max-md:grid-cols-1 max-md:gap-3">
+      <h3 className="text-[13px] font-medium text-fg2">{title}</h3>
+      <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">{children}</div>
+    </div>
+  )
+}
+
+export function RecordForm({ cols: all, row, collection, onDone, title, defaults, rows = [], onSaved }: { cols: Col[]; row: any | null; collection: string; onDone: () => void; title: string; defaults?: any; rows?: any[]; onSaved?: (rec: any) => void }) {
   const cols = all.filter((c) => !c.listOnly)
   const [form, setForm] = useState<any>(() => Object.fromEntries(cols.map((c) => [c.key, toInput(c, (row ?? defaults)?.[c.key])])))
   const [error, setError] = useState("")
@@ -60,38 +106,33 @@ export function RecordForm({ cols: all, row, collection, onDone, title, defaults
     e.preventDefault()
     const body = Object.fromEntries(cols.map((c) => [c.key, fromInput(c, form[c.key])]))
     try {
-      await api(row ? `/api/c/${collection}/${row.id}` : `/api/c/${collection}`, { method: row ? "PATCH" : "POST", body })
+      const rec = await api(row ? `/api/c/${collection}/${row.id}` : `/api/c/${collection}`, { method: row ? "PATCH" : "POST", body })
+      onSaved?.(rec)
       onDone()
     } catch (err) { setError((err as Error).message) }
   }
+  const field = (c: Col) => {
+    const common = { label: c.label, hint: c.hint, required: c.required }
+    const onChange = (e: any) => set(c.key, e.target.value)
+    const known = c.suggest ? [...new Set(rows.map((r) => r[c.key]).filter(Boolean))] as string[] : []
+    const input = () => {
+      if (c.icons) return <Tiles col={c} value={form[c.key]} onChange={(v) => set(c.key, v)} />
+      if (c.type === "bool") return <Check label={c.label} checked={!!form[c.key]} onChange={(e) => set(c.key, e.target.checked)} />
+      if (c.type === "area") return <div className="col-span-full"><TextArea {...common} rows={3} value={form[c.key]} onChange={onChange} /></div>
+      if (c.type === "select") return <Select {...common} value={form[c.key]} onChange={onChange} options={["", ...(c.options ?? [])]} />
+      return <Input {...common} list={known.length ? `suggest-${c.key}` : undefined} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} value={form[c.key]} onChange={onChange} />
+    }
+    return (
+      <Fragment key={c.key}>
+        {input()}
+        {known.length > 0 && <datalist id={`suggest-${c.key}`}>{known.map((v) => <option key={v} value={v} />)}</datalist>}
+      </Fragment>
+    )
+  }
   return (
-    <Modal title={title} onClose={onDone}>
-      <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={submit}>
-        {cols.map((c) => {
-          const common = { label: c.label, hint: c.hint, required: c.required }
-          const onChange = (e: any) => set(c.key, e.target.value)
-          const known = c.suggest ? [...new Set(rows.map((r) => r[c.key]).filter(Boolean))] as string[] : []
-          const field = () => {
-            if (c.icons) return <Tiles col={c} value={form[c.key]} onChange={(v) => set(c.key, v)} />
-            if (c.type === "bool") return <Check label={c.label} checked={!!form[c.key]} onChange={(e) => set(c.key, e.target.checked)} />
-            if (c.type === "area") return <div className="col-span-full"><TextArea {...common} rows={3} value={form[c.key]} onChange={onChange} /></div>
-            if (c.type === "select") return <Select {...common} value={form[c.key]} onChange={onChange} options={["", ...(c.options ?? [])]} />
-            return <Input {...common} list={known.length ? `suggest-${c.key}` : undefined} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} value={form[c.key]} onChange={onChange} />
-          }
-          return (
-            <Fragment key={c.key}>
-              {c.section && <h3 className="col-span-full border-b border-line pb-1 text-[13px] font-medium text-fg2">{c.section}</h3>}
-              {field()}
-              {known.length > 0 && <datalist id={`suggest-${c.key}`}>{known.map((v) => <option key={v} value={v} />)}</datalist>}
-            </Fragment>
-          )
-        })}
-        <div className="col-span-full flex flex-col gap-3">
-          <ErrorNote>{error}</ErrorNote>
-          <div><Button variant="primary" type="submit">Save</Button></div>
-        </div>
-      </form>
-    </Modal>
+    <Editor title={title} onCancel={onDone} onSubmit={submit} error={error}>
+      {groups(cols).map((g, i) => <EditorGroup key={i} title={g.title}>{g.cols.map(field)}</EditorGroup>)}
+    </Editor>
   )
 }
 
@@ -117,7 +158,8 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
   }
   return (
     <>
-      <PageHeader title={heading} variables={variables} crumbs={crumbs} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add {singular}</Button>} />
+      <PageHeader title={heading} variables={variables} crumbs={crumbs} actions={<Button variant="primary" disabled={edit === null} onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add {singular}</Button>} />
+      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit} collection={collection} onDone={done} title={edit ? `Edit ${edit.name ?? edit.title ?? edit.address ?? singular}` : `Add ${singular}`} defaults={defaults} rows={all} />}
       <Section>
         {extra}
         {all.length > 0 && (
@@ -149,7 +191,6 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
           )}
         </Panel>
       </Section>
-      {edit !== undefined && <RecordForm cols={cols} row={edit} collection={collection} onDone={done} title={edit ? `Edit ${singular}` : `Add ${singular}`} defaults={defaults} rows={all} />}
     </>
   )
 }

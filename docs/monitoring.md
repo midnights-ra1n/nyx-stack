@@ -121,6 +121,16 @@ community in clear text.
 Set warning and critical levels for usage and temperature in **Settings, Monitoring**.
 Alerts need three points of margin to clear, which prevents flapping.
 
+### Excluding a host
+
+A test machine or a host you switch off at night can stay out of alerts. Open the host
+and press **Exclude from alerts**: it is still measured and shown, but nothing about it
+opens an alert or sends a notification, whether it stops answering, fills up, runs hot,
+has a failing disk or has updates waiting. Its open alerts close without a notice. The
+host list marks it with a muted bell. **Alert again** brings it back from its next report.
+
+Excluding a Proxmox node does not exclude its containers: each host has its own switch.
+
 ## Storage
 
 The **Storage** page lists every file system, fullest first, with its host, mount

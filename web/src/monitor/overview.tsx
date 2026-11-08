@@ -7,7 +7,7 @@ import { DiskHealth } from "./disks"
 import { HostIcon, hostType } from "./hosts"
 import { RecentLogs } from "./logs"
 import { StoragePanel } from "./storage-tree"
-import { TempoTiles } from "./tempo"
+import { TempoTiles } from "../ui/tempo"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
