@@ -1,8 +1,8 @@
-import { ArrowPathIcon, BellIcon, CircleStackIcon, Cog6ToothIcon, PuzzlePieceIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
+import { ArchiveBoxIcon, ArrowPathIcon, BellIcon, CircleStackIcon, Cog6ToothIcon, PuzzlePieceIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Button, Mono, Panel } from "../ui/components"
 import { api } from "../ui/lib"
-import { AboutPanel, AccountSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
+import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 
 const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
 
@@ -87,6 +87,7 @@ export function Settings() {
       </> },
       { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },
       { id: "security", label: "Security", icon: ShieldCheckIcon, description: "Your account, and what can reach this server without it.", body: <><AccountSettings /><PasskeySettings /><McpSettings /></> },
+      { id: "backup", label: "Backup", icon: ArchiveBoxIcon, description: "Everything needed to rebuild this server elsewhere.", body: <BackupSettings /> },
       { id: "data", label: "Data", icon: CircleStackIcon, description: "Get your data out, and keep it safe.", body: <Data /> },
       { id: "updates", label: "Updates", icon: ArrowPathIcon, description: "The version of this server.", body: <SystemUpdates /> },
     ]} />

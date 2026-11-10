@@ -151,7 +151,7 @@ export function Overview() {
     await saveAll(widgets.filter((x) => x.id !== editing.id))
     setEditing(undefined)
   }
-  const stat = (label: string, value: any, to: string, level?: Level) => <Link to={to} className="-m-2 rounded-control p-2 hover:bg-raised"><Stat label={label} value={value ?? "—"} level={level} /></Link>
+  const stat = (label: string, value: any, to: string, level?: Level) => <Link to={to} className="-m-2 rounded-box p-2 hover:bg-raised"><Stat label={label} value={value ?? "—"} level={level} /></Link>
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title="Summary" edit={edit}>

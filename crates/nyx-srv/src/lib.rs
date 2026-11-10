@@ -3,6 +3,7 @@
 //! notifications, the MCP endpoint and static UI serving.
 
 pub mod auth;
+pub mod backup;
 pub mod crud;
 pub mod database;
 pub mod mcp;
@@ -59,6 +60,8 @@ pub struct Core {
     pub webauthn: Option<webauthn_rs::Webauthn>,
     pub passkey_flows: Mutex<auth::PasskeyFlows>,
     pub limiter: Mutex<auth::Limiter>,
+    /// Stops the server so that its supervisor starts it again, as after a restore.
+    pub restart: tokio::sync::Notify,
 }
 
 impl Core {
@@ -94,6 +97,7 @@ impl Core {
             webauthn,
             passkey_flows: Mutex::default(),
             limiter: Mutex::default(),
+            restart: tokio::sync::Notify::new(),
         }))
     }
 

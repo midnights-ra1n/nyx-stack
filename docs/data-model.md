@@ -44,7 +44,7 @@ contains the texts, theme, panels and the `embed` option.
 
 | Collection | Purpose |
 | --- | --- |
-| `hardware` | Physical inventory, warranty dates |
+| `hardware` | Physical inventory, warranty dates, and specifications by category (`cpu`, `ram`, `storage`, `ports`, `wifi`, `power`, `battery_at`, `firmware`, `mgmt_ip`) |
 | `virtual_assets` | VMs, containers and Docker services. `source = monitor` rows are synced |
 | `subnets` | CIDR, gateway, VLAN number, section, VRF name, location, usage threshold |
 | `ip_addresses` | Address, state, device, hostname, MAC, owner, last time a scan saw it |

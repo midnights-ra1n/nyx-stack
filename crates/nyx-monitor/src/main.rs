@@ -14,7 +14,7 @@ mod snmp;
 mod state;
 
 use axum::{middleware::from_fn_with_state, routing::get, Router};
-use nyx_srv::{auth, crud, mcp, notify, system, web, Core, Env};
+use nyx_srv::{auth, backup, crud, mcp, notify, system, web, Core, Env};
 use rust_embed::Embed;
 use state::App;
 use std::{sync::Arc, time::Duration};
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         });
     });
 
-    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).with_state(core.clone());
+    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(backup::router()).with_state(core.clone());
     let router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)
@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
 
-    web::serve(router, &core.env).await?;
+    web::serve(router, &core).await?;
     let flushed = app.flush().await; // keep the last partial rollup across restarts
     core.stop_db().await;
     flushed

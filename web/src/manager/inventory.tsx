@@ -14,6 +14,24 @@ const categoryCell = (h: any) => {
   return h.category ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{h.category}</span> : "—"
 }
 
+// Which details each category has. Plain text, so that "32 GB DDR4 ECC" fits as typed.
+const COMPUTE = ["Server", "NAS", "Router", "Firewall"]
+const NETWORK = ["Server", "NAS", "Switch", "Router", "Firewall", "Access point"]
+const MANAGED = ["Server", "NAS", "Switch", "Router", "Firewall", "Access point", "UPS", "Printer"]
+const spec = (key: string, label: string, only: string[], extra: Partial<Col> = {}): Col =>
+  ({ key, label, section: "Specifications", formOnly: true, suggest: true, when: { key: "category", in: only }, ...extra })
+const SPECS: Col[] = [
+  spec("cpu", "CPU", COMPUTE, { hint: "Model, cores and threads." }),
+  spec("ram", "RAM", ["Server", "NAS", "Firewall"], { hint: "Such as 64 GB DDR4 ECC." }),
+  spec("storage", "Storage", ["Server", "NAS", "Printer"], { hint: "Disks and bays, such as 4 × 8 TB HDD, 2 free bays." }),
+  spec("ports", "Network ports", NETWORK, { hint: "Such as 24 × 1 GbE, 4 × SFP+, PoE 370 W." }),
+  spec("wifi", "Wi-Fi", ["Access point", "Router"], { hint: "Standard and bands, such as Wi-Fi 6E, 2.4/5/6 GHz." }),
+  spec("power", "Power", ["Server", "NAS", "Switch", "UPS"], { hint: "Power supplies, or the UPS rating such as 1500 VA / 900 W." }),
+  spec("battery_at", "Battery replaced", ["UPS"], { type: "date", suggest: false }),
+  spec("firmware", "OS or firmware", MANAGED),
+  spec("mgmt_ip", "Management address", MANAGED, { mono: true, suggest: false, hint: "Web interface, IPMI or iDRAC." }),
+]
+
 const HARDWARE: Col[] = [
   { key: "category", label: "Category", type: "select", options: Object.keys(CATEGORIES), icons: CATEGORIES, formOnly: true },
   { key: "name", label: "Name", required: true, section: "Identity" },
@@ -21,6 +39,7 @@ const HARDWARE: Col[] = [
   { key: "manufacturer", label: "Manufacturer", suggest: true },
   { key: "model", label: "Model", suggest: true },
   { key: "serial", label: "Serial number", mono: true },
+  ...SPECS,
   { key: "location", label: "Location", suggest: true, section: "Where it is" },
   { key: "status", label: "Status", type: "select", options: ["In service", "Spare", "Broken", "Retired"] },
   { key: "purchased_at", label: "Purchased", type: "date", formOnly: true, section: "Dates" },

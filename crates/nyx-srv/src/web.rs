@@ -74,9 +74,16 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
     res
 }
 
-/// Serve until SIGINT/SIGTERM.
-pub async fn serve(router: Router, env: &crate::Env) -> anyhow::Result<()> {
-    serve_until(router, env, std::time::Duration::from_secs(5), nyx_db::shutdown_signal()).await
+/// Serve until SIGINT/SIGTERM, or until [`crate::Core::restart`] asks for a new start.
+pub async fn serve(router: Router, core: &std::sync::Arc<crate::Core>) -> anyhow::Result<()> {
+    let c = core.clone();
+    let stop = async move {
+        tokio::select! {
+            _ = nyx_db::shutdown_signal() => {}
+            _ = c.restart.notified() => println!("stopping so that the service manager restarts this server"),
+        }
+    };
+    serve_until(router, &core.env, std::time::Duration::from_secs(5), stop).await
 }
 
 /// Serve until `stop` resolves, with TLS when a certificate is configured.

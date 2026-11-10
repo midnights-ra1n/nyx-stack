@@ -372,6 +372,22 @@ export function AccountSettings() {
   )
 }
 
+/** Restoring happens on a new install, while creating its first account. */
+export function BackupSettings() {
+  const [history, setHistory] = useState(true)
+  return (
+    <Panel title="Backup">
+      <div className="flex flex-col gap-3">
+        <p className="text-fg2">One file with everything this server knows: hosts with their agent tokens and keys, probes, integrations, notification channels, pages and settings. Accounts are not in it.</p>
+        <p className="text-fg2">To restore, install a new server with the same public URL and pick the file when creating the account. Agents reconnect on their own.</p>
+        <p className="text-warn">The file holds secrets such as agent keys, SSH keys and integration passwords. Keep it somewhere safe.</p>
+        <Check label="Include metrics history" hint="Charts, uptime and past events. Makes the file much larger." checked={history} onChange={(e) => setHistory(e.target.checked)} />
+        <div><Button variant="primary" onClick={() => { location.href = `/api/backup?history=${history}` }}>Download backup</Button></div>
+      </div>
+    </Panel>
+  )
+}
+
 export interface SettingsSection { id: string; label: string; icon: Icon; description: string; body: ReactNode }
 
 /** One section at a time. The address keeps it, so a reload or a link lands on the same one. */

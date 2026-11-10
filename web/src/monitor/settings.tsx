@@ -1,8 +1,8 @@
-import { ArrowPathIcon, BellIcon, ChartBarIcon, Cog6ToothIcon, PuzzlePieceIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
+import { ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, Cog6ToothIcon, PuzzlePieceIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Button, Copy, Panel, TextArea } from "../ui/components"
 import { api, useApi } from "../ui/lib"
-import { AboutPanel, AccountSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
+import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 
 function Meross() {
   const { data, reload } = useApi("/api/settings/meross", { poll: false })
@@ -94,6 +94,7 @@ export function Settings() {
       </> },
       { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },
       { id: "security", label: "Security", icon: ShieldCheckIcon, description: "Your account, and what can reach this server without it.", body: <><AccountSettings /><PasskeySettings /><McpSettings /></> },
+      { id: "backup", label: "Backup", icon: ArchiveBoxIcon, description: "Everything needed to rebuild this server elsewhere.", body: <BackupSettings /> },
       { id: "updates", label: "Updates", icon: ArrowPathIcon, description: "The version of this server and its agents.", body: <SystemUpdates agents /> },
     ]} />
   )

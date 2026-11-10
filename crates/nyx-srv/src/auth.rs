@@ -2,6 +2,7 @@
 
 use crate::{random_hex, ApiError, ApiResult, Core};
 use axum::{
+    body::to_bytes,
     extract::{FromRequestParts, Path, Request, State},
     http::{header, request::Parts, HeaderMap, StatusCode},
     middleware::Next,
@@ -24,6 +25,8 @@ const SESSION_S: u64 = 7 * 86400;
 const MAX_FAILS: u32 = 5;
 const LOCKOUT: Duration = Duration::from_secs(60);
 const FLOW_TTL: Duration = Duration::from_secs(300);
+/// Room for a backup with its metrics history.
+const SETUP_BODY: usize = 512 << 20;
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -118,15 +121,35 @@ async fn status(State(core): State<Arc<Core>>, headers: HeaderMap) -> ApiResult<
     })))
 }
 
-async fn setup(State(core): State<Arc<Core>>, Json(c): Json<Credentials>) -> ApiResult<Response> {
+#[derive(Deserialize)]
+struct Setup {
+    email: String,
+    password: String,
+    /// A file from `/api/backup`, restored before the account is created.
+    backup: Option<Value>,
+}
+
+/// Reads the body itself: only a server without accounts accepts one this large.
+async fn setup(State(core): State<Arc<Core>>, req: Request) -> ApiResult<Response> {
     if has_users(&core).await? {
         return Err(ApiError::new(StatusCode::CONFLICT, "already set up"));
     }
+    let body = to_bytes(req.into_body(), SETUP_BODY).await.map_err(|_| ApiError::bad_request("request too large"))?;
+    let c: Setup = serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    drop(body);
     if c.password.len() < 10 {
         return Err(ApiError::bad_request("password must be at least 10 characters"));
     }
+    if let Some(backup) = &c.backup {
+        crate::backup::restore(&core.pb, backup).await?;
+    }
     let body = json!({"email": c.email, "password": c.password, "passwordConfirm": c.password, "verified": true});
     let user = core.pb.create("users", &body).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    if c.backup.is_some() {
+        crate::backup::adopt_passkeys(&core.pb, user["id"].as_str().unwrap_or_default()).await?;
+        // Roles keep hosts, probes and settings in memory: a fresh start loads the restored ones.
+        core.restart.notify_one();
+    }
     Ok(logged_in(&core, &user))
 }
 

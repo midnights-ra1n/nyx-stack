@@ -23,6 +23,8 @@ export interface Col {
   icons?: Record<string, Icon>
   /** Offers the values already in use while typing. */
   suggest?: boolean
+  /** In the form only while another field holds one of these values. */
+  when?: { key: string; in: string[] }
 }
 
 const toInput = (c: Col, v: any) => (c.type === "date" ? (v ? String(v).slice(0, 10) : "") : v ?? "")
@@ -55,7 +57,7 @@ function Tiles({ col, value, onChange }: { col: Col; value: string; onChange: (v
 export function groups(cols: Col[]) {
   const out: { title?: string; cols: Col[] }[] = []
   for (const c of cols) {
-    if (c.section || out.length === 0) out.push({ title: c.section, cols: [] })
+    if (out.length === 0 || (c.section && c.section !== out[out.length - 1].title)) out.push({ title: c.section, cols: [] })
     out[out.length - 1].cols.push(c)
   }
   return out
@@ -102,9 +104,11 @@ export function RecordForm({ cols: all, row, collection, onDone, title, defaults
   const [form, setForm] = useState<any>(() => Object.fromEntries(cols.map((c) => [c.key, toInput(c, (row ?? defaults)?.[c.key])])))
   const [error, setError] = useState("")
   const set = (k: string, v: any) => setForm({ ...form, [k]: v })
+  // Hidden fields are left out of the save, so switching the category back finds them again.
+  const visible = cols.filter((c) => !c.when || c.when.in.includes(form[c.when.key]))
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const body = Object.fromEntries(cols.map((c) => [c.key, fromInput(c, form[c.key])]))
+    const body = Object.fromEntries(visible.map((c) => [c.key, fromInput(c, form[c.key])]))
     try {
       const rec = await api(row ? `/api/c/${collection}/${row.id}` : `/api/c/${collection}`, { method: row ? "PATCH" : "POST", body })
       onSaved?.(rec)
@@ -131,7 +135,7 @@ export function RecordForm({ cols: all, row, collection, onDone, title, defaults
   }
   return (
     <Editor title={title} onCancel={onDone} onSubmit={submit} error={error}>
-      {groups(cols).map((g, i) => <EditorGroup key={i} title={g.title}>{g.cols.map(field)}</EditorGroup>)}
+      {groups(visible).map((g, i) => <EditorGroup key={i} title={g.title}>{g.cols.map(field)}</EditorGroup>)}
     </Editor>
   )
 }

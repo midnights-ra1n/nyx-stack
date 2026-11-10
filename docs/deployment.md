@@ -405,6 +405,34 @@ Creating a new token replaces the old one.
 
 ## Backups
 
+### From the web interface
+
+**Settings, Backup, Download backup** saves one JSON file with every record of the
+server's database: hosts with their agent tokens and keys, probes, integrations,
+notification channels and rules, status pages, IPAM, inventory, sites and settings.
+Tick **Include metrics history** to keep charts, uptime and past events too; it makes
+the file much larger. On a [shared database](#choosing-a-database) the file holds the
+data of both servers.
+
+To restore, install a new server and pick the file under **Restore from a backup** when
+creating the first account. Records keep their ids, so agents reconnect with the tokens
+they already have and nothing needs reinstalling. Keep the same `NYX_PUBLIC_URL`: agents
+send their reports there, and passkeys only work on the address they were made for.
+Restored passkeys move to the new account.
+
+After restoring, the server stops so that its service manager starts it again with the
+restored data. systemd and Docker do this on their own; a server started by hand has to
+be started again.
+
+Accounts are not in the file, as PocketBase never hands out password hashes, and neither
+is the secret that signs sessions. Restoring is only offered while the server has no
+account: to restore over an install in use, start from an empty data directory.
+
+The file holds secrets in clear: agent keys, SSH private keys of sites, integration and
+notification passwords. Store it like a password vault export.
+
+### Copying the data directory
+
 Everything durable is in each server's data directory: back up `/var/lib/nyx/monitor`
 and `/var/lib/nyx/manager`, or `/var/lib/nyx/db` on the `nyx-db` host, or the matching
 volumes, as shown [for Docker](#data-and-backups). Stop the server first, or use a tool

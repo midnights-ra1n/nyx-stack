@@ -157,23 +157,48 @@ async function passkeyLogin(email: string) {
   await api("/api/auth/passkey/login/finish", { body: { flow, credential: cred.toJSON() } })
 }
 
+/** Waits for the server to stop and come back, as it does after a restore. */
+async function backAfterRestart() {
+  let stopped = false
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => setTimeout(r, 1000))
+    const up = await api("/api/auth/status").then(() => true, () => false)
+    if (!up) stopped = true
+    else if (stopped) return
+  }
+  throw new Error("Restored, but the server did not restart. Start it again by hand.")
+}
+
 function Gate({ setup, passkeys, onDone, name }: { setup: boolean; passkeys: boolean; onDone: () => void; name: string }) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [backup, setBackup] = useState<File>()
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const run = async (f: () => Promise<unknown>) => {
     setError("")
+    setBusy(true)
     try { await f(); onDone() } catch (e) { setError((e as Error).message) }
+    setBusy(false)
+  }
+  const create = async () => {
+    let data
+    if (backup) {
+      try { data = JSON.parse(await backup.text()) } catch { throw new Error("This file is not a Nyx backup.") }
+    }
+    await api("/api/auth/setup", { body: { email, password, backup: data } })
+    if (data) await backAfterRestart()
   }
   return (
     <main className="flex min-h-full items-center justify-center p-5">
-      <form className="flex w-full max-w-sm flex-col gap-4 rounded-panel border border-line bg-surface p-6" onSubmit={(e) => { e.preventDefault(); run(() => api(setup ? "/api/auth/setup" : "/api/auth/login", { body: { email, password } })) }}>
+      <form className="flex w-full max-w-sm flex-col gap-4 rounded-panel border border-line bg-surface p-6" onSubmit={(e) => { e.preventDefault(); run(setup ? create : () => api("/api/auth/login", { body: { email, password } })) }}>
         <div className="flex items-center gap-3"><Logo /><h1 className="text-lg font-medium">{name}</h1></div>
         <p className="text-fg2">{setup ? "Create the administrator account." : "Sign in to continue."}</p>
         <Input label="Email" type="email" autoComplete="username webauthn" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <Input label="Password" type="password" autoComplete={setup ? "new-password" : "current-password"} required minLength={setup ? 10 : undefined} value={password} onChange={(e) => setPassword(e.target.value)} hint={setup ? "At least 10 characters." : undefined} />
+        {setup && <Input label="Restore from a backup (optional)" type="file" accept=".json,application/json" onChange={(e) => setBackup(e.target.files?.[0])} hint="Hosts, agents, probes and integrations come back as they were. Keep the same public URL so agents and passkeys reconnect." />}
         <ErrorNote>{error}</ErrorNote>
-        <Button variant="primary" type="submit">{setup ? "Create account" : "Sign in"}</Button>
+        <Button variant="primary" type="submit" disabled={busy}>{setup ? (busy && backup ? "Restoring…" : backup ? "Create account and restore" : "Create account") : "Sign in"}</Button>
         {!setup && passkeys && <Button onClick={() => run(() => passkeyLogin(email))} disabled={!email}>Use a passkey</Button>}
       </form>
     </main>

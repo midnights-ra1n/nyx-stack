@@ -9,7 +9,7 @@ mod nextcloud;
 mod sites;
 
 use axum::{middleware::from_fn_with_state, routing::get, Router};
-use nyx_srv::{auth, crud, mcp, notify, system, web, Core, Env};
+use nyx_srv::{auth, backup, crud, mcp, notify, system, web, Core, Env};
 use rust_embed::Embed;
 use std::{sync::Arc, time::Duration};
 
@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     notify::spawn(core.clone());
     spawn_loops(app.clone());
 
-    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).with_state(core.clone());
+    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(backup::router()).with_state(core.clone());
     let router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)
@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(mcp::router(core.clone(), api::mcp_tools(app.clone())))
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
-    let served = web::serve(router, &core.env).await;
+    let served = web::serve(router, &core).await;
     core.stop_db().await;
     served
 }

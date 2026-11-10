@@ -22,7 +22,7 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | --- | --- | --- | --- |
 | GET | `/api/health` | Public | Liveness |
 | GET | `/api/auth/status` | Public | Session state, signed-in email, whether HTTPS, passkeys and a shared database are on |
-| POST | `/api/auth/setup` | Public | Create the first account, once |
+| POST | `/api/auth/setup` | Public | Create the first account, once: `{"email", "password", "backup"?}`, where `backup` is a file from `/api/backup` to restore first |
 | POST | `/api/auth/login` | Public | Sign in, rate limited |
 | POST | `/api/auth/logout` | Session | Sign out |
 | POST | `/api/auth/password` | Session | Change the password: `{"current", "password"}`, rate limited |
@@ -38,6 +38,7 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | GET | `/api/system/version` | Session | Version and install type |
 | POST | `/api/system/check` | Session | Ask GitHub for the latest release, on the chosen channel |
 | POST | `/api/system/update` | Session | Request a package upgrade |
+| GET | `/api/backup?history=true` | Session | Download a full backup, with the metrics history when asked |
 | POST | `/api/mcp/tokens` | Session | Create an MCP token |
 | POST | `/mcp`, `/mcp/{token}` | Token, HTTPS | MCP endpoint |
 

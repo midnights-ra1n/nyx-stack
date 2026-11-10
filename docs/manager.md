@@ -6,6 +6,21 @@
 dates. The overview flags warranties ending within 60 days. The add form starts from
 the category, and offers the manufacturers, models and locations already in use.
 
+The category decides which specifications the form asks for:
+
+| Category | Specifications |
+| --- | --- |
+| Server | CPU, RAM, storage, network ports, power, OS or firmware, management address (IPMI, iDRAC) |
+| NAS | CPU, RAM, storage, network ports, power, OS or firmware, management address |
+| Switch | Network ports, power, firmware, management address |
+| Router, Firewall | CPU, network ports, firmware, management address; Wi-Fi on routers, RAM on firewalls |
+| Access point | Network ports, Wi-Fi, firmware, management address |
+| UPS | Power rating, battery replacement date, firmware, management address |
+| Printer | Storage, firmware, management address |
+
+Each one is free text, so "64 GB DDR4 ECC" is kept as typed. Changing the category hides
+the other details without erasing them, and the search field finds them too.
+
 Every inventory list has a search field and a filter per category or status. Click a
 column header to sort on it, again to reverse; the order is remembered on this device.
 On a phone, use **Sort by**.
