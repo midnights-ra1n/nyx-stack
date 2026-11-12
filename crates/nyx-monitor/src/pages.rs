@@ -13,7 +13,7 @@
 
 use crate::{
     probes::ProbeLive,
-    state::{host_status, offline_after_s, pct, worst, App, FleetPoint, Host, Point, State as Fleet},
+    state::{host_status, pct, worst, App, FleetPoint, Host, Point, State as Fleet},
 };
 use axum::{
     body::Bytes,
@@ -485,7 +485,7 @@ fn uptime_of(c: &Ctx, r: &Row) -> Option<f64> {
 }
 
 fn live<'a>(c: &Ctx, h: &'a Host) -> Option<&'a crate::state::Live> {
-    h.live.as_ref().filter(|_| c.now - h.last_seen <= offline_after_s())
+    h.live.as_ref().filter(|_| h.online(c.now))
 }
 
 /// `(value, unit, level)` of one metric, or `None` when offline or unknown.

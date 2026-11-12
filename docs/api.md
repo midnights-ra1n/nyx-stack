@@ -94,6 +94,16 @@ Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `updat
 or `set_kind` with `kind` and `ct_autoinstall`, which watches LXC containers. `update_system` and `update_agent` are
 refused while an update runs on that host.
 
+`firewall` takes `op` and `rule`. To add: `{"action": "firewall", "op": "add", "rule":
+{"action": "allow", "proto": "tcp", "port": "443", "source": "192.168.1.0/24"}}`, where
+`action` is `allow`, `deny` or `reject`, `proto` is `tcp`, `udp` or empty for both, `port`
+a number or a range such as `8000:8100`, and `source` an address or network, empty for
+anywhere. To remove: `"op": "delete"` with a rule as listed in the host's `firewall.rules`,
+which is found again by its `raw` field. A rule with `"chain": "DOCKER-USER"` filters a port
+published by Docker. `"op": "save"` writes the live iptables rules to the boot file, and
+`"op": "persist"` installs `iptables-persistent` or `iptables-services` first. See
+[Firewall](agent.md#firewall).
+
 Each host in `/api/hosts` carries `reboot_required`, and `update` once one was sent:
 `{"started", "done", "pct", "step", "error"}`, kept in memory.
 

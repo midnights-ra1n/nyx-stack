@@ -111,8 +111,9 @@ fire in a burst.
 
 Alerts come from a reconcile step: each cycle computes the wanted set of open alerts
 and writes only the differences. Thresholds use three points of hysteresis, so a value
-hovering at the limit does not flap. A host goes offline after four missed reports
-(one minute), and a grace period after a server restart prevents false alarms.
+hovering at the limit does not flap. A host goes offline after two missed reports at
+the pace it was given, plus 30 seconds: one minute while someone uses the monitor, 2.5
+minutes otherwise (see [Report pace](agent.md#report-pace)), and a grace period after a server restart prevents false alarms.
 
 ## Notifications
 

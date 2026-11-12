@@ -83,6 +83,144 @@ pub struct Report {
     /// Tunnels of this host. Empty from older agents.
     #[serde(default)]
     pub vpn: Vec<VpnLink>,
+    /// Sent when it changed. Absent from older agents.
+    #[serde(default)]
+    pub firewall: Option<Firewall>,
+}
+
+/// The firewall of a host, as its own tool sees it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Firewall {
+    /// `ufw`, `firewalld`, `nftables` or `iptables`. Empty: none found.
+    pub backend: String,
+    /// Filtering incoming traffic. ufw and firewalld can be installed and off.
+    pub active: bool,
+    /// Fate of incoming traffic no rule matches: `accept`, `drop` or `reject`.
+    pub default_in: String,
+    /// Incoming rules, in the order they apply.
+    pub rules: Vec<FwRule>,
+    /// Ports open to the network, to compare with the rules. Loopback is left out.
+    pub listening: Vec<Listener>,
+    /// The ruleset as `nft` prints it, as Nyx does not edit nftables.
+    #[serde(default)]
+    pub raw: String,
+    /// Docker's `DOCKER-USER` chain exists: published ports bypass the host rules.
+    #[serde(default)]
+    pub docker: bool,
+    /// What reloads the rules at boot: `ufw`, `firewalld`, `netfilter-persistent` or
+    /// `iptables-services`. Empty: only the chains Nyx keeps come back.
+    #[serde(default)]
+    pub saved_by: String,
+    /// The live iptables rules differ from the file loaded at boot.
+    #[serde(default)]
+    pub unsaved: bool,
+    /// Package that would save iptables rules, when none does yet.
+    #[serde(default)]
+    pub installable: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct FwRule {
+    /// `allow`, `deny`, `reject`, `limit`, or the target of anything else.
+    pub action: String,
+    /// `tcp`, `udp`, or empty for any.
+    #[serde(default)]
+    pub proto: String,
+    /// `22`, `80,443`, `8000:8100`, a firewalld service name, or empty for any.
+    #[serde(default)]
+    pub port: String,
+    /// Address or network, empty for anywhere.
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub iface: String,
+    /// `4` or `6` when the rule only covers one of them.
+    #[serde(default)]
+    pub family: String,
+    #[serde(default)]
+    pub comment: String,
+    /// iptables chain holding it. `DOCKER-USER` filters ports published by Docker.
+    #[serde(default)]
+    pub chain: String,
+    /// The rule as its tool prints it, which is how it is found again to remove it.
+    #[serde(default)]
+    pub raw: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Listener {
+    pub proto: String,
+    pub port: u16,
+    /// Addresses it listens on, `*` for all.
+    pub addr: String,
+    /// Program, or the container publishing the port.
+    pub process: String,
+    /// Published by Docker: only `DOCKER-USER` rules apply to it.
+    #[serde(default)]
+    pub docker: bool,
+}
+
+/// Add or remove one incoming rule.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FirewallChange {
+    /// `add` or `delete` a rule, `save` the iptables rules for the next boot, or `persist`:
+    /// install what saves them, then save.
+    pub op: String,
+    pub rule: FwRule,
+}
+
+impl FirewallChange {
+    /// What an added rule may hold. Everything ends up as arguments of a root command.
+    pub fn check(&self) -> Result<(), &'static str> {
+        let r = &self.rule;
+        match self.op.as_str() {
+            "delete" => return if r.raw.is_empty() || r.raw.contains(['\n', '\0']) { Err("rule not found") } else { Ok(()) },
+            "save" | "persist" => return Ok(()),
+            "add" => {}
+            _ => return Err("unknown operation"),
+        }
+        if !r.iface.is_empty() || !r.raw.is_empty() || !matches!(r.chain.as_str(), "" | "DOCKER-USER") {
+            return Err("a new rule takes an action, a protocol, a port and a source, for the host or for Docker");
+        }
+        if !matches!(r.action.as_str(), "allow" | "deny" | "reject") {
+            return Err("action must be allow, deny or reject");
+        }
+        if !matches!(r.proto.as_str(), "" | "tcp" | "udp") {
+            return Err("protocol must be tcp or udp");
+        }
+        if !r.port.is_empty() && !port_ok(&r.port) {
+            return Err("port must be a number from 1 to 65535, or a range such as 8000:8100");
+        }
+        if r.port.contains(':') && r.proto.is_empty() {
+            return Err("a port range needs a protocol");
+        }
+        if r.port.is_empty() && r.source.is_empty() {
+            return Err("give a port, a source or both");
+        }
+        if !r.source.is_empty() && !net_ok(&r.source) {
+            return Err("source must be an IP address or a network such as 192.168.1.0/24");
+        }
+        if !r.comment.chars().all(|c| c.is_ascii_alphanumeric() || " -_.".contains(c)) || r.comment.len() > 64 {
+            return Err("comment: letters, digits, spaces, - _ and . only");
+        }
+        Ok(())
+    }
+}
+
+fn port_ok(p: &str) -> bool {
+    let n = |s: &str| s.parse::<u16>().is_ok_and(|n| n > 0) && !s.starts_with('0');
+    match p.split_once(':') {
+        Some((a, b)) => n(a) && n(b) && a.parse::<u16>().ok() < b.parse::<u16>().ok(),
+        None => n(p),
+    }
+}
+
+fn net_ok(s: &str) -> bool {
+    let (ip, prefix) = s.split_once('/').unwrap_or((s, ""));
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(a) => prefix.is_empty() || prefix.parse::<u8>().is_ok_and(|p| p <= if a.is_ipv4() { 32 } else { 128 }),
+        Err(_) => false,
+    }
 }
 
 /// A VPN interface. Its address stays out of `ip`: it only means something inside the VPN.
@@ -288,6 +426,8 @@ pub enum Action {
     UpdateAgent,
     /// Clone or pull a Node.js site, build it and restart its service.
     Deploy(Deploy),
+    /// Undone by the agent when it cannot reach the monitor afterwards.
+    Firewall(FirewallChange),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -304,6 +444,9 @@ pub struct Deploy {
     /// The service already running this site, see [`NodeApp::service`]. Empty: Nyx creates its own.
     #[serde(default)]
     pub service: String,
+    /// Seconds of HTTP cache forced on the site's answers, `0` to always revalidate. `None`: the app's own.
+    #[serde(default)]
+    pub cache_max_age: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -368,6 +511,23 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn firewall_changes_only_take_plain_values() {
+        let add = |action: &str, proto: &str, port: &str, source: &str| FirewallChange {
+            op: "add".into(),
+            rule: FwRule { action: action.into(), proto: proto.into(), port: port.into(), source: source.into(), ..FwRule::default() },
+        }.check();
+        assert!(add("allow", "tcp", "22", "").is_ok() && add("deny", "", "", "10.0.0.0/8").is_ok() && add("reject", "udp", "8000:8100", "fd00::1").is_ok());
+        assert!(add("accept", "tcp", "22", "").is_err() && add("allow", "icmp", "22", "").is_err());
+        assert!(add("allow", "tcp", "0", "").is_err() && add("allow", "tcp", "65536", "").is_err() && add("allow", "tcp", "9:8", "").is_err());
+        assert!(add("allow", "", "8000:8100", "").is_err(), "ranges need a protocol");
+        assert!(add("allow", "", "", "").is_err() && add("allow", "tcp", "22", "1.2.3.4/33").is_err() && add("allow", "tcp", "22", "-j ACCEPT").is_err());
+        let del = |raw: &str| FirewallChange { op: "delete".into(), rule: FwRule { raw: raw.into(), ..FwRule::default() } }.check();
+        assert!(del("-A INPUT -j ACCEPT").is_ok() && del("").is_err() && del("a\nb").is_err());
+        let docker = |chain: &str| FirewallChange { op: "add".into(), rule: FwRule { action: "deny".into(), port: "8080".into(), chain: chain.into(), ..FwRule::default() } }.check();
+        assert!(docker("DOCKER-USER").is_ok() && docker("FORWARD").is_err());
+    }
 
     #[test]
     fn signature_round_trip_rejects_tampering() {

@@ -1,7 +1,7 @@
 # Agent
 
 A single static binary, run by systemd as root. It opens no port: it calls the
-monitor every 15 seconds. Measured on a release build: 1.4 MB on disk, about 13 MB of
+monitor every 15 seconds while someone uses the monitor, every 60 seconds otherwise. Measured on a release build: 1.4 MB on disk, about 13 MB of
 RSS, and 0.16 s of CPU over 45 s, on macOS. Figures on Linux may differ.
 
 ## Installing
@@ -125,23 +125,134 @@ An agent started by hand in an OCI container does report CPU, memory, disks and 
 The host page then warns that logs, updates and Docker state stay empty when the image
 has no journald, package manager or Docker.
 
+## Report pace
+
+The monitor sets the pace in each answer:
+
+| When | Every | Requests per host per day |
+| --- | --- | --- |
+| Nobody used the monitor's web interface in the last 2 minutes | 60 s | 1,440 |
+| Someone uses it, or watches live logs | 15 s | 5,760 at most |
+| A system or agent update runs | 5 s | while it lasts |
+
+When you open the interface, each agent speeds up after its next report, so within a
+minute. Commands such as a deploy or an update also start at that next report. Wall
+displays, status pages and MCP calls do not speed agents up. A host goes offline after
+two missed reports at its pace, plus 30 seconds: 1 minute at full pace, 2.5 minutes idle.
+
 ## What is collected
 
 | Data | Frequency | Notes |
 | --- | --- | --- |
-| Uptime, CPU, RAM, swap, network, disk usage | 15 s | |
-| Temperature | 15 s | Highest sensor |
+| Uptime, CPU, RAM, swap, network, disk usage | Each report | |
+| Temperature | Each report | Highest sensor |
 | Docker containers | When changed | Through `/var/run/docker.sock`, skipped if absent |
 | Node.js apps and version | When changed, looked for every 5 min | From running processes: folder, Git origin and branch, user, what runs them. Credentials in a Git URL stay on the host, and the binaries found are never run |
-| VPN tunnels | 15 s | Interface, type, address and traffic |
+| VPN tunnels | Each report | Interface, type, address and traffic |
 | Pending system updates | Daily | At the hour set in the monitor |
 | SMART health and remaining life | Periodically | Physical hosts. Summarised as a simple state |
 | Logs | Once a minute, when there are new lines | Warnings and above, through journald |
 | Live logs | Every 2 s, only while someone watches this host | Info and above, nothing stored. See [live logs](monitoring.md#live-logs) |
 
-| Restart needed | 15 s | `/run/reboot-required`, or a newer kernel in `/lib/modules` than the running one |
+| Restart needed | Each report | `/run/reboot-required`, or a newer kernel in `/lib/modules` than the running one |
+| Firewall | 5 min, and right after a change | Tool, default policy, incoming rules, ports open to the network. See [Firewall](#firewall) |
 
 Package managers supported for updates are apt and dnf.
+
+## Firewall
+
+The **Firewall** block of a host page shows the tool that filters incoming traffic, what
+happens to traffic no rule matches, the incoming rules in the order they apply, whether
+they come back after a restart, and the ports open to the network with whether anyone can
+reach them. Ports bound to loopback are left out, since the network cannot reach them.
+
+| Tool | Read | Rules added and removed |
+| --- | --- | --- |
+| ufw | `ufw status` | With `ufw`, saved by ufw itself |
+| firewalld | Default zone: services, ports and rich rules | Runtime first, then `--permanent` once it held |
+| iptables (legacy or nft) | From `INPUT` on, IPv4 and IPv6, following your own chains | In the `NYX-INPUT` chain; see [Saving iptables rules](#saving-iptables-rules) |
+| nftables | Chains hooked on `input`, and the full ruleset | No: edit `/etc/nftables.conf` |
+
+The agent picks the tool that is on: ufw, then firewalld, then nftables with its own
+`inet` table, then iptables with rules. A host with ufw or firewalld installed but off
+shows it as off, and rules can be added once you turn it on from the host.
+
+### Rules already there
+
+Every rule already on the host is listed and can be removed, whoever made it. With
+iptables, the agent follows the jumps from `INPUT` into chains of your own, such as the
+`FW-INPUT` chain the server-deploy playbook uses, and shows their rules in place, with the
+chain name. Chains that other tools build at start are shown as a single jump and never
+opened, saved or changed: Docker (`DOCKER*`), fail2ban (`f2b-*`), libvirt, Kubernetes,
+CNI, Tailscale (`ts-*`), NetBird and CrowdSec. A rule removed by Nyx is removed with its
+exact arguments, only if it is still listed, so a rule that changed meanwhile is left
+alone.
+
+### Adding a rule
+
+Pick allow, drop or reject, a protocol, a port or range, and a source (empty for
+anywhere). A rule for a source goes first, others last: "allow my LAN" then "drop for
+everyone" works in either order of creation. In the list of open ports, **Allow** opens
+a blocked port in one click. Rules added by Nyx carry the comment `nyx` unless you give
+one.
+
+With iptables, Nyx's rules go in its own chain, `NYX-INPUT`, jumped to first from `INPUT`
+for all traffic but loopback. Your rules and your playbook's chains stay as they are, and
+a playbook that reloads only its own chains (`iptables-restore --noflush`) leaves Nyx's
+rules alone.
+
+### Docker
+
+A port published by Docker never reaches `INPUT`: Docker redirects it before, so ufw,
+firewalld and iptables rules on the host do not apply to it. The only place that filters
+it is Docker's `DOCKER-USER` chain, whatever tool the host uses.
+
+The list of open ports takes published ports from Docker's API, with the container's
+name, also when no `docker-proxy` listens on them. Their reachability comes from
+`DOCKER-USER` alone. A rule for such a port goes in `DOCKER-USER` on its own, matching the
+port the client asked for (`--ctorigdstport`), since Docker has already rewritten the
+destination when the chain sees it. Allowed traffic goes back to Docker (`RETURN`), so
+Docker's own isolation still applies.
+
+Docker starts with an empty `DOCKER-USER` after a restart. The agent keeps the rules of
+`DOCKER-USER` and `NYX-INPUT` in `/etc/nyx/firewall.rules` and puts them back when it finds
+the chain empty, on its first report after a restart, then every 5 minutes. This works
+with ufw and firewalld too. Emptying one of these chains by hand brings its rules back:
+remove them from Nyx instead.
+
+### Saving iptables rules
+
+On Debian and Ubuntu, `netfilter-persistent` (package `iptables-persistent`) loads
+`/etc/iptables/rules.v4` and `rules.v6` at boot. On RHEL, Fedora and Alma,
+`iptables-services` loads `/etc/sysconfig/iptables` and `ip6tables`.
+
+- **Neither is installed:** the block says so and offers to install the right package.
+  The agent sets it up not to save on its own, installs it without removing anything (on
+  Ubuntu it would replace ufw otherwise), then saves the current rules.
+- **The live rules differ from the boot file:** shown as **Not saved**, with a **Save
+  rules** button. Rules changed by hand or by a script are not lost at the next restart
+  this way. Comments and counters do not count as a difference, but a file written by hand
+  in another form than `iptables-save` does, until it is saved once.
+- **After a change from Nyx:** the boot file is written again, but only if it matched the
+  live rules before. Otherwise it is left alone and the result says so, so a change you
+  were still testing by hand is not saved by surprise.
+
+Saving writes `iptables-save` without the chains of the tools listed above, which make
+their own at start: Docker's, saved, would come back at boot pointing to containers that
+are gone. `DOCKER-USER` is kept. The previous file stays next to it as `.nyx-bak`.
+
+A playbook that writes the boot file, such as server-deploy's `rules.v4`, replaces what
+Nyx saved there at its next run. Rules in `NYX-INPUT` and `DOCKER-USER` still come back,
+from the agent.
+
+### Safety
+
+Before a change, the agent saves the rules: the output of `iptables-save`, the ufw rule
+files, or nothing for firewalld, whose change stays runtime until it held. After it, the
+agent calls the monitor. If that fails three times in 15 seconds, it puts the rules back
+and reports the failure. SSH is not tested this way: Nyx asks for confirmation before a
+change that could block port 22, and since the agent does not use SSH, you can still undo
+such a rule from Nyx.
 
 ## Files
 

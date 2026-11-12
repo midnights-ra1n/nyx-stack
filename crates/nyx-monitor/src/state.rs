@@ -17,6 +17,10 @@ pub const RAM_POINTS: usize = 240;
 /// Logs are kept in RAM only, so collecting them costs the server no disk I/O.
 pub const LOG_LINES: usize = 500;
 pub const REPORT_INTERVAL_S: u64 = 15;
+/// Report pace while nobody looks at the monitor: 4 times fewer requests.
+pub const IDLE_INTERVAL_S: u64 = 60;
+/// How long a request to the monitor's API keeps agents at [`REPORT_INTERVAL_S`].
+pub const VIEW_S: i64 = 120;
 /// Report pace while an update runs, so that its bar moves.
 pub const UPDATE_INTERVAL_S: u64 = 5;
 /// An update without a result by then lost its agent, which keeps its queue in memory.
@@ -118,6 +122,7 @@ pub struct Live {
     pub node: Option<NodeInfo>,
     pub guests: Vec<Guest>,
     pub vpn: Vec<VpnLink>,
+    pub firewall: Option<nyx_proto::Firewall>,
     pub logs: VecDeque<String>,
     pub series: VecDeque<Point>,
 }
@@ -176,6 +181,16 @@ pub struct Host {
     pub tail: Tail,
     pub watched_until: i64,
     pub tail_seen: i64,
+    /// Pace given in the last reply. 0 until then, as after a restart: taken as idle.
+    pub interval_s: u64,
+}
+
+impl Host {
+    /// Still reporting at the pace it was given.
+    pub fn online(&self, now: i64) -> bool {
+        let pace = if self.interval_s == 0 { IDLE_INTERVAL_S } else { self.interval_s.max(REPORT_INTERVAL_S) };
+        now - self.last_seen <= offline_after(pace)
+    }
 }
 
 /// The latest update sent to a host. In memory only, like the commands themselves.
@@ -265,6 +280,7 @@ impl Host {
             tail: Tail::default(),
             watched_until: 0,
             tail_seen: 0,
+            interval_s: 0,
         }
     }
 }
@@ -283,12 +299,17 @@ pub fn worst(a: &'static str, b: &'static str) -> &'static str {
 }
 
 pub fn offline_after_s() -> i64 {
-    REPORT_INTERVAL_S as i64 * 4
+    offline_after(REPORT_INTERVAL_S)
+}
+
+/// Two missed reports, plus slack for a slow network.
+pub fn offline_after(interval_s: u64) -> i64 {
+    (interval_s as i64 * 2 + 30).max(60)
 }
 
 /// Health of a host: `off` when silent, otherwise its worst metric.
 pub fn host_status(h: &Host, now: i64, th: &Thresholds) -> &'static str {
-    let Some(live) = h.live.as_ref().filter(|_| now - h.last_seen <= offline_after_s()) else { return "off" };
+    let Some(live) = h.live.as_ref().filter(|_| h.online(now)) else { return "off" };
     let r = &live.report;
     let mut s = level(r.cpu_pct, th.warn, th.crit);
     s = worst(s, level(pct(r.mem_used, r.mem_total), th.warn, th.crit));
@@ -365,6 +386,8 @@ pub struct State {
     /// Day of the last history snapshot. `None` until the history is loaded, as
     /// saving before that would overwrite it with a partial one.
     pub history_day: Option<NaiveDate>,
+    /// Until when someone is using the monitor, see [`VIEW_S`].
+    pub viewed_until: i64,
 }
 
 pub struct App {
@@ -407,7 +430,7 @@ impl App {
     /// After a restart `last_seen` is stale for everyone: nothing can be told about a
     /// host before agents had one full window to report.
     pub fn settled(&self) -> bool {
-        self.started.elapsed().as_secs() >= offline_after_s() as u64
+        self.started.elapsed().as_secs() >= offline_after(IDLE_INTERVAL_S) as u64
     }
 
     pub fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -487,7 +510,7 @@ impl App {
         let hosts: Vec<(String, String, bool)> = {
             let st = self.lock();
             // A host that never reported is pending installation, not down.
-            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), !h.muted && now - h.last_seen > offline_after_s())).collect()
+            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), !h.muted && !h.online(now))).collect()
         };
         for (id, name, down) in hosts {
             let wanted = down.then(|| Wanted { key: format!("offline:{id}"), kind: "state", severity: "crit", message: format!("{name} is not responding"), host: name.clone() });
@@ -554,7 +577,7 @@ impl App {
         let auto = st.maintenance.agent_auto_update;
         let target = st.agent_target();
         // A queue for a dead host would only grow, so it waits for the next day.
-        for h in st.hosts.values_mut().filter(|h| now.timestamp() - h.last_seen <= offline_after_s() && !h.agent_version.is_empty()) {
+        for h in st.hosts.values_mut().filter(|h| h.online(now.timestamp()) && !h.agent_version.is_empty()) {
             h.queue.push(Command { id: nyx_srv::random_hex(8), action: Action::CheckUpdates });
             if auto && h.agent_version != target {
                 h.queue.push(Command { id: nyx_srv::random_hex(8), action: Action::UpdateAgent });
@@ -595,7 +618,7 @@ impl State {
     /// that order, as replacing the agent restarts it and drops what it has queued.
     pub fn update_all(&mut self, now: i64) -> usize {
         let target = self.agent_target();
-        let online = self.hosts.values_mut().filter(|h| now - h.last_seen <= offline_after_s() && !h.agent_version.is_empty());
+        let online = self.hosts.values_mut().filter(|h| h.online(now) && !h.agent_version.is_empty());
         online
             .filter_map(|h| {
                 let stale = h.agent_version != target;
@@ -646,6 +669,7 @@ impl State {
         if let Some(c) = r.containers.take() { live.containers = c; }
         if let Some(s) = r.smart.take() { live.smart = s; }
         if let Some(n) = r.node.take() { live.node = Some(n); }
+        if let Some(f) = r.firewall.take() { live.firewall = Some(f); }
         if let Some(mut g) = r.guests.take() {
             if !r.ct_autoinstall { g.retain(|g| g.kind != "lxc"); } // Older agents always list them.
             live.guests = g;
@@ -884,7 +908,20 @@ mod tests {
         assert_eq!(host_status(&st.hosts["h1"], 1000, &th), "warn");
         st.apply("h1", report(10.0, 80, 95), 1000);
         assert_eq!(host_status(&st.hosts["h1"], 1000, &th), "crit");
-        assert_eq!(host_status(&st.hosts["h1"], 1000 + offline_after_s() + 1, &th), "off");
+        assert_eq!(host_status(&st.hosts["h1"], 1000 + offline_after(IDLE_INTERVAL_S) + 1, &th), "off");
+    }
+
+    #[test]
+    fn offline_follows_the_pace_each_host_was_given() {
+        let mut st = state();
+        st.apply("h1", report(10.0, 10, 10), 1000);
+        let h = st.hosts.get_mut("h1").unwrap();
+        h.interval_s = REPORT_INTERVAL_S;
+        assert!(h.online(1060) && !h.online(1061), "fast pace: same 60 s as before");
+        h.interval_s = IDLE_INTERVAL_S;
+        assert!(h.online(1150) && !h.online(1151), "idle pace: two missed reports");
+        h.interval_s = UPDATE_INTERVAL_S;
+        assert!(h.online(1060), "an update's quick pace never shortens the wait");
     }
 
     #[test]

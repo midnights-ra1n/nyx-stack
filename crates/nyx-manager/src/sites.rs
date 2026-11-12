@@ -64,6 +64,9 @@ struct NewSite {
     ssh_private_key: String,
     #[serde(default)]
     service: String,
+    /// Seconds as text, empty: the app's own cache headers.
+    #[serde(default)]
+    cache_max_age: String,
 }
 
 fn or<'a>(v: &'a str, default: &'a str) -> &'a str {
@@ -80,7 +83,7 @@ async fn create(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewSite>)
     let rec = app.core.pb.create("sites", &json!({
         "name": b.name, "host": b.host, "repo": b.repo, "branch": or(&b.branch, "main"), "path": or(&b.path, &path),
         "run_user": or(&b.run_user, "www-data"), "install_cmd": or(&b.install_cmd, "npm ci"),
-        "build_cmd": or(&b.build_cmd, "npm run build --if-present"), "start_cmd": or(&b.start_cmd, "npm start"), "service": b.service,
+        "build_cmd": or(&b.build_cmd, "npm run build --if-present"), "start_cmd": or(&b.start_cmd, "npm start"), "service": b.service, "cache_max_age": b.cache_max_age,
         "ssh_private_key": private, "ssh_public_key": public, "webhook_secret": secret,
     })).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(json!({"id": rec["id"], "ssh_public_key": public, "webhook_url": format!("{}/hooks/git/{}", app.core.env.public_url, s(&rec, "id")), "webhook_secret": secret})))
@@ -99,6 +102,7 @@ async fn start_deploy(app: &App, site: &Value) -> anyhow::Result<String> {
         start_cmd: s(site, "start_cmd").into(),
         ssh_private_key: s(site, "ssh_private_key").into(),
         service: s(site, "service").into(),
+        cache_max_age: s(site, "cache_max_age").parse().ok(),
     };
     let cmd = link::deploy(app, s(site, "host"), &d).await?;
     let pb = &app.core.pb;

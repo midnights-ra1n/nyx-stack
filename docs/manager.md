@@ -197,6 +197,23 @@ unit, or `pm2:<name>`, and a deploy restarts that instead of creating a second s
 on the same port. PM2 must be in the login `PATH` of the run user. Leave the field empty
 to move the site to a Nyx service; stop the old one first.
 
+### HTTP cache between deploys
+
+**HTTP cache** sets the `Cache-Control` header of a site's pages, so that visitors get the
+new version after a deploy instead of a stale copy. **Always revalidate** (`no-cache`) is
+the safe choice: browsers ask again on each visit and get a cheap `304` when nothing
+changed. It is the default for new sites. A number of seconds gives `public, max-age=N`.
+Choose **The app's own** to keep the headers the app sets.
+
+The agent preloads a small module (`/usr/local/lib/nyx-agent/cache.js`, through
+`NODE_OPTIONS`) on the next deploy. Hashed assets marked `immutable`, and `private` or
+`no-store` answers, keep their header. For an existing systemd service the setting goes in
+a drop-in, `/etc/systemd/system/<unit>.d/nyx-cache.conf`, and replaces any `NODE_OPTIONS`
+the unit sets. PM2 services are not covered: set the header in the app. A CDN or reverse
+proxy with its own cache must still be purged separately. See
+[Site cache behind a reverse proxy](reverse-proxy-cache.md) for Nginx, Nginx Proxy
+Manager, Caddy, Traefik, Zoraxy, Pangolin, NetBird and CDNs.
+
 A deploy resets tracked files to the branch, so commit local changes first. Ignored
 files, such as `.env`, stay. Apps in Docker are listed but cannot be deployed: Nyx
 deploys on the host, not inside containers.

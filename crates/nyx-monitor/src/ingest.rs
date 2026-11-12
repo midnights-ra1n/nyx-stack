@@ -1,6 +1,6 @@
 //! Agent-facing endpoints: signed reports, install script, binary downloads.
 
-use crate::state::{evaluate, offline_after_s, App, Host, REPORT_INTERVAL_S, UPDATE_INTERVAL_S};
+use crate::state::{evaluate, App, Host, IDLE_INTERVAL_S, REPORT_INTERVAL_S, UPDATE_INTERVAL_S};
 use anyhow::Context;
 use axum::{
     body::Bytes,
@@ -54,10 +54,18 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     }
     let now = Utc::now().timestamp();
     let mut st = app.lock();
+    let st_viewed = st.viewed_until;
     let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
     let live_logs = h.watched_until > now;
     if !live_logs { h.tail.clear(); }
-    let interval_s = if h.updating(now) { UPDATE_INTERVAL_S } else { REPORT_INTERVAL_S };
+    let interval_s = if h.updating(now) {
+        UPDATE_INTERVAL_S
+    } else if live_logs || st_viewed > now {
+        REPORT_INTERVAL_S
+    } else {
+        IDLE_INTERVAL_S
+    };
+    h.interval_s = interval_s;
     Ok(Json(Reply { interval_s, resync: first, commands: std::mem::take(&mut h.queue), live_logs }))
 }
 
@@ -123,7 +131,7 @@ fn plan_watch(hosts: &HashMap<String, Host>, parent: &Host, guests: &[Guest], no
     let watching = parent.kind == "proxmox" && parent.ct_autoinstall;
     let containers: Vec<&Guest> = guests.iter().filter(|g| g.kind == "lxc").collect();
     // An agent inside knows more than the node, for as long as it reports.
-    let own_agent = |h: &Host| !h.agent_version.is_empty() && now - h.last_seen <= offline_after_s();
+    let own_agent = |h: &Host| !h.agent_version.is_empty() && h.online(now);
     for h in hosts.values().filter(|h| h.parent == parent.id && h.vmid > 0) {
         let listed = containers.iter().any(|g| g.vmid == h.vmid);
         // An empty list can be Proxmox restarting, which is no reason to lose a history.

@@ -147,6 +147,7 @@ Each step, packages for Debian and RHEL, HTTPS, backups, updates and removal are
 - [Monitoring](docs/monitoring.md): probes, SNMP, alerts
 - [Status pages](docs/status-pages.md): public pages and wall displays
 - [Manager](docs/manager.md): inventory, IPAM, map, Node.js sites, tasks
+- [Site cache behind a reverse proxy](docs/reverse-proxy-cache.md): no forced refresh after a deploy
 - [Notifications](docs/notifications.md): channels, rules, templates
 - [Integrations](docs/integrations.md): Nextcloud, Tempo, Proxmox, Meross, MCP, passkeys
 - [Security](docs/security.md): trust model and hardening

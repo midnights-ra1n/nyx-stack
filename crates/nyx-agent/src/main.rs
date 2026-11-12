@@ -5,6 +5,7 @@
 mod collect;
 mod config;
 mod exec;
+mod firewall;
 mod node;
 mod packages;
 mod proxmox;
@@ -22,6 +23,8 @@ pub enum Msg {
     Result(nyx_proto::CommandResult),
     Updates(Vec<nyx_proto::PackageUpdate>),
     Progress(nyx_proto::Progress),
+    /// A rule was added or removed: read the firewall again for the next report.
+    FirewallChanged,
     Restart,
 }
 
@@ -71,6 +74,7 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
                 }
                 Msg::Progress(p) => collector.progress = Some(p),
                 Msg::Updates(u) => collector.set_updates(u),
+                Msg::FirewallChanged => collector.firewall_changed(),
                 Msg::Restart => restart = true,
             }
         }

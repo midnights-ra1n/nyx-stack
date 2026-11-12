@@ -6,6 +6,7 @@ import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Modal, 
 import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
+import { FirewallPanel } from "./firewall"
 import { HostLogs } from "./logs"
 import { hostLevel } from "./overview"
 import { VpnTable } from "./vpn"
@@ -331,6 +332,9 @@ export function HostDetail({ id }: { id: string }) {
     { id: "vpn", title: "VPN links", absent: !h.vpn?.length, render: (edit: any) => (
       <Panel title="VPN links" flush edit={edit}><VpnTable rows={h.vpn ?? []} /></Panel>
     ) },
+    { id: "firewall", title: "Firewall", absent: watched || !h.firewall, render: (edit: any) => (
+      <Panel title="Firewall" flush edit={edit}><FirewallPanel id={id} fw={h.firewall} name={h.name} onSent={reload} /></Panel>
+    ) },
     { id: "node", title: "Node.js", absent: !h.node?.version && !h.node?.apps.length, render: (edit: any) => (
       <Panel title="Node.js" edit={edit}>
         {h.node?.version && <p className="text-fg2">Node <Mono>{h.node.version}</Mono></p>}
@@ -393,8 +397,8 @@ export function HostDetail({ id }: { id: string }) {
       {watched && <p role="note" className="mb-4 rounded-panel bg-raised px-4 py-2.5 text-fg2">Measured by its Proxmox host, with no agent inside. Logs, updates and Docker state need an agent.</p>}
       {h.oci && !watched && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker.</p>}
       <Board id="host" panels={panels}
-        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "vpn", "node", "updates", "agent"]], hidden: [] }}
-        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "vpn", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
+        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "vpn", "firewall", "node", "updates", "agent"]], hidden: [] }}
+        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "vpn", "firewall", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
       {removing && (
         <Modal title={`Delete ${h.name}`} onClose={() => setRemoving(false)}>
           <div className="flex flex-col gap-4">

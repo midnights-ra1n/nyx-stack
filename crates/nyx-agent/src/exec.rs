@@ -27,6 +27,11 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
         Action::UpdateSystem => upgrade(tx),
         Action::UpdateAgent => update_agent(cfg, http).inspect(|_| restart = true),
         Action::Deploy(d) => deploy(&d),
+        Action::Firewall(c) => {
+            let done = crate::firewall::change(cfg, &c);
+            let _ = tx.send(Msg::FirewallChanged); // also after a failure: it may have been undone
+            done
+        }
         Action::SetKind { .. } => Ok(String::new()), // handled by the main loop
     };
     let (ok, output) = match outcome {
@@ -44,7 +49,9 @@ fn tail(s: &str) -> String {
     s.chars().skip(skip).collect()
 }
 
-fn sh(mut c: process::Command) -> anyhow::Result<String> {
+/// Takes a command or a `&mut` to one, as the builder methods return.
+pub(crate) fn sh(mut c: impl std::borrow::BorrowMut<process::Command>) -> anyhow::Result<String> {
+    let c = c.borrow_mut();
     let out = c.output().with_context(|| format!("cannot start {:?}", c.get_program()))?;
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     if out.status.success() {
@@ -84,7 +91,7 @@ fn stream(mut c: process::Command, parse: fn(&str) -> Option<Progress>, tx: &Sen
     }
 }
 
-fn cmd<const N: usize>(program: &str, args: [&str; N]) -> process::Command {
+pub(crate) fn cmd<const N: usize>(program: &str, args: [&str; N]) -> process::Command {
     let mut c = process::Command::new(program);
     c.args(args);
     c
@@ -157,6 +164,10 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
     let _ = fs::remove_file(&key_path); // the key only exists for the deploy
     let output = result?;
 
+    if d.cache_max_age.is_some() {
+        fs::create_dir_all(CACHE_DIR)?;
+        fs::write(format!("{CACHE_DIR}/cache.js"), CACHE_JS)?; // umask 022: readable by the run user
+    }
     if !d.service.is_empty() {
         restart_existing(d)?;
         return Ok(output);
@@ -171,14 +182,42 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
 
 /// A site Nyx adopted keeps the service that already runs it.
 // shortcut: pm2 is looked up in the user's login PATH, keep the path in the app if nvm hides it.
+// shortcut: the cache setting only reaches systemd services, not PM2 ones; pass the env through pm2 if asked.
 fn restart_existing(d: &Deploy) -> anyhow::Result<String> {
     if !service_ok(&d.service) {
         bail!("refusing unsafe service name");
     }
     match d.service.strip_prefix("pm2:") {
         Some(name) => sh(cmd("runuser", ["-u", &d.user, "--", "sh", "-lc", "pm2 restart \"$1\"", "sh", name])),
-        None => sh(cmd("systemctl", ["restart", &d.service])),
+        None => {
+            let dir = format!("/etc/systemd/system/{}.d", unit_name(&d.service));
+            match cache_env(d) {
+                env if env.is_empty() => { let _ = fs::remove_file(format!("{dir}/nyx-cache.conf")); }
+                env => {
+                    fs::create_dir_all(&dir)?;
+                    fs::write(format!("{dir}/nyx-cache.conf"), format!("[Service]\n{env}"))?;
+                }
+            }
+            sh(cmd("systemctl", ["daemon-reload"]))?;
+            sh(cmd("systemctl", ["restart", &d.service]))
+        }
     }
+}
+
+const CACHE_DIR: &str = "/usr/local/lib/nyx-agent";
+const CACHE_JS: &str = include_str!("../assets/cache.js");
+
+/// Drop-in folders need the full unit name, `systemctl` does not.
+fn unit_name(service: &str) -> String {
+    if service.contains('.') { service.into() } else { format!("{service}.service") }
+}
+
+/// Environment lines that preload the cache module, empty when the app keeps its own headers.
+// shortcut: replaces a NODE_OPTIONS the unit already sets; merge them if a site needs both.
+fn cache_env(d: &Deploy) -> String {
+    d.cache_max_age.map_or_else(String::new, |age| {
+        format!("Environment=CACHE_MAX_AGE={age}\nEnvironment=\"NODE_OPTIONS=--require {CACHE_DIR}/cache.js\"\n")
+    })
 }
 
 fn service_ok(s: &str) -> bool {
@@ -188,8 +227,8 @@ fn service_ok(s: &str) -> bool {
 fn unit_file(d: &Deploy) -> String {
     let start = d.start_cmd.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
     format!(
-        "[Unit]\nDescription=Nyx site {site}\nAfter=network-online.target\n\n[Service]\nUser={user}\nWorkingDirectory={path}\nEnvironment=NODE_ENV=production\nExecStart=/bin/sh -c \"{start}\"\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n",
-        site = d.site, user = d.user, path = d.path
+        "[Unit]\nDescription=Nyx site {site}\nAfter=network-online.target\n\n[Service]\nUser={user}\nWorkingDirectory={path}\nEnvironment=NODE_ENV=production\n{cache}ExecStart=/bin/sh -c \"{start}\"\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n",
+        site = d.site, user = d.user, path = d.path, cache = cache_env(d)
     )
 }
 
@@ -210,8 +249,16 @@ mod tests {
 
     #[test]
     fn unit_escapes_start_command() {
-        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into(), service: "".into() };
+        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into(), service: "".into(), cache_max_age: None };
         assert!(unit_file(&d).contains(r#"ExecStart=/bin/sh -c "node \"a$$b\" 100%%""#));
+        assert!(!unit_file(&d).contains("CACHE_MAX_AGE"));
+        let d = Deploy { cache_max_age: Some(0), ..d };
+        assert!(unit_file(&d).contains("Environment=CACHE_MAX_AGE=0\nEnvironment=\"NODE_OPTIONS=--require /usr/local/lib/nyx-agent/cache.js\"\nExecStart"));
+    }
+
+    #[test]
+    fn drop_ins_use_the_full_unit_name() {
+        assert_eq!((unit_name("my-app").as_str(), unit_name("app@1.service").as_str()), ("my-app.service", "app@1.service"));
     }
 
     #[test]

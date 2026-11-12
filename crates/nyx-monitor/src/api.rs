@@ -67,7 +67,7 @@ pub fn overview_json(app: &App) -> Value {
     let (mut cpu, mut mem, mut n) = (0.0, 0.0, 0.0);
     let mut storage = vec![];
     for h in st.hosts.values() {
-        let Some(l) = h.live.as_ref().filter(|_| now - h.last_seen <= crate::state::offline_after_s()) else { continue };
+        let Some(l) = h.live.as_ref().filter(|_| h.online(now)) else { continue };
         running += l.containers.iter().filter(|c| c.state == "running").count();
         total += l.containers.len();
         cpu += l.report.cpu_pct;
@@ -103,6 +103,7 @@ pub fn host_json(app: &App, id: &str) -> Option<Value> {
         v["smart"] = json!(l.smart);
         v["update_list"] = json!(l.updates);
         v["node"] = json!(l.node);
+        v["firewall"] = json!(l.firewall);
         v["guests"] = json!(l.guests);
         v["logs"] = json!(l.logs);
     }
@@ -214,6 +215,9 @@ struct CommandReq {
     action: String,
     kind: Option<String>,
     ct_autoinstall: Option<bool>,
+    /// For `firewall`: `add` or `delete`, and the rule.
+    op: Option<String>,
+    rule: Option<nyx_proto::FwRule>,
 }
 
 async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<CommandReq>) -> ApiResult<Json<Value>> {
@@ -225,6 +229,11 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
             kind: b.kind.as_deref().and_then(HostKind::parse).ok_or_else(|| ApiError::bad_request("unknown deployment type"))?,
             ct_autoinstall: b.ct_autoinstall.unwrap_or(false),
         },
+        "firewall" => {
+            let change = nyx_proto::FirewallChange { op: b.op.unwrap_or_default(), rule: b.rule.unwrap_or_default() };
+            change.check().map_err(ApiError::bad_request)?;
+            Action::Firewall(change)
+        }
         _ => return Err(ApiError::bad_request("unknown action")),
     };
     let cmd = if matches!(action, Action::UpdateSystem | Action::UpdateAgent) {
@@ -268,7 +277,7 @@ async fn series(_: Session, State(app): State<Arc<App>>, Query(q): Query<SeriesQ
     };
     if range == "1h" {
         let st = app.lock();
-        let points: Vec<Value> = st.hosts.get(&id).and_then(|h| h.live.as_ref()).map_or(vec![], |l| l.series.iter().map(|p| json!(p)).collect());
+        let points: Vec<Value> = st.hosts.get(&id).and_then(|h| h.live.as_ref()).map_or(vec![], |l| l.series.iter().filter(|p| p.t >= since.timestamp()).map(|p| json!(p)).collect()); // idle pace: the buffer spans 4 h
         return Ok(Json(json!(points)));
     }
     let filter = format!("t >= {} && host = {}", pb_quote(&pb_date(since)), pb_quote(&id));
@@ -410,6 +419,12 @@ async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
     Ok(Json(Value::Null))
 }
 
+/// Someone uses the monitor: agents report at full pace for a while, see `ingest::report`.
+async fn viewed(State(app): State<Arc<App>>, req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    app.lock().viewed_until = Utc::now().timestamp() + crate::state::VIEW_S;
+    next.run(req).await
+}
+
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/overview", get(overview))
@@ -428,6 +443,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/probes/reload", post(probes_changed))
         .route("/api/probes/{id}/series", get(probe_series))
         .route("/api/settings/{key}", get(get_setting).put(put_setting))
+        .route_layer(axum::middleware::from_fn_with_state(app.clone(), viewed))
         .with_state(app)
 }
 

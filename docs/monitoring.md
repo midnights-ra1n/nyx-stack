@@ -175,7 +175,7 @@ kept in **Settings, Monitoring**, from 30 to 365 days. The default is 30.
 
 | Age | Detail |
 | --- | --- |
-| Last hour | One point every 15 seconds, in RAM |
+| Last hour | One point per report, in RAM: every 15 seconds while the monitor is used, every 60 otherwise |
 | Up to 7 days | One point every 5 minutes |
 | Beyond | One point per hour |
 
@@ -201,7 +201,7 @@ Pick a host and press **Go live** to follow everything from info up as it happen
 same button is on the Logs block of a host page.
 
 - The agent never opens a port, so it learns that someone is watching from the answer
-  to its next report. The first lines take up to 15 seconds, then arrive every 2
+  to its next report. The first lines take up to a minute, then arrive every 2
   seconds.
 - Nothing is stored. Live lines stay in RAM, up to 1000 per host, and are dropped once
   nobody watches.

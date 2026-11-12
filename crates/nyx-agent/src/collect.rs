@@ -51,6 +51,7 @@ pub struct Collector {
     rare: Every,
     smart_every: Every,
     guests_every: Every,
+    firewall_every: Every,
     last_guests: Instant,
     detected: Option<HostKind>,
     containers: Option<Vec<Container>>,
@@ -60,6 +61,7 @@ pub struct Collector {
     node: Option<NodeInfo>,
     guests: Option<Vec<Guest>>,
     smart: Option<Vec<SmartDisk>>,
+    firewall: Option<nyx_proto::Firewall>,
 }
 
 impl Collector {
@@ -77,6 +79,7 @@ impl Collector {
             rare: Every(RARE, None),
             smart_every: Every(SMART, None),
             guests_every: Every(RARE, None),
+            firewall_every: Every(RARE, None),
             last_guests: Instant::now(),
             detected: detected_kind(),
             containers: None,
@@ -85,6 +88,7 @@ impl Collector {
             node: None,
             guests: None,
             smart: None,
+            firewall: None,
         })
     }
 
@@ -93,12 +97,18 @@ impl Collector {
         self.updates_dirty = true;
     }
 
+    pub fn firewall_changed(&mut self) {
+        self.firewall_every.reset();
+    }
+
     /// Forget what the monitor has seen: everything goes out on the next report.
     pub fn resync(&mut self) {
         self.containers = None;
         self.node = None;
         self.guests = None;
         self.smart = None;
+        self.firewall = None;
+        self.firewall_every.reset();
         self.updates_dirty = self.updates.is_some();
         self.slow.reset();
         self.rare.reset();
@@ -114,7 +124,7 @@ impl Collector {
         logs.drain(..excess);
         self.pending_logs = logs;
         self.pending_results.splice(0..0, failed.results);
-        if failed.containers.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() {
+        if failed.containers.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() {
             self.resync();
         }
     }
@@ -180,6 +190,9 @@ impl Collector {
         }
         if kind.has_physical_disks() && self.smart_every.due() {
             r.smart = changed(&mut self.smart, smart::scan());
+        }
+        if self.firewall_every.due() {
+            r.firewall = changed(&mut self.firewall, crate::firewall::scan());
         }
         if self.updates_dirty {
             self.updates_dirty = false;
@@ -332,13 +345,18 @@ fn real_disks(disks: &Disks) -> Vec<Disk> {
 }
 
 fn docker_containers() -> Option<Vec<Container>> {
+    parse_containers(&docker_get("/containers/json?all=1")?)
+}
+
+/// Body of a GET on the Docker API, `None` without Docker.
+pub(crate) fn docker_get(path: &str) -> Option<String> {
     let mut s = UnixStream::connect("/var/run/docker.sock").ok()?;
     s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
     // HTTP/1.0 so the daemon closes the connection and never answers chunked.
-    s.write_all(b"GET /containers/json?all=1 HTTP/1.0\r\n\r\n").ok()?;
+    s.write_all(format!("GET {path} HTTP/1.0\r\n\r\n").as_bytes()).ok()?;
     let mut buf = String::new();
     s.read_to_string(&mut buf).ok()?;
-    parse_containers(buf.split_once("\r\n\r\n")?.1)
+    Some(buf.split_once("\r\n\r\n")?.1.to_string())
 }
 
 fn parse_containers(body: &str) -> Option<Vec<Container>> {

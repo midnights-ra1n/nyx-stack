@@ -33,11 +33,14 @@ function presetOf(a: any) {
 
 const runsUnder = (a: any) => ({ systemd: `systemd: ${a.service}`, pm2: `PM2: ${a.service.replace("pm2:", "")}`, docker: "Docker" } as Record<string, string>)[a.manager] ?? "Started by hand"
 
-const EDITABLE = ["host", "repo", "branch", "path", "run_user", "install_cmd", "build_cmd", "start_cmd", "service"]
+const EDITABLE = ["host", "repo", "branch", "path", "run_user", "install_cmd", "build_cmd", "start_cmd", "service", "cache_max_age"]
+
+/** HTTP cache forced on the site's pages, in seconds. Empty: the app's own headers. */
+const CACHE_CHOICES = [["", "The app's own"], ["0", "Always revalidate (recommended)"], ["60", "1 minute"], ["300", "5 minutes"], ["3600", "1 hour"], ["86400", "1 day"]].map(([value, label]) => ({ value, label }))
 
 function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone: (site?: any) => void }) {
   const editing = !!preset.id
-  const [f, setF] = useState<any>({ name: "", host: "", repo: "", branch: "main", path: "", run_user: "", install_cmd: "", build_cmd: "", start_cmd: "", service: "", ssh_private_key: "", ...preset })
+  const [f, setF] = useState<any>({ name: "", host: "", repo: "", branch: "main", path: "", run_user: "", install_cmd: "", build_cmd: "", start_cmd: "", service: "", cache_max_age: "0", ssh_private_key: "", ...preset })
   const [error, setError] = useState("")
   const input = (k: string, label: string, p: any = {}) => <Input label={label} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...p} />
   const save = async (e: React.FormEvent) => {
@@ -65,6 +68,8 @@ function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone
         {input("install_cmd", "Install command", { placeholder: "npm ci", className: "font-mono" })}
         {input("build_cmd", "Build command", { placeholder: "npm run build --if-present", className: "font-mono" })}
         {input("start_cmd", "Start command", { placeholder: "npm start", className: "font-mono", hint: f.service ? "Not used: the existing service starts the site." : undefined })}
+        <div className="col-span-full"><Select label="HTTP cache" value={f.cache_max_age ?? ""} onChange={(e) => setF({ ...f, cache_max_age: e.target.value })} options={CACHE_CHOICES}
+          hint={f.service.startsWith("pm2:") ? "Not applied to PM2 services: set Cache-Control in the app." : "Replaces the Cache-Control header of pages, not of hashed files, from the next deploy. Always revalidate: browsers get the new version right after a deploy. A CDN or proxy with its own cache must be purged separately."} /></div>
         {!editing && <div className="col-span-full"><TextArea label="SSH private key" rows={3} className="font-mono" value={f.ssh_private_key} onChange={(e) => setF({ ...f, ssh_private_key: e.target.value })} hint="Leave empty to generate a new ed25519 deploy key." /></div>}
         {f.path && !editing && preset.path && <p role="note" className="col-span-full rounded-panel bg-warn-soft px-4 py-2.5 text-warn">A deploy resets tracked files in this directory to the branch. Commit local changes first. Ignored files, such as .env, stay.</p>}
         <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">{editing ? "Save" : "Create site"}</Button></div></div>
