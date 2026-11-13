@@ -1,5 +1,5 @@
 import "../ui/tokens.css"
-import { BellIcon, CircleStackIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { BellIcon, CircleStackIcon, CodeBracketSquareIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
 import { PageEditor, PagesList } from "./display/editor"
@@ -10,6 +10,7 @@ import { MapPage } from "./map"
 import { Alerts, Containers, Network, SearchPage } from "./pages"
 import { HostDetail, Hosts } from "./hosts"
 import { Overview } from "./overview"
+import { Pipelines } from "./pipelines"
 import { Settings } from "./settings"
 
 function route(path: string) {
@@ -21,6 +22,7 @@ function route(path: string) {
   if (path === "/network") return <Network />
   if (path === "/storage") return <Storage />
   if (path === "/alerts") return <Alerts />
+  if (path === "/pipelines") return <Pipelines />
   if (path === "/logs") return <Logs />
   if (path === "/pages") return <PagesList />
   if (path.startsWith("/pages/")) return <PageEditor key={path} id={path.slice(7)} />
@@ -47,6 +49,7 @@ function useNav(): NavConfig {
       ] },
       { label: "Operations", items: [
         { to: "/alerts", label: "Alerts", icon: BellIcon, badge: data?.alerts },
+        { to: "/pipelines", label: "Pipelines", icon: CodeBracketSquareIcon },
         { to: "/logs", label: "Logs", icon: CommandLineIcon },
         { to: "/pages", label: "Status pages", icon: PresentationChartBarIcon },
       ] },

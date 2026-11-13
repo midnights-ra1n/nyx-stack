@@ -99,9 +99,9 @@ async fn scan(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -
     Ok(Json(json!({"alive": alive, "at": now})))
 }
 
-/// Fleet health or EDF Tempo from the linked monitor, `null` without a link.
+/// Fleet health, EDF Tempo or CI/CD pipelines from the linked monitor, `null` without a link.
 async fn from_monitor(_: Session, State(app): State<Arc<App>>, Path(what): Path<String>) -> ApiResult<Json<Value>> {
-    if what != "overview" && what != "tempo" {
+    if !["overview", "tempo", "pipelines"].contains(&what.as_str()) {
         return Err(ApiError::not_found());
     }
     Ok(Json(link::get(&app, &what).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?.unwrap_or(Value::Null)))

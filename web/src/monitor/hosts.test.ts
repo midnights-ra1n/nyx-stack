@@ -64,7 +64,7 @@ describe("noAgent", () => {
 
 describe("noVNC links", () => {
   it("targets the right console type", () => {
-    expect(consoleUrl("https://pve:8006/", pve)).toBe("https://pve:8006/?novnc=1&console=shell&node=pve1")
+    expect(consoleUrl("https://pve:8006/", pve)).toBe("/api/proxmox/console?console=shell&node=pve1")
     expect(consoleUrl("https://pve:8006", pve, pve.guests[1])).toContain("console=kvm&vmid=102")
     expect(consoleUrl("", pve)).toBe("")
   })

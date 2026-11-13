@@ -7,6 +7,7 @@ import { DiskHealth } from "./disks"
 import { HostIcon, hostType } from "./hosts"
 import { RecentLogs } from "./logs"
 import { StoragePanel } from "./storage-tree"
+import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
@@ -51,6 +52,15 @@ function Probes({ edit }: { edit: any }) {
   return (
     <Panel title="Probes" edit={edit} actions={[{ label: "Network", onClick: () => navigate("/network") }]}>
       {data?.length ? <ul className="divide-y divide-line">{data.map((p) => <li key={p.id} className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 truncate">{p.name}</span><Status cell level={p.up == null ? "off" : p.up ? "ok" : "crit"} label={p.up ? `${p.latency_ms.toFixed(0)} ms` : p.up == null ? "Pending" : "Down"} /></li>)}</ul> : <Empty>No probes yet.</Empty>}
+    </Panel>
+  )
+}
+
+function PipelinesPanel({ edit }: { edit: any }) {
+  const { data } = useApi<any[]>("/api/pipelines")
+  return (
+    <Panel title="Pipelines" edit={edit} actions={[{ label: "Pipelines", onClick: () => navigate("/pipelines") }]}>
+      <PipelineList rows={data ?? []} />
     </Panel>
   )
 }
@@ -137,6 +147,7 @@ export function Overview() {
     { id: "disks", title: "Disk health", render: (edit: any) => <DiskHealth edit={edit} /> },
     { id: "logs", title: "Recent logs", render: (edit: any) => <RecentLogs edit={edit} /> },
     { id: "probes", title: "Probes", render: (edit: any) => <Probes edit={edit} /> },
+    { id: "pipelines", title: "Pipelines", render: (edit: any) => <PipelinesPanel edit={edit} /> },
     { id: "containers", title: "Stopped containers", render: (edit: any) => <StoppedContainers edit={edit} /> },
     { id: "updates", title: "Pending updates", render: (edit: any) => (
       <Panel title="Pending updates" edit={edit}>
@@ -158,8 +169,8 @@ export function Overview() {
       <Board
         id="overview"
         panels={panels}
-        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "disks", "logs", "probes", "containers", "updates"] }}
-        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "disks", "logs", "probes", "containers", "updates"] }}
+        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
+        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
       />
     </>
   )

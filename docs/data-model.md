@@ -29,6 +29,7 @@ and are rebuilt from agents and rollups after a restart.
 | `rollups` | Host averages, every five minutes then every hour | Chosen retention |
 | `alerts` | Open and resolved alerts | Chosen retention once resolved |
 | `probes` | Probe definitions, with SNMP items as JSON | Until deleted |
+| `pipelines` | CI/CD pipelines followed: forge, address, repository, branch, token | Until deleted |
 | `probe_rollups` | Probe results and SNMP values, every five minutes then every hour. Rows with `probe = _monitor` are the monitor's heartbeat | Chosen retention |
 | `power_samples` | Meross power readings, every five minutes then every hour | Chosen retention |
 | `pages` | Status pages and wall displays | Until deleted |

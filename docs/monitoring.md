@@ -45,6 +45,11 @@ interface: Proxmox and physical servers first, with their VMs and containers beh
 them, then the probes. A node takes the colour of its state, and so does its link when
 something is wrong. The hub takes the worst state, a stopped guest counting as a warning.
 
+Three views switch at the top of the map: the **map** itself, a **tree** (each Proxmox host
+with its VMs and containers under it) and **by type**, one card per kind of device with the
+worst state in its header. Status pages show the same switch to their visitors; a wall
+display stays on the map.
+
 - Scroll to zoom, and drag the background to move around.
 - Hover or focus a node for its address, CPU, memory and temperature, or its target and
   latency for a probe.
@@ -88,6 +93,44 @@ the website check itself fails.
 | SNMP | Any OID, on any device that speaks SNMP |
 
 An alert opens after two failures in a row, so a single lost packet stays quiet.
+
+## Docker containers
+
+**Containers** lists the Docker containers of every host, from the agent: CPU (one core is
+100 %, averaged over the minute), memory, and the share of the memory limit.
+Three views: a table, cards and a list by host, with a search and a filter on running or not.
+
+- **Start, stop, restart** a container and read its **last 200 log lines** from the row. The
+  agent talks to the Docker socket, so no port is opened. Stopping asks for confirmation.
+- **Biggest consumers** ranks the top containers by CPU and by memory.
+- **Alerts**: a container that keeps restarting (critical), an unhealthy one, one that
+  stopped with an error in the last day (warning), and one close to an explicit memory
+  limit, with the thresholds of the host. A container stopped cleanly raises nothing.
+
+## CI/CD pipelines
+
+**Pipelines** follows the latest run of a branch on GitHub, GitLab, Forgejo or Gitea.
+Add one with the forge, the repository (`owner/name`, or the full path on GitLab), the
+branch and, for a private repository, an access token with read access. Forgejo and Gitea
+also need the address of your server, and their Actions turned on. GitHub and GitLab
+default to github.com and gitlab.com; fill the address in for GitHub Enterprise or a
+self-hosted GitLab.
+
+The monitor asks each forge every two minutes, from the server and not from your browser.
+A run is *Passed*, *Failed*, *Running*, or grey (cancelled, skipped). A **failed run opens a
+critical alert** and a notification of the `pipeline` type, and a later **passing run closes
+it**. A run in progress or a cancelled one changes nothing, as neither proves the fix.
+If the forge cannot be reached, the pipeline shows *Unreachable* and keeps its open alert.
+
+The **Pipelines** page keeps the last 12 runs of each pipeline and shows them as **cards**,
+a **timeline** (one strip of runs per pipeline, newest on the right), a **board** (failed,
+running, passed) and a **list**, with **Manage** to add and edit them. Status pages and wall
+displays pick one of these views in the panel's settings.
+
+The overview has a **Pipelines** block (hidden by default, see **Customize**), and
+[status pages and wall displays](status-pages.md) have a **CI/CD pipelines** panel. The
+[manager](manager.md) can show the same list through its link. The token is stored with the
+pipeline and shown to signed-in users only; use a read-only one.
 
 ## SNMP
 

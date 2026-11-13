@@ -1,46 +1,124 @@
-import { PlusIcon, TrashIcon, PencilSquareIcon } from "@heroicons/react/24/outline"
-import { useState } from "react"
+import { ArrowPathIcon, DocumentTextIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TextArea, TimeSeries, Variable } from "../ui/components"
-import { api, fmt, type Level, levelText, useApi } from "../ui/lib"
+import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable } from "../ui/components"
+import { api, fmt, type Level, levelSoft, levelText, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { PRESETS } from "./snmp-presets"
 import { VpnTable } from "./vpn"
 
+/** Sends a command to a host's agent and waits for its answer, which comes with the next report. */
+async function onHost(hostId: string, body: object) {
+  const { id } = await api(`/api/hosts/${hostId}/command`, { body })
+  for (let i = 0; i < 45; i++) {
+    await new Promise((r) => setTimeout(r, 2000))
+    const r = (await api(`/api/hosts/${hostId}`)).results?.find((x: any) => x.id === id)
+    if (r) return r as { ok: boolean; output: string }
+  }
+  throw new Error("The agent did not answer in time.")
+}
+
+function ContainerLogs({ c, onClose }: { c: any; onClose: () => void }) {
+  const [text, setText] = useState("Waiting for the agent…")
+  useEffect(() => { onHost(c.host_id, { action: "container", op: "logs", name: c.name }).then((r) => setText(r.output || "No logs."), (e) => setText((e as Error).message)) }, [])
+  return <Modal title={`${c.name} on ${c.host}`} onClose={onClose} wide><pre className="max-h-[28rem] min-h-32 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap" aria-live="polite">{text}</pre></Modal>
+}
+
+const stateLevel = (c: any): Level => (c.state === "running" ? "ok" : c.state === "restarting" || /^Exited \((?!0\))/.test(c.status) ? "warn" : "off")
+const VIEWS = [{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }, { id: "hosts", label: "By host" }]
+
 export function Containers() {
   const { data, reload } = useApi<any[]>("/api/containers")
+  const [view, setView] = useState("table")
+  const [q, setQ] = useState("")
+  const [state, setState] = useState("all")
+  const [logs, setLogs] = useState<any>()
+  const [busy, setBusy] = useState("")
+  const [note, setNote] = useState("")
   const rows = [...(data ?? [])].sort((a, b) => a.host.localeCompare(b.host) || a.name.localeCompare(b.name))
   const running = rows.filter((c) => c.state === "running").length
+  const shown = rows.filter((c) => (state === "all" || (state === "running") === (c.state === "running")) && `${c.name} ${c.image} ${c.host}`.toLowerCase().includes(q.toLowerCase()))
+  const act = async (c: any, op: string) => {
+    if (op === "logs") return setLogs(c)
+    if (op === "stop" && !confirm(`Stop ${c.name}?`)) return
+    setBusy(c.host_id + c.name); setNote("")
+    try { const r = await onHost(c.host_id, { action: "container", op, name: c.name }); setNote(`${c.name}: ${r.ok ? r.output : `failed. ${r.output}`}`); reload() } catch (e) { setNote((e as Error).message) }
+    setBusy("")
+  }
+  const actions = (c: any) => (
+    <span className="whitespace-nowrap">
+      {c.state === "running" ? <>
+        <IconButton label={`Restart ${c.name}`} icon={ArrowPathIcon} onClick={() => act(c, "restart")} />
+        <IconButton label={`Stop ${c.name}`} icon={StopIcon} onClick={() => act(c, "stop")} />
+      </> : <IconButton label={`Start ${c.name}`} icon={PlayIcon} onClick={() => act(c, "start")} />}
+      <IconButton label={`Logs of ${c.name}`} icon={DocumentTextIcon} onClick={() => act(c, "logs")} />
+    </span>
+  )
+  const usage = (c: any) => (c.state === "running" ? <div className="flex min-w-28 flex-col gap-1 text-[13px]"><span>{fmt.pct(c.cpu_pct)} · {fmt.bytes(c.mem_used)}</span><Meter pct={c.mem_pct} /></div> : <span className="text-fg3">—</span>)
   const table = (list: any[], empty: string) => (list.length === 0 ? <div className="px-4 pb-4"><Empty>{empty}</Empty></div> : (
-    <Table head={["Name", "Host", "Image", "Status", "State"]}>
+    <Table head={["Name", "Host", "Image", "CPU · memory", "Status", "State", ""]}>
       {list.map((c) => (
-        <tr key={c.host_id + c.name}>
+        <tr key={c.host_id + c.name} aria-busy={busy === c.host_id + c.name}>
           <Td mono>{c.name}</Td>
           <Td className="font-medium"><Link to={`/hosts/${c.host_id}`}>{c.host}</Link></Td>
           <Td mono>{c.image}</Td>
+          <Td>{usage(c)}</Td>
           <Td className="text-fg2">{c.status}</Td>
-          <StateCell level={c.state === "running" ? "ok" : c.state === "restarting" ? "warn" : "off"} label={c.state} />
+          <StateCell level={stateLevel(c)} label={c.state} />
+          <Td className="text-right">{actions(c)}</Td>
         </tr>
       ))}
     </Table>
   ))
+  const card = (c: any) => (
+    <li key={c.host_id + c.name} className={`flex flex-col gap-2 rounded-box border border-line p-3 ${levelSoft[stateLevel(c)]}`}>
+      <div className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-medium" title={c.name}>{c.name}</span><span className="block truncate font-mono text-xs text-fg3" title={c.image}>{c.image}</span></span><Status cell level={stateLevel(c)} label={c.state} /></div>
+      {c.state === "running" && <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-[13px]"><span className="text-fg2">CPU</span><Meter pct={Math.min(100, c.cpu_pct)} /><span className="text-fg2">Memory</span><Meter pct={c.mem_pct} /></div>}
+      <div className="flex items-center justify-between text-xs text-fg3"><span className="truncate">{c.status}</span>{actions(c)}</div>
+    </li>
+  )
+  const top = (key: string, pick: (c: any) => number) => [...rows].filter((c) => c.state === "running").sort((a, b) => pick(b) - pick(a)).slice(0, 6).map((c) => ({ label: `${c.name} · ${c.host}`, pct: pick(c) })).filter((r) => r.pct > 0)
+  const byHost = [...new Set(shown.map((c) => c.host_id))].map((id) => ({ id, name: shown.find((c) => c.host_id === id).host, list: shown.filter((c) => c.host_id === id) }))
+  const body = view === "cards" ? <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-4">{shown.map(card)}</ul>
+    : view === "hosts" ? <div className="flex flex-col gap-4 pb-4">{byHost.map((h) => <div key={h.id}><h3 className="px-4 pb-1 text-[13px] font-medium text-fg2">{h.name} · {h.list.filter((c) => c.state === "running").length} of {h.list.length} running</h3>{table(h.list, "")}</div>)}</div>
+    : table(shown, rows.length ? "Nothing matches." : "No containers reported.")
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title="Summary" edit={edit}>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
           <Stat label="Running" value={running} level="ok" />
-          <Stat label="Stopped" value={rows.length - running} level={rows.length > running ? "warn" : "ok"} />
-          <Stat label="Hosts" value={new Set(rows.map((c) => c.host_id)).size} />
+          <Stat label="Not running" value={rows.length - running} level={rows.length > running ? "warn" : "ok"} />
+          <Stat label="CPU used" value={fmt.pct(rows.reduce((t, c) => t + (c.cpu_pct || 0), 0))} sub="of one core, all containers" />
+          <Stat label="Memory used" value={fmt.bytes(rows.reduce((t, c) => t + (c.mem_used || 0), 0))} sub={`${new Set(rows.map((c) => c.host_id)).size} hosts`} />
+        </div>
+      </Panel>
+    ) },
+    { id: "top", title: "Biggest consumers", render: (edit: any) => (
+      <Panel title="Biggest consumers" edit={edit}>
+        <div className="grid grid-cols-2 gap-6 max-md:grid-cols-1">
+          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">CPU (one core is 100 %)</h3>{top("cpu", (c) => c.cpu_pct).length ? <BarGauge rows={top("cpu", (c) => Math.min(100, c.cpu_pct))} /> : <Empty>No load.</Empty>}</div>
+          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">Memory (of its limit)</h3>{top("mem", (c) => c.mem_pct).length ? <BarGauge rows={top("mem", (c) => c.mem_pct)} /> : <Empty>No data yet.</Empty>}</div>
         </div>
       </Panel>
     ) },
     { id: "stopped", title: "Not running", render: (edit: any) => <Panel title="Not running" flush edit={edit}>{table(rows.filter((c) => c.state !== "running"), "Everything is running.")}</Panel> },
-    { id: "all", title: "Docker containers", render: (edit: any) => <Panel title="Docker containers" flush edit={edit}>{table(rows, "No containers reported.")}</Panel> },
+    { id: "all", title: "Docker containers", render: (edit: any) => (
+      <Panel title="Docker containers" flush edit={edit}>
+        <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
+          <Tabs tabs={VIEWS} value={view} onChange={setView} />
+          <Input label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Select label="Show" value={state} onChange={(e) => setState(e.target.value)} options={[{ value: "all", label: "All" }, { value: "running", label: "Running" }, { value: "stopped", label: "Not running" }]} />
+        </div>
+        {note && <p role="status" className="px-4 pb-3 text-fg2">{note}</p>}
+        {body}
+      </Panel>
+    ) },
   ]
   return (
     <>
       <PageHeader title="Containers" subtitle={`${running} of ${rows.length} running`} onRefresh={reload} actions={<CustomizeButton />} />
-      <Board id="containers" panels={panels} desktop={{ cols: [["summary", "all"]], hidden: ["stopped"] }} phone={{ cols: [["summary", "all"]], hidden: ["stopped"] }} />
+      <Board id="containers" panels={panels} desktop={{ cols: [["summary", "top", "all"]], hidden: ["stopped"] }} phone={{ cols: [["summary", "all"]], hidden: ["stopped", "top"] }} />
+      {logs && <ContainerLogs c={logs} onClose={() => setLogs(undefined)} />}
     </>
   )
 }

@@ -52,6 +52,7 @@ Phones show panels one above the other, from top to bottom and left to right.
 | Clock | Time and date of the viewing device |
 | Live map | The [map](monitoring.md#map) of the homelab, updated at the page's refresh rate |
 | EDF Tempo | Colour of today and tomorrow, and the days left |
+| CI/CD pipelines | Name, branch and result of the [pipelines](monitoring.md#cicd-pipelines) followed. Repositories and addresses stay private |
 
 ### Live map
 

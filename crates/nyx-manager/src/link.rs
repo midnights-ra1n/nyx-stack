@@ -38,6 +38,12 @@ pub async fn deploy(app: &App, host: &str, d: &Deploy) -> anyhow::Result<String>
     Ok(res["id"].as_str().context("no command id")?.to_string())
 }
 
+pub async fn site_control(app: &App, host: &str, c: &nyx_proto::SiteControl) -> anyhow::Result<String> {
+    let (url, token) = config(app).await?.context("no monitor linked: set it in Settings")?;
+    let res: Value = app.http.post(format!("{url}/api/link/hosts/{host}/site")).bearer_auth(token).json(c).send().await?.error_for_status()?.json().await?;
+    Ok(res["id"].as_str().context("no command id")?.to_string())
+}
+
 /// `None` while the agent has not answered yet.
 pub async fn result(app: &App, id: &str) -> anyhow::Result<Option<Value>> {
     let (url, token) = config(app).await?.context("no monitor linked")?;

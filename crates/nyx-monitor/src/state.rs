@@ -183,6 +183,8 @@ pub struct Host {
     pub tail_seen: i64,
     /// Pace given in the last reply. 0 until then, as after a restart: taken as idle.
     pub interval_s: u64,
+    /// When the Proxmox host was last asked to put an agent in this container. Memory only.
+    pub ct_install_at: i64,
 }
 
 impl Host {
@@ -281,6 +283,7 @@ impl Host {
             watched_until: 0,
             tail_seen: 0,
             interval_s: 0,
+            ct_install_at: 0,
         }
     }
 }
@@ -370,11 +373,14 @@ pub struct State {
     pub by_token: HashMap<String, String>,
     pub alerts: HashMap<String, OpenAlert>,
     pub probes: HashMap<String, crate::probes::ProbeLive>,
+    pub pipelines: HashMap<String, crate::pipelines::Live>,
     pub results: VecDeque<Value>,
     pub thresholds: Thresholds,
     pub maintenance: Maintenance,
     pub last_check_day: i64,
     pub power: HashMap<String, f64>,
+    /// Plugs that could not be read, with the reason, by name.
+    pub power_problems: HashMap<String, String>,
     /// Where nodes were placed on the map, by id. In memory as public pages read it.
     pub map_layout: Value,
     /// Version of the agents fetched from GitHub, while beta agents are on.
@@ -742,6 +748,20 @@ fn held_level(value: f32, warn: f32, crit: f32, current: Option<&str>) -> &'stat
     }
 }
 
+/// What is wrong with a container, if anything. A container stopped on purpose is no problem,
+/// but one that exited with an error in the last day is, as is one that keeps restarting.
+pub fn container_problem(c: &Container) -> Option<(&'static str, &'static str)> {
+    if c.state == "restarting" {
+        return Some(("crit", "keeps restarting"));
+    }
+    if c.status.contains("(unhealthy)") {
+        return Some(("warn", "is unhealthy"));
+    }
+    let code = c.status.strip_prefix("Exited (")?.split(')').next()?;
+    let old = ["day", "week", "month", "year"].iter().any(|u| c.status.contains(u));
+    (code != "0" && !old).then_some(("warn", "stopped with an error"))
+}
+
 /// Alerts a host's latest data should have open.
 pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) -> Vec<Wanted> {
     let Some(live) = &h.live else { return vec![] };
@@ -766,6 +786,16 @@ pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) ->
     }
     for v in live.vpn.iter().filter(|v| !v.up) {
         push(format!("vpn:{}", v.iface), "state", "warn", format!("{}: VPN {} ({}) is down", h.name, v.iface, v.kind));
+    }
+    for c in &live.containers {
+        if let Some((severity, what)) = container_problem(c) {
+            push(format!("ct:{}", c.name), "state", severity, format!("{}: container {} {what}", h.name, c.name));
+        }
+        // Only with an explicit limit: without one Docker reports the memory of the host.
+        if c.mem_limit > 0 && c.mem_limit < r.mem_total {
+            let (suffix, p) = (format!("ct:{}:mem", c.name), pct(c.mem_used, c.mem_limit));
+            push(suffix.clone(), "state", held(&suffix, p, th.warn, th.crit), format!("{}: container {} uses {p:.0}% of its memory limit", h.name, c.name));
+        }
     }
     for d in &live.smart {
         let severity = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
@@ -898,6 +928,17 @@ mod tests {
     }
 
     #[test]
+    fn container_problems_are_loops_errors_and_unhealthy_ones_but_not_a_clean_stop() {
+        let c = |state: &str, status: &str| Container { name: "web".into(), image: String::new(), state: state.into(), status: status.into(), ..Container::default() };
+        assert_eq!(container_problem(&c("restarting", "Restarting (1) 3 seconds ago")), Some(("crit", "keeps restarting")));
+        assert_eq!(container_problem(&c("running", "Up 2 hours (unhealthy)")), Some(("warn", "is unhealthy")));
+        assert_eq!(container_problem(&c("exited", "Exited (137) 5 minutes ago")), Some(("warn", "stopped with an error")));
+        assert_eq!(container_problem(&c("exited", "Exited (0) 5 minutes ago")), None);
+        assert_eq!(container_problem(&c("exited", "Exited (1) 3 weeks ago")), None, "an old failure is no news");
+        assert_eq!(container_problem(&c("running", "Up 2 hours")), None);
+    }
+
+    #[test]
     fn status_uses_worst_metric_and_goes_off_when_silent() {
         let mut st = state();
         let th = Thresholds::default();
@@ -927,7 +968,7 @@ mod tests {
     #[test]
     fn change_only_fields_survive_an_empty_report() {
         let mut st = state();
-        let c = Container { name: "web".into(), image: "i".into(), state: "running".into(), status: "Up".into() };
+        let c = Container { name: "web".into(), image: "i".into(), state: "running".into(), status: "Up".into(), ..Container::default() };
         st.apply("h1", Report { containers: Some(vec![c]), ..report(1.0, 1, 1) }, 1);
         st.apply("h1", report(1.0, 1, 1), 2);
         assert_eq!(st.hosts["h1"].live.as_ref().unwrap().containers.len(), 1);

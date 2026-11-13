@@ -73,17 +73,45 @@ hourly check fails, the reason goes to the monitor's log.
 
 ## Proxmox console
 
-In either server's settings, enter the Proxmox URL. A **Console** button opens noVNC in
-a new tab, in the Proxmox interface. Nyx does not store Proxmox credentials: you sign
-in there.
+In either server's **Settings**, fill in **Proxmox console**: the URL (for example
+`https://pve.lan:8006`) and either a **user with its realm and password** (`root@pam`) or an
+**API token** (`user@realm!name=secret`). **Test the connection** checks them. Tick
+**Accept a self-signed certificate** while Proxmox still uses the one it made itself; it only
+applies to the calls Nyx makes.
+
+A **Console** button then opens noVNC for a guest, or the shell of a node, in a new tab. The
+button goes through Nyx, which asks Proxmox for a login ticket and passes it to your browser
+as the `PVEAuthCookie` Proxmox itself would set:
+
+- with a **password**, the console opens already signed in **when Nyx and Proxmox share a
+  domain** (`nyx.home.lan` and `pve.home.lan`, or the same host on two ports), as a browser
+  only sends a cookie to hosts of the domain that set it. Elsewhere, such as two IP
+  addresses, Proxmox shows its sign-in page, as before
+- an **API token** checks the connection but cannot sign a browser in: Proxmox does not
+  accept tokens in its interface
+
+The password and token are stored in Nyx's database and shown to signed-in users in the
+settings, like the other keys. Prefer a dedicated Proxmox user with the `PVEVMConsole` role
+to `root@pam`.
 
 ## Meross plugs
 
-Monitor, **Settings, Integrations**. List plugs as `name=ip`, one per line. Plugs are
-read over the local network only, never through the Meross cloud. Nyx needs the
-device key, which is tied to your Meross account: it can be extracted with community
-tools such as `meross-iot`, and is not available in the Meross app. Tested against
-protocol documentation, not a physical plug.
+Monitor, **Settings, Integrations, Meross plugs**.
+
+1. **Sign in** with your Meross account (e-mail and password). Nyx calls the Meross cloud
+   once to get the key that signs requests to your plugs, then forgets the password. It
+   follows the regional server your account lives on. Sign in again if the key stops working.
+2. **Add each plug** with a name, its **IP address** and its **MAC address**.
+
+After that, plugs are read over the local network only, never through the Meross cloud. On
+every reading Nyx asks the plug for its MAC address and compares: if the address now belongs
+to another device, the plug is reported in the settings and skipped, rather than showing the
+wrong device's power. Give your plugs a fixed address in your router. A plug saved without a
+MAC, by an earlier version, is read without that check until you add it.
+
+The sign-in follows the protocol documented by the community
+[meross-iot](https://github.com/albertogeniola/MerossIot) project, and is not tested against a
+physical plug or account.
 
 ## MCP server
 
@@ -106,7 +134,7 @@ internet and may insist on OAuth, which Nyx does not implement.
 
 | Server | Tools |
 | --- | --- |
-| Monitor | `infrastructure_status`, `list_hosts`, `get_host`, `list_alerts`, `list_probes` |
+| Monitor | `infrastructure_status`, `list_hosts`, `get_host`, `list_alerts`, `list_probes`, `list_pipelines` |
 | Manager | `list_hardware`, `list_virtual`, `ipam_report`, `list_deployments`, `list_tasks`, `list_vpn_links`, `trace_route` |
 
 Example prompt: *"Give me the overall state of my infrastructure."*

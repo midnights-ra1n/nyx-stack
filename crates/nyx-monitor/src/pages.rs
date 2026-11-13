@@ -41,7 +41,7 @@ const MAX_PANELS: usize = 64;
 const MAX_TEXT: usize = 20_000;
 const MAX_LOGO: usize = 350_000; // about 256 KB once decoded
 const COLS: i64 = 24;
-const PANEL_TYPES: [&str; 12] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map"];
+const PANEL_TYPES: [&str; 13] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map", "pipelines"];
 const PRESETS: [&str; 3] = ["nyx", "graphite", "light"];
 /// The id of the monitor's own heartbeat among the probe rollups.
 pub const MONITOR: &str = "_monitor";
@@ -592,6 +592,7 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
             json!({"unit": unit, "series": rows.iter().map(|r| json!({"name": r.label, "values": series(c, r, &p.metric)})).collect::<Vec<_>>()})
         }
         "map" => json!(map_nodes(c, &rows, p.items.is_empty()).into_iter().map(|(_, node)| node).collect::<Vec<_>>()),
+        "pipelines" => crate::pipelines::public(c.st),
         "tempo" => c.st.tempo.as_ref().map_or(Value::Null, |(_, v)| json!({"today": v["today"], "tomorrow": v["tomorrow"], "remaining": v["remaining"]})),
         "alerts" if c.wall => {
             let mut open: Vec<_> = c.st.alerts.values().collect();
@@ -850,6 +851,17 @@ mod tests {
         assert!(build(&st, "wall", &cfg, now)["panels"][0]["data"].is_null());
         st.tempo = Some((std::time::Instant::now(), json!({"date": "2026-11-06", "configured": true, "today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}})));
         assert_eq!(build(&st, "wall", &cfg, now)["panels"][0]["data"], json!({"today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}}));
+    }
+
+    #[test]
+    fn a_pipelines_panel_shows_names_and_verdicts_but_no_repository() {
+        let now = Local::now();
+        let cfg = Config { panels: vec![panel("pipelines", &[], "")], ..Config::default() };
+        let mut st = fleet(now.timestamp());
+        let def = crate::pipelines::parse_def(&json!({"id": "c1", "name": "Site", "provider": "github", "repo": "me/secret-repo", "branch": "main", "token": "t"}));
+        st.pipelines.insert("c1".into(), crate::pipelines::Live::new(def));
+        let data = build(&st, "status", &cfg, now)["panels"][0]["data"].clone();
+        assert_eq!(data, json!([{"label": "Site", "branch": "main", "state": "off", "status": "", "at": "", "runs": []}]));
     }
 
     #[test]

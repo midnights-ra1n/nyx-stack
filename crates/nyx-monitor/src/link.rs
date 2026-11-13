@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use nyx_proto::{sha256_hex, Action, Deploy};
+use nyx_proto::{sha256_hex, Action, Deploy, SiteControl};
 use nyx_srv::{auth::Session, random_hex, ApiError, ApiResult};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -49,9 +49,21 @@ async fn tempo(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Jso
     integrations::tempo_now(&app).await.map(Json).map_err(|e| ApiError::bad_request(format!("{e:#}")))
 }
 
+async fn pipelines(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    authorize(&app, &headers).await?;
+    Ok(Json(json!(crate::pipelines::snapshot(&app))))
+}
+
 async fn deploy(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>, Json(d): Json<Deploy>) -> ApiResult<Json<Value>> {
     authorize(&app, &headers).await?;
     let cmd = app.enqueue(&id, Action::Deploy(d)).ok_or_else(ApiError::not_found)?;
+    Ok(Json(json!({"id": cmd})))
+}
+
+/// Restart, stop, start or read the logs of a Node.js site on a host.
+async fn site(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>, Json(c): Json<SiteControl>) -> ApiResult<Json<Value>> {
+    authorize(&app, &headers).await?;
+    let cmd = app.enqueue(&id, Action::Site(c)).ok_or_else(ApiError::not_found)?;
     Ok(Json(json!({"id": cmd})))
 }
 
@@ -73,7 +85,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/link/hosts", get(hosts))
         .route("/api/link/overview", get(overview))
         .route("/api/link/tempo", get(tempo))
+        .route("/api/link/pipelines", get(pipelines))
         .route("/api/link/hosts/{id}/deploy", post(deploy))
+        .route("/api/link/hosts/{id}/site", post(site))
         .route("/api/link/results/{id}", get(result))
         .route("/api/link/token", post(new_token))
         .with_state(app)

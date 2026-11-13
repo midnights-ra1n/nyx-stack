@@ -9,6 +9,7 @@ pub mod database;
 pub mod mcp;
 pub mod notify;
 pub mod pb;
+pub mod proxmox;
 pub mod system;
 pub mod web;
 

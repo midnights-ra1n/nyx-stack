@@ -1,10 +1,11 @@
-import { BoltIcon, ClockIcon, DocumentTextIcon, GlobeAltIcon, HeartIcon, LinkIcon, PlusIcon, WindowIcon } from "@heroicons/react/24/outline"
+import { BoltIcon, CodeBracketSquareIcon, ClockIcon, DocumentTextIcon, GlobeAltIcon, HeartIcon, LinkIcon, PlusIcon, WindowIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton, reveal } from "../ui/board"
 import { BarGauge, Button, Empty, ErrorNote, type Icon, Input, Meter, Panel, Stat, Status, Table, Td, TextArea } from "../ui/components"
 import { Editor, EditorGroup } from "../ui/crud"
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
+import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
 
 export const deployLevel = (s: string): Level => (s === "ok" ? "ok" : s === "failed" ? "crit" : s === "running" ? "info" : "off")
@@ -13,6 +14,7 @@ export interface Widget { id: string; type: string; title: string; text?: string
 
 export const WIDGETS: Record<string, { label: string; icon: Icon; hint: string }> = {
   tempo: { label: "EDF Tempo", icon: BoltIcon, hint: "Today, tomorrow and the days left. Read from the linked monitor, where the RTE keys are set." },
+  pipelines: { label: "Pipelines", icon: CodeBracketSquareIcon, hint: "State of the latest CI/CD run of each repository. Read from the linked monitor, where the pipelines are set." },
   monitoring: { label: "Monitoring", icon: HeartIcon, hint: "Hosts online, open alerts and average load, from the linked monitor." },
   note: { label: "Note", icon: DocumentTextIcon, hint: "Free text: a procedure, a reminder, a phone number." },
   links: { label: "Links", icon: LinkIcon, hint: "Bookmarks to your services." },
@@ -53,6 +55,7 @@ function FromMonitor({ what, children }: { what: string; children: (data: any) =
 
 function WidgetBody({ w }: { w: Widget }) {
   if (w.type === "tempo") return <FromMonitor what="tempo">{(t) => (t.configured === false ? <Empty>Add your RTE API keys in the monitor's settings.</Empty> : <TempoTiles tempo={t} className="auto-rows-[96px]" />)}</FromMonitor>
+  if (w.type === "pipelines") return <FromMonitor what="pipelines">{(rows) => <PipelineList rows={rows} />}</FromMonitor>
   if (w.type === "monitoring") return (
     <FromMonitor what="overview">{(o) => (
       <div className="flex flex-col gap-4">

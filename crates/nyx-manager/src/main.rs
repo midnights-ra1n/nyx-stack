@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     notify::spawn(core.clone());
     spawn_loops(app.clone());
 
-    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(backup::router()).with_state(core.clone());
+    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(nyx_srv::proxmox::router()).merge(backup::router()).with_state(core.clone());
     let router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)
@@ -76,6 +76,7 @@ fn spawn_loops(app: Arc<App>) {
         }};
     }
     task!(15, "deploy results", sites::poll_results);
+    task!(60, "site health", sites::check_health);
     task!(300, "inventory sync", link::sync);
     task!(300, "reminders", api::reminders);
     task!(30, "nextcloud sync", nextcloud::sync);

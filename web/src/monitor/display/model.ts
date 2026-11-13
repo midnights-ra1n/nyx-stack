@@ -1,7 +1,7 @@
 /** Page model shared by the viewer and the editor: a 24-column grid, like Grafana. */
 export const COLS = 24
 
-export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo" | "map"
+export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo" | "map" | "pipelines"
 export interface Item { kind: "host" | "probe"; id: string; label: string }
 export interface Box { x: number; y: number; w: number; h: number }
 export interface PanelCfg extends Box { id: string; type: PanelType; title: string; items: Item[]; metric: string; text: string; uptime: boolean }
@@ -25,6 +25,7 @@ export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number
   { type: "clock", label: "Clock", w: 4, h: 3, title: "" },
   { type: "tempo", label: "EDF Tempo", w: 24, h: 4, title: "" },
   { type: "map", label: "Live map", w: 24, h: 14, title: "" },
+  { type: "pipelines", label: "CI/CD pipelines", w: 12, h: 6, title: "Pipelines" },
 ]
 
 // Not crypto.randomUUID: browsers only offer it over HTTPS, and Nyx also runs on plain HTTP.

@@ -50,7 +50,7 @@ export const Hardware = () => <CrudPage title="Hardware" singular="hardware" col
 
 function consoleUrl(pve: string, a: any) {
   if (!pve || !a.vmid || !a.pve_node) return ""
-  return `${pve.replace(/\/$/, "")}/?novnc=1&console=${a.type === "vm" ? "kvm" : "lxc"}&vmid=${a.vmid}&vmname=${encodeURIComponent(a.name)}&node=${encodeURIComponent(a.pve_node)}`
+  return `/api/proxmox/console?console=${a.type === "vm" ? "kvm" : "lxc"}&vmid=${a.vmid}&vmname=${encodeURIComponent(a.name)}&node=${encodeURIComponent(a.pve_node)}`
 }
 
 export function Virtual() {

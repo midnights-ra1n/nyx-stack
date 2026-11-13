@@ -20,7 +20,7 @@ address, such as a LAN name or a VPN address, change **Monitor URL** above the c
 Your browser remembers it, and the host page offers the same with **Show install
 command**. Without `NYX_PUBLIC_URL`, Nyx suggests the address in your browser.
 
-Add `--ct-autoinstall` on Proxmox to watch its containers, see
+Add `--ct-autoinstall` on Proxmox to have the agent installed in its containers, see
 [Proxmox containers](#proxmox-containers). On `physical` and `proxmox` the script installs smartmontools, because SMART is mandatory there.
 
 ### Ansible
@@ -40,9 +40,8 @@ The role in `packaging/ansible/roles/nyx_agent` takes the same four values:
 ```
 
 `nyx_agent_kind` takes `vm`, `physical`, `proxmox`, `vps` or `lxc`, like the install
-line. On `proxmox`, set `nyx_agent_ct_autoinstall: true` to watch the LXC containers from
-the host: nothing is installed inside them. It is the **Watch LXC containers from this
-host** box of the interface.
+line. On `proxmox`, set `nyx_agent_ct_autoinstall: true` so that the host installs the agent in its LXC
+containers. It is the **Manage LXC containers from this host** box of the interface.
 
 Each host needs its own token and key, so create them with **Add host** and keep them
 in Ansible Vault. Changing `nyx_agent_kind` and replaying the playbook changes the
@@ -84,11 +83,18 @@ provider can hide its hypervisor. The inventory of the manager lists a VPS as a 
 
 ### Proxmox containers
 
-Nothing is installed in LXC containers. The agent on the Proxmox host reads what Proxmox
-already measures, with `pvesh`, and the monitor keeps a host for each container.
+With **Manage LXC containers from this host** (`--ct-autoinstall` in the install command)
+the agent installs itself in the containers:
 
-Turn on **Watch LXC containers from this host**, or `--ct-autoinstall` in the install
-command, a name kept from when this option installed agents. Then:
+- the monitor keeps a host for each container, under its Proxmox host, and asks the
+  Proxmox agent to run `pct push` and `pct exec` to install the agent there as type `lxc`.
+  It needs no `curl` in the container, only systemd. New containers get it too. A failed
+  installation is tried again every hour
+- until the container's own agent reports, the Proxmox agent reads what Proxmox measures,
+  with `pvesh`, so the container shows figures at once. Then the container's agent takes over
+- **OCI containers** (created from an image) have no init to run the agent: they are never
+  installed, and the Proxmox host measures them for good
+- the container reaches the monitor at the address the Proxmox host uses
 
 - every container gets a host of its own, under its Proxmox host, of type `lxc`, including
   new ones. CPU, memory, root disk, network, uptime, OS and address follow every 30 s,
@@ -97,7 +103,7 @@ command, a name kept from when this option installed agents. Then:
 - CPU is a share of the cores given to the container
 - a stopped container shows as stopped, and raises the same alert as a host going silent
 - a destroyed container leaves Nyx
-- logs, updates, Docker state and Node.js apps need an agent, and are not available
+- logs, updates, Docker state and Node.js apps need an agent: OCI containers do not have them
 
 With the option off, containers do not appear at all. Turning it off removes the hosts
 of watched containers and their history. VMs are always listed under their Proxmox host,
@@ -106,10 +112,9 @@ and need an agent of their own for metrics.
 Reading the figures starts `pvesh`, which is heavier than the rest of the agent. It runs
 every 30 s with the option on, every 5 minutes with it off.
 
-If you still want an agent inside a container, install it there with the type `lxc`. The
-monitor ties it to the container by name and uses it instead, until it goes quiet. An
-agent an earlier version installed keeps working the same way: remove it with
-`nyx-agent uninstall` inside the container, and the Proxmox host takes over a minute later.
+An agent installed by hand in a container with the type `lxc` is tied to it by name and used
+the same way. Remove one with `nyx-agent uninstall` inside the container, and the Proxmox
+host takes over a minute later.
 
 ### OCI containers
 

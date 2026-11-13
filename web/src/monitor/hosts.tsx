@@ -12,8 +12,8 @@ import { hostLevel } from "./overview"
 import { VpnTable } from "./vpn"
 
 const KINDS = [{ value: "vm", label: "VM" }, { value: "lxc", label: "LXC container" }, { value: "physical", label: "Physical server" }, { value: "proxmox", label: "Physical server (Proxmox)" }, { value: "vps", label: "VPS" }]
-const WATCH_CTS = "Watch LXC containers from this host"
-const WATCH_CTS_HINT = "Nothing is installed in them: their figures come from Proxmox. Unticking removes them from Nyx, with their history."
+const WATCH_CTS = "Manage LXC containers from this host"
+const WATCH_CTS_HINT = "Every container gets the agent, installed from this host. OCI containers have no init: this host measures them. Unticking removes them from Nyx, with their history."
 // The path keeps working where sudo does not search /usr/local/bin, as on RHEL.
 const UNINSTALL = 'sudo "$(command -v nyx-agent)" uninstall'
 const kindLabel = (k: string) => KINDS.find((x) => x.value === k)?.label ?? k
@@ -66,10 +66,11 @@ export function buildTree(hosts: any[], guestsOf: (h: any) => any[], collapsed: 
 
 export function consoleUrl(pve: string, h: any, guest?: any) {
   if (!pve) return ""
-  const base = `${pve.replace(/\/$/, "")}/?novnc=1`
-  if (guest) return `${base}&console=${guest.kind === "lxc" ? "lxc" : "kvm"}&vmid=${guest.vmid}&vmname=${encodeURIComponent(guest.name)}&node=${guest.node}`
-  if (h.vmid) return `${base}&console=lxc&vmid=${h.vmid}&node=${h.pve_node}`
-  return h.kind === "proxmox" ? `${base}&console=shell&node=${h.hostname}` : ""
+  // Opened by Nyx, which signs in with the credentials of the settings and sends you on to Proxmox.
+  const base = "/api/proxmox/console?"
+  if (guest) return `${base}console=${guest.kind === "lxc" ? "lxc" : "kvm"}&vmid=${guest.vmid}&vmname=${encodeURIComponent(guest.name)}&node=${encodeURIComponent(guest.node)}`
+  if (h.vmid) return `${base}console=lxc&vmid=${h.vmid}&node=${encodeURIComponent(h.pve_node)}`
+  return h.kind === "proxmox" ? `${base}console=shell&node=${encodeURIComponent(h.hostname)}` : ""
 }
 
 /** Hosts of the latest updates, without those already dismissed on this device. */

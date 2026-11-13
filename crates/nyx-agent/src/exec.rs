@@ -27,11 +27,14 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
         Action::UpdateSystem => upgrade(tx),
         Action::UpdateAgent => update_agent(cfg, http).inspect(|_| restart = true),
         Action::Deploy(d) => deploy(&d),
+        Action::Site(c) => site_control(&c),
+        Action::Container { op, name } => container_op(&op, &name),
         Action::Firewall(c) => {
             let done = crate::firewall::change(cfg, &c);
             let _ = tx.send(Msg::FirewallChanged); // also after a failure: it may have been undone
             done
         }
+        Action::InstallInCt { vmid, token, key } => install_in_ct(cfg, http, vmid, &token, &key),
         Action::SetKind { .. } => Ok(String::new()), // handled by the main loop
     };
     let (ok, output) = match outcome {
@@ -121,6 +124,31 @@ fn update_agent(cfg: &Config, http: &ureq::Agent) -> anyhow::Result<String> {
     Ok("agent binary replaced, restarting".into())
 }
 
+/// The installer is the one served by the monitor, built into the agent so that both match.
+const INSTALL_SH: &str = include_str!("../../../packaging/install.sh");
+
+/// Puts the agent in a container from the host: the binary and the installer are pushed
+/// first, as the container may have no curl. Arguments go straight to `pct`, never through a shell.
+fn install_in_ct(cfg: &Config, http: &ureq::Agent, vmid: u32, token: &str, key: &str) -> anyhow::Result<String> {
+    if !(safe_word(token) && safe_word(key)) {
+        bail!("invalid token or key");
+    }
+    let dir = std::path::Path::new("/run/nyx-agent");
+    let (script, bin) = (dir.join(format!("ct{vmid}-install.sh")), dir.join(format!("ct{vmid}-agent")));
+    fs::write(&script, INSTALL_SH)?;
+    fs::write(&bin, transport::fetch_agent_binary(http, cfg, &format!("nyx-agent-linux-{}", std::env::consts::ARCH))?)?;
+    let id = vmid.to_string();
+    let run = || -> anyhow::Result<String> {
+        sh(cmd("pct", ["push", &id, &script.to_string_lossy(), "/tmp/nyx-install.sh", "--perms", "0755"]))?;
+        sh(cmd("pct", ["push", &id, &bin.to_string_lossy(), "/tmp/nyx-agent.bin", "--perms", "0755"]))?;
+        sh(cmd("pct", ["exec", &id, "--", "sh", "/tmp/nyx-install.sh", "--url", &cfg.url, "--token", token, "--key", key, "--kind", "lxc", "--binary", "/tmp/nyx-agent.bin"]))
+    };
+    let done = run();
+    let _ = sh(cmd("pct", ["exec", &id, "--", "rm", "-f", "/tmp/nyx-install.sh", "/tmp/nyx-agent.bin"]));
+    let _ = (fs::remove_file(&script), fs::remove_file(&bin));
+    done
+}
+
 /// Rejects anything that would not stay one word inside a shell string.
 fn safe_word(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -129,7 +157,7 @@ fn safe_word(s: &str) -> bool {
 const DEPLOY_SCRIPT: &str = r#"set -e
 export GIT_SSH_COMMAND="ssh -i $NYX_DEPLOY_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 if [ -d "$NYX_PATH/.git" ]; then
-  git -C "$NYX_PATH" fetch --depth 1 origin "$NYX_BRANCH"
+  git -C "$NYX_PATH" fetch --depth 1 origin "${NYX_COMMIT:-$NYX_BRANCH}"
   git -C "$NYX_PATH" reset --hard FETCH_HEAD
 else
   git clone --depth 1 --branch "$NYX_BRANCH" "$NYX_REPO" "$NYX_PATH"
@@ -144,6 +172,10 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
     if !safe_word(&d.site) || !safe_word(&d.user) || !d.path.starts_with('/') {
         bail!("invalid site name, user or path");
     }
+    if !d.commit.is_empty() && !(d.commit.len() >= 7 && d.commit.chars().all(|c| c.is_ascii_hexdigit())) {
+        bail!("invalid commit");
+    }
+    env_lines(&d.env)?; // before anything is changed on the host
     sh(cmd("install", ["-d", "-o", &d.user, "-m", "755", &d.path]))?;
     let key_dir = "/run/nyx-agent/keys";
     sh(cmd("install", ["-d", "-o", &d.user, "-m", "700", key_dir]))?;
@@ -157,6 +189,7 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
         .arg(format!("NYX_PATH={}", d.path))
         .arg(format!("NYX_REPO={}", d.repo))
         .arg(format!("NYX_BRANCH={}", d.branch))
+        .arg(format!("NYX_COMMIT={}", d.commit))
         .arg(format!("NYX_INSTALL={}", d.install_cmd))
         .arg(format!("NYX_BUILD={}", d.build_cmd))
         .args(["sh", "-c", DEPLOY_SCRIPT]);
@@ -164,6 +197,7 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
     let _ = fs::remove_file(&key_path); // the key only exists for the deploy
     let output = result?;
 
+    write_env(d)?;
     if d.cache_max_age.is_some() {
         fs::create_dir_all(CACHE_DIR)?;
         fs::write(format!("{CACHE_DIR}/cache.js"), CACHE_JS)?; // umask 022: readable by the run user
@@ -180,6 +214,72 @@ fn deploy(d: &Deploy) -> anyhow::Result<String> {
     Ok(output)
 }
 
+const ENV_DIR: &str = "/etc/nyx/env";
+
+/// `KEY=value` lines only: the file is read by systemd, as root.
+fn env_lines(env: &str) -> anyhow::Result<String> {
+    let mut out = String::new();
+    for line in env.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let name = line.split_once('=').map(|(k, _)| k);
+        if !name.is_some_and(|k| !k.is_empty() && !k.starts_with(|c: char| c.is_ascii_digit()) && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
+            bail!("invalid environment line (expected NAME=value)");
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// Readable by root only: it holds secrets.
+fn write_env(d: &Deploy) -> anyhow::Result<()> {
+    let path = format!("{ENV_DIR}/{}.env", d.site);
+    let lines = env_lines(&d.env)?;
+    if lines.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    fs::create_dir_all(ENV_DIR)?;
+    fs::write(&path, lines)?;
+    Ok(fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?)
+}
+
+/// Start, stop or restart a Docker container, or read its last lines.
+fn container_op(op: &str, name: &str) -> anyhow::Result<String> {
+    if !nyx_proto::container_name_ok(name) {
+        bail!("invalid container name");
+    }
+    let path = match op {
+        "start" | "restart" | "stop" => format!("/containers/{name}/{op}"),
+        "logs" => format!("/containers/{name}/logs?stdout=1&stderr=1&tail=200&timestamps=1"),
+        _ => bail!("unknown operation"),
+    };
+    let (status, body) = crate::collect::docker_call(if op == "logs" { "GET" } else { "POST" }, &path).context("Docker is not reachable")?;
+    match status {
+        200 if op == "logs" => Ok(crate::collect::unframe(&body)),
+        204 => Ok(format!("{op} done")),
+        304 => Ok(format!("nothing to do: already {}", if op == "start" { "started" } else { "stopped" })),
+        404 => bail!("no such container"),
+        _ => bail!("Docker answered {status}: {}", String::from_utf8_lossy(&body).trim()),
+    }
+}
+
+/// Start, stop or restart a site's service, or read what it logged lately.
+fn site_control(c: &nyx_proto::SiteControl) -> anyhow::Result<String> {
+    if !service_ok(&c.service) || !safe_word(&c.user) {
+        bail!("refusing unsafe service name");
+    }
+    let op = c.op.as_str();
+    if !["restart", "stop", "start", "logs"].contains(&op) {
+        bail!("unknown operation");
+    }
+    match c.service.strip_prefix("pm2:") {
+        Some(name) if op == "logs" => sh(cmd("runuser", ["-u", &c.user, "--", "sh", "-lc", "pm2 logs \"$1\" --nostream --lines 200", "sh", name])),
+        Some(name) => sh(cmd("runuser", ["-u", &c.user, "--", "sh", "-lc", "pm2 \"$1\" \"$2\"", "sh", op, name])),
+        None if op == "logs" => sh(cmd("journalctl", ["-u", &c.service, "-n", "200", "--no-pager", "-o", "short-iso"])),
+        None => sh(cmd("systemctl", [op, &c.service])).map(|_| format!("{op} done")),
+    }
+}
+
 /// A site Nyx adopted keeps the service that already runs it.
 // shortcut: pm2 is looked up in the user's login PATH, keep the path in the app if nvm hides it.
 // shortcut: the cache setting only reaches systemd services, not PM2 ones; pass the env through pm2 if asked.
@@ -191,6 +291,13 @@ fn restart_existing(d: &Deploy) -> anyhow::Result<String> {
         Some(name) => sh(cmd("runuser", ["-u", &d.user, "--", "sh", "-lc", "pm2 restart \"$1\"", "sh", name])),
         None => {
             let dir = format!("/etc/systemd/system/{}.d", unit_name(&d.service));
+            let env_conf = format!("{dir}/nyx-env.conf");
+            if env_lines(&d.env)?.is_empty() {
+                let _ = fs::remove_file(&env_conf);
+            } else {
+                fs::create_dir_all(&dir)?;
+                fs::write(&env_conf, format!("[Service]\nEnvironmentFile={ENV_DIR}/{}.env\n", d.site))?;
+            }
             match cache_env(d) {
                 env if env.is_empty() => { let _ = fs::remove_file(format!("{dir}/nyx-cache.conf")); }
                 env => {
@@ -227,7 +334,7 @@ fn service_ok(s: &str) -> bool {
 fn unit_file(d: &Deploy) -> String {
     let start = d.start_cmd.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
     format!(
-        "[Unit]\nDescription=Nyx site {site}\nAfter=network-online.target\n\n[Service]\nUser={user}\nWorkingDirectory={path}\nEnvironment=NODE_ENV=production\n{cache}ExecStart=/bin/sh -c \"{start}\"\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n",
+        "[Unit]\nDescription=Nyx site {site}\nAfter=network-online.target\n\n[Service]\nUser={user}\nWorkingDirectory={path}\nEnvironment=NODE_ENV=production\nEnvironmentFile=-{ENV_DIR}/{site}.env\n{cache}ExecStart=/bin/sh -c \"{start}\"\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n",
         site = d.site, user = d.user, path = d.path, cache = cache_env(d)
     )
 }
@@ -248,8 +355,24 @@ mod tests {
     }
 
     #[test]
+    fn environment_lines_are_names_and_values_only() {
+        assert_eq!(env_lines("# c\n PORT=3000 \n\nDB_URL=postgres://u:p@h/db?x=1\n").unwrap(), "PORT=3000\nDB_URL=postgres://u:p@h/db?x=1\n");
+        for bad in ["PORT", "=x", "1A=x", "A B=x", "A-B=x"] {
+            assert!(env_lines(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn site_operations_are_checked() {
+        let c = |op: &str, service: &str| nyx_proto::SiteControl { op: op.into(), service: service.into(), user: "www".into() };
+        assert!(site_control(&c("reboot", "a.service")).is_err());
+        assert!(site_control(&c("stop", "-rf")).is_err());
+        assert!(site_control(&c("stop", "a b")).is_err());
+    }
+
+    #[test]
     fn unit_escapes_start_command() {
-        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into(), service: "".into(), cache_max_age: None };
+        let d = Deploy { site: "blog".into(), user: "www".into(), path: "/srv/blog".into(), start_cmd: r#"node "a$b" 100%"#.into(), repo: "".into(), branch: "".into(), install_cmd: "".into(), build_cmd: "".into(), ssh_private_key: "".into(), service: "".into(), cache_max_age: None, env: "".into(), commit: "".into() };
         assert!(unit_file(&d).contains(r#"ExecStart=/bin/sh -c "node \"a$$b\" 100%%""#));
         assert!(!unit_file(&d).contains("CACHE_MAX_AGE"));
         let d = Deploy { cache_max_age: Some(0), ..d };

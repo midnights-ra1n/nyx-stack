@@ -46,13 +46,14 @@ every browser sees the same ones; open a widget's menu to edit or remove it.
 | Widget | Shows |
 | --- | --- |
 | EDF Tempo | Today's and tomorrow's colour and the days left. Read from the linked monitor, where the RTE keys are set |
+| Pipelines | State of the latest CI/CD run of each repository followed by the monitor |
 | Monitoring | Hosts online, open alerts, containers and average load, from the linked monitor |
 | Note | Free text |
 | Links | Bookmarks, one `Label \| https://address` per line. Only `http` and `https` addresses are kept |
 | Clock | Time and date, in the browser's time zone or one you name, such as `Europe/Paris` |
 | Web page | A page of your own in a frame, such as a Grafana panel. Your browser loads it directly, and the page must allow being framed |
 
-Tempo and Monitoring need a [linked monitor](deployment.md#linking-manager-and-monitor). Without one, they say so.
+Tempo, Pipelines and Monitoring need a [linked monitor](deployment.md#linking-manager-and-monitor). Without one, they say so.
 
 ## Forms
 
@@ -129,6 +130,8 @@ It reads your records, not your network, so firewalls and NAT are not considered
 
 ## Network map
 
+Switch between the **diagram**, a **tree** (guests under their host) and **by type** above the map.
+
 The map follows the hierarchy of your machines. A VM, container or other device linked
 to a Proxmox, physical or server node is its guest: it is listed under that host, inside
 a frame, joined to it by a tree line. Links between two hosts, or to network gear, are
@@ -189,6 +192,21 @@ A push to the configured branch then deploys. **Deploy** does the same by hand.
 The agent fetches the branch as the run user, runs the install and build commands,
 and writes and restarts a `nyx-site-<name>` systemd service. The run user must exist
 on the host. The default is `www-data`.
+
+### Running sites
+
+Each site shows what it takes on its host: CPU (averaged since the agent's last look, every
+five minutes) and memory, summed over its processes. **Show** filters sites and detected apps
+running in Docker or directly on the host.
+
+Open a site to **restart, stop or start** its service (a systemd unit or PM2 app) and to read
+its **logs** (200 lines of the journal or PM2). Its **History** lists earlier deploys, and **Deploy
+again** puts an earlier commit back. A push to the branch deploys it through the webhook.
+
+In the site's settings, **Environment variables** (`NAME=value` per line) are written to a file only root
+can read and loaded by the service at the next deploy; PM2 services are not covered. The
+**health check address** is asked every minute: two misses in a row raise a notification, and
+the first answer afterwards ends it.
 
 ### Sites that already run
 

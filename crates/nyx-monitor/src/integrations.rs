@@ -8,7 +8,7 @@ use chrono::{DateTime, Datelike, Days, NaiveDate, TimeDelta, Utc};
 use md5::{Digest, Md5};
 use nyx_srv::{auth::Session, notify, random_hex, ApiError, ApiResult};
 use serde_json::{json, Value};
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 const RTE: &str = "https://digital.iservices.rte-france.com";
 /// Quotas of a Tempo season (1 September to 31 August).
@@ -279,25 +279,115 @@ fn watts(reply: &Value) -> Option<f64> {
     Some(reply["payload"]["electricity"]["power"].as_f64()? / 1000.0)
 }
 
+const MEROSS_SECRET: &str = "23x17ahWarFH6w29";
+const MEROSS_API: &str = "https://iot.meross.com";
+
+/// Meross signs every cloud request: md5 of a fixed secret, the time, a nonce and the payload.
+fn meross_envelope(data: &Value, nonce: &str, ts: i64) -> Value {
+    use base64::Engine;
+    let params = base64::engine::general_purpose::STANDARD.encode(data.to_string());
+    let sign = nyx_proto::hex(&Md5::digest(format!("{MEROSS_SECRET}{ts}{nonce}{params}")));
+    json!({"params": params, "sign": sign, "timestamp": ts, "nonce": nonce})
+}
+
+async fn meross_call(app: &App, base: &str, path: &str, token: &str, data: &Value) -> anyhow::Result<Value> {
+    let body = meross_envelope(data, &random_hex(8).to_uppercase(), Utc::now().timestamp_millis());
+    let res = app.http.post(format!("{base}{path}")).header("authorization", format!("Basic {token}").trim_end()).header("vender", "meross").header("apptype", "Android").json(&body).send().await.context("cannot reach Meross")?;
+    anyhow::ensure!(res.status().is_success(), "Meross answered with status {}.", res.status().as_u16());
+    res.json().await.context("unexpected answer from Meross")
+}
+
+/// Signs in to the Meross account and returns the user key every local request is signed
+/// with, plus the region server. The password is used here and never stored.
+async fn meross_sign_in(app: &App, email: &str, password: &str) -> anyhow::Result<(String, String)> {
+    let data = json!({"email": email, "password": nyx_proto::hex(&Md5::digest(password)), "encryption": 1, "accountCountryCode": "--",
+        "mobileInfo": {"deviceModel": "Nyx", "mobileOsVersion": "1", "mobileOs": "Linux", "uuid": random_hex(16), "carrier": ""}});
+    let mut base = MEROSS_API.to_string();
+    // An account lives in one region: the first server says which.
+    for _ in 0..2 {
+        let reply = meross_call(app, &base, "/v1/Auth/signIn", "", &data).await?;
+        match reply["apiStatus"].as_i64() {
+            Some(0) => {
+                let (key, token) = (reply["data"]["key"].as_str().context("Meross sent no key")?.to_string(), reply["data"]["token"].as_str().unwrap_or_default());
+                // Tokens are limited per account: give this one back.
+                let _ = meross_call(app, &base, "/v1/Profile/logout", token, &json!({})).await;
+                return Ok((key, base));
+            }
+            Some(1030) => {
+                let domain = reply["data"]["domain"].as_str().filter(|d| d.starts_with("https://")).context("Meross sent no region server")?;
+                base = domain.trim_end_matches('/').to_string();
+            }
+            _ => anyhow::bail!("Meross refused the sign-in: {}", reply["info"].as_str().unwrap_or("check the e-mail and the password")),
+        }
+    }
+    anyhow::bail!("Meross kept redirecting the sign-in.")
+}
+
+#[derive(serde::Deserialize)]
+struct MerossLogin {
+    email: String,
+    password: String,
+}
+
+/// Keeps the key of the account for the plugs, not the password.
+async fn meross_login(_: Session, State(app): State<Arc<App>>, Json(b): Json<MerossLogin>) -> ApiResult<Json<Value>> {
+    let (key, domain) = meross_sign_in(&app, b.email.trim(), &b.password).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let mut cfg = app.core.pb.setting("meross").await?.unwrap_or_default();
+    cfg["key"] = key.into();
+    cfg["email"] = b.email.trim().into();
+    cfg["domain"] = domain.into();
+    app.core.pb.set_setting("meross", &cfg).await?;
+    Ok(Json(json!({"email": b.email.trim()})))
+}
+
+/// Only hex digits count: `AA-BB-…`, `aa:bb:…` and `aabb…` are the same address.
+fn mac_digits(mac: &str) -> String {
+    mac.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_lowercase()
+}
+
+fn meross_get(key: &str, namespace: &str, payload: Value) -> Value {
+    let (id, ts) = (random_hex(16), Utc::now().timestamp());
+    let sign = nyx_proto::hex(&Md5::digest(format!("{id}{key}{ts}")));
+    json!({"header": {"from": "/nyx", "messageId": id, "method": "GET", "namespace": namespace, "payloadVersion": 1, "sign": sign, "timestamp": ts}, "payload": payload})
+}
+
+/// The plug at `ip` must be the one registered: addresses change, a MAC does not.
+async fn check_mac(app: &App, key: &str, ip: &str, mac: &str) -> anyhow::Result<()> {
+    let reply: Value = app.http.post(format!("http://{ip}/config")).json(&meross_get(key, "Appliance.System.All", json!({}))).timeout(Duration::from_secs(5)).send().await.context("cannot reach the plug")?.json().await.context("unexpected answer")?;
+    let found = mac_digits(reply["payload"]["all"]["system"]["hardware"]["macAddress"].as_str().unwrap_or_default());
+    anyhow::ensure!(!found.is_empty(), "the plug did not tell its MAC address");
+    anyhow::ensure!(found == mac, "another device answers at this address (MAC {found})");
+    Ok(())
+}
+
 /// Local HTTP only, so readings never leave the LAN.
 pub async fn poll_power(app: &App) -> anyhow::Result<()> {
     let Some(cfg) = app.core.pb.setting("meross").await? else { return Ok(()) };
     let key = cfg["key"].as_str().unwrap_or_default();
-    let mut readings = vec![];
+    let (mut readings, mut problems) = (vec![], HashMap::new());
     for plug in cfg["plugs"].as_array().into_iter().flatten() {
         let (name, ip) = (plug["name"].as_str().unwrap_or("plug"), plug["ip"].as_str().unwrap_or_default());
+        let mac = mac_digits(plug["mac"].as_str().unwrap_or_default());
+        // A plug saved before MACs were asked for is read as it always was.
+        if !mac.is_empty() {
+            if let Err(e) = check_mac(app, key, ip, &mac).await {
+                problems.insert(name.to_string(), format!("{e:#}"));
+                continue;
+            }
+        }
         let body = meross_request(key, &random_hex(16), Utc::now().timestamp());
         let res = app.http.post(format!("http://{ip}/config")).json(&body).timeout(Duration::from_secs(5)).send().await;
         match res {
             Ok(r) => match r.json::<Value>().await.ok().as_ref().and_then(watts) {
                 Some(w) => readings.push((name.to_string(), w)),
-                None => eprintln!("meross {name}: unexpected reply"),
+                None => { problems.insert(name.to_string(), "unexpected reply: is the key still valid? Sign in again.".into()); }
             },
-            Err(e) => eprintln!("meross {name}: {e}"),
+            Err(e) => { problems.insert(name.to_string(), format!("cannot reach the plug: {}", e.without_url())); }
         }
     }
     let mut st = app.lock();
     st.power = readings.into_iter().collect();
+    st.power_problems = problems;
     Ok(())
 }
 
@@ -305,7 +395,9 @@ async fn power(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
     let st = app.lock();
     let mut plugs: Vec<Value> = st.power.iter().map(|(n, w)| json!({"name": n, "watts": w})).collect();
     plugs.sort_by_key(|p| p["name"].as_str().unwrap_or_default().to_string());
-    Json(json!({"plugs": plugs, "total": st.power.values().sum::<f64>()}))
+    let mut problems: Vec<Value> = st.power_problems.iter().map(|(n, m)| json!({"name": n, "message": m})).collect();
+    problems.sort_by_key(|p| p["name"].as_str().unwrap_or_default().to_string());
+    Json(json!({"plugs": plugs, "total": st.power.values().sum::<f64>(), "problems": problems}))
 }
 
 pub fn router(app: Arc<App>) -> Router {
@@ -313,6 +405,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/integrations/tempo", get(tempo))
         .route("/api/integrations/tempo/calendar", post(tempo_calendar_now))
         .route("/api/integrations/power", get(power))
+        .route("/api/integrations/meross/login", post(meross_login))
         .with_state(app)
 }
 
@@ -463,6 +556,22 @@ mod tests {
     fn season_rolls_over_in_september() {
         assert_eq!(season_start(d("2026-08-31")), d("2025-09-01"));
         assert_eq!(season_start(d("2026-09-01")), d("2026-09-01"));
+    }
+
+    #[test]
+    fn meross_cloud_requests_are_signed_over_the_secret_the_time_the_nonce_and_the_payload() {
+        use base64::Engine;
+        let e = meross_envelope(&json!({"a": 1}), "N", 5);
+        let params = base64::engine::general_purpose::STANDARD.encode(r#"{"a":1}"#);
+        assert_eq!(e["params"], params.as_str());
+        assert_eq!(e["sign"], nyx_proto::hex(&Md5::digest(format!("23x17ahWarFH6w29" ) + "5N" + &params)).as_str());
+        assert_eq!((e["timestamp"].as_i64(), e["nonce"].as_str()), (Some(5), Some("N")));
+    }
+
+    #[test]
+    fn mac_addresses_compare_whatever_their_separator() {
+        assert_eq!(mac_digits("48:E1:E9-0a:bc:De"), "48e1e90abcde");
+        assert_eq!(mac_digits(""), "");
     }
 
     #[test]

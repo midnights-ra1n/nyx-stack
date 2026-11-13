@@ -2,7 +2,7 @@ import { ArchiveBoxIcon, ArrowPathIcon, BellIcon, CircleStackIcon, Cog6ToothIcon
 import { useState } from "react"
 import { Button, Mono, Panel } from "../ui/components"
 import { api } from "../ui/lib"
-import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
+import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, ProxmoxSettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 
 const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
 
@@ -82,7 +82,7 @@ export function Settings() {
           { key: "url", label: "Nextcloud URL" }, { key: "user", label: "User" },
           { key: "password", label: "App password", type: "password" },
           { key: "calendar", label: "Calendar", hint: "The name in the calendar's link, for example personal." }]} />
-        <SettingForm title="Proxmox console" setting="proxmox" needs={["url"]} fields={[{ key: "url", label: "Proxmox URL", hint: "For example https://pve.lan:8006. Adds a noVNC console button." }]} />
+        <ProxmoxSettings />
         <Sync />
       </> },
       { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },

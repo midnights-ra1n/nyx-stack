@@ -258,12 +258,28 @@ pub struct Disk {
     pub device: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Container {
     pub name: String,
     pub image: String,
     pub state: String,
     pub status: String,
+    /// Short ID. The figures below are absent from older agents, and for stopped containers.
+    #[serde(default)]
+    pub id: String,
+    /// Share of one core, so that 200 means two cores. Average since the previous report.
+    #[serde(default)]
+    pub cpu_pct: f32,
+    #[serde(default)]
+    pub mem_used: u64,
+    /// Memory limit of the container, or the host's memory when it has none.
+    #[serde(default)]
+    pub mem_limit: u64,
+}
+
+/// Names Docker accepts for a container.
+pub fn container_name_ok(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) && name.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -341,6 +357,13 @@ pub struct NodeApp {
     pub build_cmd: String,
     #[serde(default)]
     pub start_cmd: String,
+    /// What the app's processes use, summed. CPU is the average since the previous scan.
+    #[serde(default)]
+    pub cpu_pct: f32,
+    #[serde(default)]
+    pub mem_bytes: u64,
+    #[serde(default)]
+    pub uptime_s: u64,
 }
 
 /// A Proxmox guest seen by an agent of kind `proxmox`.
@@ -428,6 +451,22 @@ pub enum Action {
     Deploy(Deploy),
     /// Undone by the agent when it cannot reach the monitor afterwards.
     Firewall(FirewallChange),
+    /// Proxmox host only: install the agent inside one of its containers with `pct`, so that
+    /// the container reports for itself. The container reaches the monitor at the host's address.
+    InstallInCt { vmid: u32, token: String, key: String },
+    /// Restart, stop, start a Node.js site's service, or read its recent logs.
+    Site(SiteControl),
+    /// `start`, `stop`, `restart` or `logs` of a Docker container.
+    Container { op: String, name: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SiteControl {
+    /// `restart`, `stop`, `start` or `logs`.
+    pub op: String,
+    /// A systemd unit or `pm2:<name>`.
+    pub service: String,
+    pub user: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -447,6 +486,12 @@ pub struct Deploy {
     /// Seconds of HTTP cache forced on the site's answers, `0` to always revalidate. `None`: the app's own.
     #[serde(default)]
     pub cache_max_age: Option<u32>,
+    /// `KEY=value` lines for the site's service. Empty: none.
+    #[serde(default)]
+    pub env: String,
+    /// Deploy this commit instead of the head of the branch (a rollback). Empty: the head.
+    #[serde(default)]
+    pub commit: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

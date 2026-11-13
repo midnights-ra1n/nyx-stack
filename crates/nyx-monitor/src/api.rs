@@ -218,6 +218,8 @@ struct CommandReq {
     /// For `firewall`: `add` or `delete`, and the rule.
     op: Option<String>,
     rule: Option<nyx_proto::FwRule>,
+    /// For `container`: its name.
+    name: Option<String>,
 }
 
 async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<CommandReq>) -> ApiResult<Json<Value>> {
@@ -233,6 +235,13 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
             let change = nyx_proto::FirewallChange { op: b.op.unwrap_or_default(), rule: b.rule.unwrap_or_default() };
             change.check().map_err(ApiError::bad_request)?;
             Action::Firewall(change)
+        }
+        "container" => {
+            let (op, name) = (b.op.unwrap_or_default(), b.name.unwrap_or_default());
+            if !["start", "stop", "restart", "logs"].contains(&op.as_str()) || !nyx_proto::container_name_ok(&name) {
+                return Err(ApiError::bad_request("unknown operation or invalid container name"));
+            }
+            Action::Container { op, name }
         }
         _ => return Err(ApiError::bad_request("unknown action")),
     };
@@ -306,7 +315,7 @@ fn rollup_time(r: &Value) -> Option<i64> {
 async fn containers(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
     let st = app.lock();
     let rows: Vec<Value> = st.hosts.values().filter_map(|h| Some((h, h.live.as_ref()?)))
-        .flat_map(|(h, l)| l.containers.iter().map(|c| json!({"host": h.name, "host_id": h.id, "name": c.name, "image": c.image, "state": c.state, "status": c.status})))
+        .flat_map(|(h, l)| l.containers.iter().map(|c| json!({"host": h.name, "host_id": h.id, "name": c.name, "image": c.image, "state": c.state, "status": c.status, "cpu_pct": c.cpu_pct, "mem_used": c.mem_used, "mem_limit": c.mem_limit, "mem_pct": pct(c.mem_used, c.mem_limit), "id": c.id})))
         .collect();
     Json(json!(rows))
 }
@@ -425,6 +434,16 @@ async fn viewed(State(app): State<Arc<App>>, req: axum::extract::Request, next: 
     next.run(req).await
 }
 
+async fn pipelines(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
+    Json(json!(crate::pipelines::snapshot(&app)))
+}
+
+/// After adding or editing a pipeline: ask the forges now instead of at the next round.
+async fn pipelines_refresh(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    crate::pipelines::tick(&app).await?;
+    Ok(Json(Value::Null))
+}
+
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/overview", get(overview))
@@ -442,6 +461,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/probes", get(probes))
         .route("/api/probes/reload", post(probes_changed))
         .route("/api/probes/{id}/series", get(probe_series))
+        .route("/api/pipelines", get(pipelines))
+        .route("/api/pipelines/refresh", post(pipelines_refresh))
         .route("/api/settings/{key}", get(get_setting).put(put_setting))
         .route_layer(axum::middleware::from_fn_with_state(app.clone(), viewed))
         .with_state(app)
@@ -455,7 +476,8 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
             ("list_hosts", "Every monitored host with status, address, CPU, memory, temperature, pending updates and whether it needs a restart.", empty.clone()),
             ("get_host", "Full details of one host, by name.", json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]})),
             ("list_alerts", "Currently open alerts.", empty.clone()),
-            ("list_probes", "Ping, HTTP, DNS, certificate and SNMP probes with their latest result and readings.", empty),
+            ("list_probes", "Ping, HTTP, DNS, certificate and SNMP probes with their latest result and readings.", empty.clone()),
+            ("list_pipelines", "CI/CD pipelines (GitHub, GitLab, Forgejo, Gitea) with the state of their latest run.", empty),
         ],
         call: Box::new(move |name, args| {
             let app = app.clone();
@@ -471,6 +493,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                     "list_alerts" => Ok(json!(app.core.pb.list("alerts", "open = true", "-created").await?.iter()
                         .map(|a| json!({"severity": a["severity"], "message": a["message"], "host": a["host"], "since": a["created"]})).collect::<Vec<_>>())),
                     "list_probes" => Ok(json!(crate::probes::snapshot(&app))),
+                    "list_pipelines" => Ok(json!(crate::pipelines::snapshot(&app))),
                     other => anyhow::bail!("unknown tool {other}"),
                 }
             })

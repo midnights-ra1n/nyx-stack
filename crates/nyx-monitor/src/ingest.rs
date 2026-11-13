@@ -114,6 +114,16 @@ struct Watch {
     link: Vec<(String, u32, String)>,
     create: Vec<Guest>,
     measure: Vec<(String, Guest)>,
+    /// Containers the Proxmox host should install the agent in: `(host, vmid)`.
+    install: Vec<(String, u32)>,
+}
+
+/// A failed installation is tried again after this long.
+const INSTALL_RETRY_S: i64 = 3600;
+
+/// An OCI container has no init to run the agent: its node keeps measuring it.
+fn wants_agent(g: &Guest) -> bool {
+    g.status == "running" && !g.oci
 }
 
 /// The host of a container: by ID once it is tied to its node, by name until then, or
@@ -153,6 +163,9 @@ fn plan_watch(hosts: &HashMap<String, Host>, parent: &Host, guests: &[Guest], no
         }
         if !own_agent(h) {
             plan.measure.push((h.id.clone(), g.clone()));
+            if wants_agent(g) && h.agent_version.is_empty() && now - h.ct_install_at >= INSTALL_RETRY_S {
+                plan.install.push((h.id.clone(), g.vmid));
+            }
         }
     }
     plan
@@ -198,7 +211,18 @@ async fn watch_containers(app: &App, parent: &str, guests: &[Guest]) -> ApiResul
     }
     for g in plan.create {
         let (_, _, id) = create_host(app, &g.name, "lxc", parent, g.vmid, false, &g.node).await?;
+        if wants_agent(&g) {
+            plan.install.push((id.clone(), g.vmid));
+        }
         plan.measure.push((id, g));
+    }
+    // The node measures the container until its own agent reports, then lets it.
+    let now = Utc::now().timestamp();
+    for (id, vmid) in plan.install {
+        let creds = app.lock().hosts.get_mut(&id).map(|h| { h.ct_install_at = now; (h.token.clone(), h.key.clone()) });
+        if let Some((token, key)) = creds {
+            app.enqueue(parent, Action::InstallInCt { vmid, token, key });
+        }
     }
     // Older agents send no figures: nothing to show until they update.
     for (id, g) in plan.measure.into_iter().filter(|(_, g)| g.status == "running" && g.mem_total > 0) {
@@ -368,6 +392,26 @@ mod tests {
         let p = plan(vec![fed("web", 101)], true, &[ct(101, "web")]);
         assert!(p.create.is_empty() && p.forget.is_empty());
         assert_eq!(ids(&p.measure), ["web"]);
+    }
+
+    #[test]
+    fn an_agent_goes_in_every_container_with_an_init_but_not_the_oci_ones() {
+        let oci = Guest { oci: true, ..ct(102, "app") };
+        let p = plan(vec![fed("web", 101), fed("app", 102)], true, &[ct(101, "web"), oci]);
+        assert_eq!(p.install, [("web".to_string(), 101)]);
+        let mut measured = ids(&p.measure);
+        measured.sort();
+        assert_eq!(measured, ["app", "web"], "the node measures both until an agent reports");
+        let stopped = Guest { status: "stopped".into(), ..ct(101, "web") };
+        assert!(plan(vec![fed("web", 101)], true, &[stopped]).install.is_empty());
+    }
+
+    #[test]
+    fn an_installation_is_not_asked_again_at_once_nor_once_the_agent_reported() {
+        let tried = |at| { let (id, h) = fed("web", 101); (id, Host { ct_install_at: at, ..h }) };
+        assert!(plan(vec![tried(NOW - 60)], true, &[ct(101, "web")]).install.is_empty());
+        assert_eq!(plan(vec![tried(NOW - 7200)], true, &[ct(101, "web")]).install.len(), 1);
+        assert!(plan(vec![with_agent(fed("web", 101), NOW - 3600)], true, &[ct(101, "web")]).install.is_empty());
     }
 
     #[test]

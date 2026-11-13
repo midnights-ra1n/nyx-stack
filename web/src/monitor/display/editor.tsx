@@ -4,6 +4,7 @@ import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Panel,
 import { api, useApi, useMedia } from "../../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../../ui/shell"
 import { addPanel, type Box, type Item, type PageConfig, PANEL_TYPES, type PanelCfg, place, slugify, template, themeVars } from "./model"
+import { PIPELINE_VIEWS } from "../../ui/pipelines"
 import { DashPanel } from "./panels"
 import { Grid } from "./viewer"
 
@@ -113,13 +114,14 @@ function PanelForm({ panel, wall, onSave, onClose }: { panel: PanelCfg; wall: bo
   const set = (over: Partial<PanelCfg>) => setP({ ...p, ...over })
   const num = (k: keyof Box, label: string) => <Input label={label} type="number" min={0} value={p[k]} onChange={(e) => set({ [k]: Number(e.target.value) })} />
   const everything = p.type === "map" && p.metric === "all"
-  const usesItems = !["overall", "text", "clock", "alerts", "tempo"].includes(p.type) && !everything
+  const usesItems = !["overall", "text", "clock", "alerts", "tempo", "pipelines"].includes(p.type) && !everything
   const usesMetric = ["stat", "gauge", "bars", "timeseries"].includes(p.type)
   return (
     <Modal title={PANEL_TYPES.find((t) => t.type === p.type)?.label ?? "Panel"} onClose={onClose} wide>
       <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={(e) => { e.preventDefault(); onSave(p) }}>
         <Input label="Title" value={p.title} onChange={(e) => set({ title: e.target.value })} hint="Leave empty for no title bar." />
         {usesMetric && <Select label="Metric" value={p.metric} onChange={(e) => set({ metric: e.target.value })} options={metricOptions(p, wall, probes).map(([value, label]) => ({ value, label }))} />}
+        {p.type === "pipelines" && <Select label="View" value={p.metric || "list"} onChange={(e) => set({ metric: e.target.value })} options={PIPELINE_VIEWS.map((v) => ({ value: v.id, label: v.label }))} />}
         {p.type === "services" && <Check label="Show 30 days of uptime" checked={p.uptime} onChange={(e) => set({ uptime: e.target.checked })} />}
         {p.type === "map" && !wall && <div className="col-span-full"><Check label="Show every host and probe, including new ones" hint="Their real names become public." checked={everything} onChange={(e) => set({ metric: e.target.checked ? "all" : "", items: [] })} /></div>}
         {p.type === "text" && <div className="col-span-full"><TextArea label="Text" rows={5} value={p.text} onChange={(e) => set({ text: e.target.value })} /></div>}

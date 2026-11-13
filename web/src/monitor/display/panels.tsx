@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { BarGauge, ChartHover, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
 import { LiveMap } from "../map"
+import { PipelineView } from "../../ui/pipelines"
 import { TempoTiles } from "../../ui/tempo"
 import { nextScroll, uptimeBar } from "./model"
 
@@ -175,6 +176,7 @@ function Body({ p, overall, generated, paged }: { p: any; overall: Level; genera
     case "alerts": return <Alerts rows={p.data} />
     case "text": return <p className="whitespace-pre-wrap">{p.text}</p>
     case "clock": return <Clock />
+    case "pipelines": return <PipelineView rows={p.data} view={p.metric || "list"} />
     case "map": return <LiveMap nodes={p.data ?? []} still={paged} />
     default: return null
   }

@@ -9,6 +9,7 @@ mod ingest;
 mod integrations;
 mod link;
 mod pages;
+mod pipelines;
 mod probes;
 mod snmp;
 mod state;
@@ -27,6 +28,7 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "hosts", hidden: &["key", "token"] },
     crud::Spec { name: "alerts", hidden: &[] },
     crud::Spec { name: "probes", hidden: &[] },
+    crud::Spec { name: "pipelines", hidden: &[] },
     crud::Spec { name: "mcp_tokens", hidden: &["token_hash"] },
     crud::Spec { name: "notif_channels", hidden: &[] },
     crud::Spec { name: "notif_rules", hidden: &[] },
@@ -52,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
         });
     });
 
-    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(backup::router()).with_state(core.clone());
+    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(nyx_srv::proxmox::router()).merge(backup::router()).with_state(core.clone());
     let router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)
@@ -86,6 +88,7 @@ fn spawn_loops(app: Arc<App>) {
     task!(60, "maintenance", |a: Arc<App>| async move { a.maintenance().await });
     task!(5, "probes", |a: Arc<App>| async move { probes::tick(&a).await });
     task!(60, "probe reload", |a: Arc<App>| async move { probes::reload(&a).await });
+    task!(pipelines::EVERY_S, "pipelines", |a: Arc<App>| async move { pipelines::tick(&a).await });
     task!(60, "meross", |a: Arc<App>| async move { integrations::poll_power(&a).await });
     task!(3600, "beta agents", |a: Arc<App>| async move { ingest::refresh_beta_agents(&a).await });
     task!(3600, "tempo", |a: Arc<App>| async move { integrations::tempo_tick(&a).await });

@@ -9,4 +9,4 @@
         nyx_agent_token: "{{ vault_nyx_token }}"
         nyx_agent_key: "{{ vault_nyx_key }}"
         nyx_agent_kind: vm # vm, lxc, physical, proxmox or vps
-        nyx_agent_ct_autoinstall: false # proxmox only: watch its LXC containers, nothing is installed in them
+        nyx_agent_ct_autoinstall: false # proxmox only: install the agent in its LXC containers

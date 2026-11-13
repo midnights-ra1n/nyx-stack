@@ -67,10 +67,15 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/logs` | Session | Recent log lines, `?host=&q=`. A line reads `<epoch> <<priority>> <service>: <message>` |
 | GET | `/api/probes` | Session | Probes and latest results |
 | POST | `/api/probes/reload` | Session | Apply probe changes now |
+| GET | `/api/pipelines` | Session | Followed pipelines and the state of their latest run |
+| POST | `/api/pipelines/refresh` | Session | Ask the forges now (after adding or editing a pipeline) |
 | GET | `/api/probes/{id}/series` | Session | Latency or SNMP history, `?metric=&range=` |
 | GET | `/api/integrations/tempo` | Session | EDF Tempo days |
 | POST | `/api/integrations/tempo/calendar` | Session | Send the season's Tempo days to the Nextcloud calendar. Returns `{"sent": n}` |
-| GET | `/api/integrations/power` | Session | Meross power |
+| GET | `/api/integrations/power` | Session | Meross power, with `problems` for plugs that could not be read |
+| POST | `/api/integrations/meross/login` | Session | `{email, password}`: signs in to Meross, keeps the account key and not the password |
+| POST | `/api/proxmox/test` | Session | Checks the Proxmox credentials, returns `{version}` |
+| GET | `/api/proxmox/console` | Session | `?console=lxc\|kvm\|shell&vmid=&node=&vmname=`: redirects to the noVNC console, signed in when the domain is shared |
 | GET, POST | `/api/pages` | Session | List pages, or create one |
 | PATCH, DELETE | `/api/pages/{id}` | Session | Change or delete a page |
 | POST | `/api/pages/{id}/key` | Session | Replace a wall's private link |
@@ -82,6 +87,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/link/hosts` | Link | Hosts for the manager |
 | GET | `/api/link/overview` | Link | Fleet health for the manager's dashboard |
 | GET | `/api/link/tempo` | Link | EDF Tempo summary for the manager's dashboard |
+| GET | `/api/link/pipelines` | Link | CI/CD pipelines for the manager's dashboard |
 | POST | `/api/link/hosts/{id}/deploy` | Link | Queue a deploy |
 | GET | `/api/link/results/{id}` | Link | Result of a command |
 | GET | `/install.sh` | Public | Agent installer |
@@ -91,7 +97,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 
 Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
-or `set_kind` with `kind` and `ct_autoinstall`, which watches LXC containers. `update_system` and `update_agent` are
+or `set_kind` with `kind` and `ct_autoinstall`, which installs the agent in LXC containers. `update_system` and `update_agent` are
 refused while an update runs on that host.
 
 `firewall` takes `op` and `rule`. To add: `{"action": "firewall", "op": "add", "rule":
@@ -118,7 +124,7 @@ Each host in `/api/hosts` carries `reboot_required`, and `update` once one was s
 | GET | `/api/ipam/subnet/{id}` | Session | Calculator figures, addresses, nested subnets, free ranges and addresses known elsewhere but not recorded |
 | POST | `/api/ipam/scan/{id}` | Session | Ping an IPv4 subnet of /22 or smaller once. Stamps `last_seen` on recorded addresses that answer and returns `alive` |
 | GET | `/api/ipam/calc?cidr=` | Session | Subnet calculator for any prefix |
-| GET | `/api/monitor/overview`, `/api/monitor/tempo` | Session | Fleet health or EDF Tempo from the linked monitor, `null` without a link |
+| GET | `/api/monitor/overview`, `/api/monitor/tempo`, `/api/monitor/pipelines` | Session | Fleet health, EDF Tempo or CI/CD pipelines from the linked monitor, `null` without a link |
 | GET | `/api/map/export/{format}` | Session | `svg`, `drawio`, `mermaid`, `dot` or `json` |
 | POST | `/api/map/import` | Session | Add monitored hosts to the map |
 | GET, POST | `/api/tasks` | Session | List tasks, or create one |

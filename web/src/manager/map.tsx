@@ -1,7 +1,8 @@
 import { ArrowDownTrayIcon, ArrowsRightLeftIcon, CloudIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, LinkIcon, PlusIcon, ServerIcon, ServerStackIcon, SignalIcon, Squares2X2Icon, TrashIcon } from "@heroicons/react/24/outline"
 import { useRef, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, IconButton, Panel, Select, Table, Td, Input } from "../ui/components"
+import { Button, Empty, IconButton, Panel, Select, Table, Td, Tabs, Input } from "../ui/components"
+import { GroupedView, MAP_VIEWS, TreeView, type ViewNode } from "../ui/mapviews"
 import { type Col, Editor, EditorGroup, RecordForm } from "../ui/crud"
 import { api, useApi } from "../ui/lib"
 import { ProxmoxIcon } from "../ui/brand-icons"
@@ -43,6 +44,7 @@ export function NetworkMap() {
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({})
   const [form, setForm] = useState<"node" | "link" | any>()
   const [note, setNote] = useState("")
+  const [view, setView] = useState("diagram")
   const svg = useRef<SVGSVGElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
 
@@ -57,6 +59,9 @@ export function NetworkMap() {
   const parent = parents(list, links.data?.items ?? [])
   const isTree = (l: any) => !l.vpn && (parent[l.source] === l.target || parent[l.target] === l.source)
   const hosts = list.filter((n) => Object.values(parent).includes(n.id))
+  // Nothing here knows whether a device is up: neutral blue, not a green that would claim it.
+  const viewNodes: ViewNode[] = list.map((n) => ({ label: n.name, state: "info", type: n.type || "other", parent: parent[n.id] ? list.findIndex((p) => p.id === parent[n.id]) : null, sub: n.ip }))
+  const icons = Object.fromEntries(Object.entries(TYPE_ICONS).map(([k, icon]) => [k, { label: k === "lxc" ? "LXC container" : k === "vm" ? "Virtual machine" : k === "vps" ? "VPS" : k[0].toUpperCase() + k.slice(1), icon }]))
 
   const toSvg = (e: React.PointerEvent) => {
     const m = svg.current!.getScreenCTM()!.inverse()
@@ -124,7 +129,8 @@ export function NetworkMap() {
       <Board id="map" desktop={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} phone={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} panels={[
         { id: "map", title: "Map", render: (edit: any) => (
         <Panel title="Map" flush edit={edit} footer="Drag a device to move it, double-click it to edit. Guests sit in the frame of their host; blue curves are your own links, dashed orange ones VPN tunnels.">
-          {list.length === 0 ? <div className="px-4 pb-4"><Empty>Add a device or import hosts from monitoring.</Empty></div> : (
+          {list.length > 0 && <div className="px-4 pb-3"><Tabs tabs={MAP_VIEWS} value={view} onChange={setView} /></div>}
+          {list.length === 0 ? <div className="px-4 pb-4"><Empty>Add a device or import hosts from monitoring.</Empty></div> : view === "tree" ? <TreeView nodes={viewNodes} icons={icons} /> : view === "groups" ? <GroupedView nodes={viewNodes} icons={icons} /> : (
             // Nodes capture touches to drag, the empty canvas keeps scrolling the page.
             <div className="overflow-auto">
               <svg ref={svg} width={right} height={bottom} viewBox={`0 0 ${right} ${bottom}`} role="img" aria-label={`Network map with ${list.length} devices. The same data is listed below.`}>

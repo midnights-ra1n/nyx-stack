@@ -67,6 +67,10 @@ struct NewSite {
     /// Seconds as text, empty: the app's own cache headers.
     #[serde(default)]
     cache_max_age: String,
+    #[serde(default)]
+    env: String,
+    #[serde(default)]
+    health_url: String,
 }
 
 fn or<'a>(v: &'a str, default: &'a str) -> &'a str {
@@ -83,14 +87,14 @@ async fn create(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewSite>)
     let rec = app.core.pb.create("sites", &json!({
         "name": b.name, "host": b.host, "repo": b.repo, "branch": or(&b.branch, "main"), "path": or(&b.path, &path),
         "run_user": or(&b.run_user, "www-data"), "install_cmd": or(&b.install_cmd, "npm ci"),
-        "build_cmd": or(&b.build_cmd, "npm run build --if-present"), "start_cmd": or(&b.start_cmd, "npm start"), "service": b.service, "cache_max_age": b.cache_max_age,
+        "build_cmd": or(&b.build_cmd, "npm run build --if-present"), "start_cmd": or(&b.start_cmd, "npm start"), "service": b.service, "cache_max_age": b.cache_max_age, "env": b.env, "health_url": b.health_url,
         "ssh_private_key": private, "ssh_public_key": public, "webhook_secret": secret,
     })).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(json!({"id": rec["id"], "ssh_public_key": public, "webhook_url": format!("{}/hooks/git/{}", app.core.env.public_url, s(&rec, "id")), "webhook_secret": secret})))
 }
 
 /// Queue a deploy and open its tracking record.
-async fn start_deploy(app: &App, site: &Value) -> anyhow::Result<String> {
+async fn start_deploy(app: &App, site: &Value, commit: &str) -> anyhow::Result<String> {
     let d = Deploy {
         site: s(site, "name").into(),
         repo: s(site, "repo").into(),
@@ -103,6 +107,8 @@ async fn start_deploy(app: &App, site: &Value) -> anyhow::Result<String> {
         ssh_private_key: s(site, "ssh_private_key").into(),
         service: s(site, "service").into(),
         cache_max_age: s(site, "cache_max_age").parse().ok(),
+        env: s(site, "env").into(),
+        commit: commit.into(),
     };
     let cmd = link::deploy(app, s(site, "host"), &d).await?;
     let pb = &app.core.pb;
@@ -113,8 +119,45 @@ async fn start_deploy(app: &App, site: &Value) -> anyhow::Result<String> {
 
 async fn deploy(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let site = app.core.pb.get("sites", &id).await.map_err(|_| ApiError::not_found())?;
-    let cmd = start_deploy(&app, &site).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let cmd = start_deploy(&app, &site, "").await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(json!({"id": cmd})))
+}
+
+/// Deploy again the commit of an earlier deployment of this site.
+async fn rollback(_: Session, State(app): State<Arc<App>>, Path((id, deployment)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let pb = &app.core.pb;
+    let site = pb.get("sites", &id).await.map_err(|_| ApiError::not_found())?;
+    let past = pb.get("deployments", &deployment).await.map_err(|_| ApiError::not_found())?;
+    let commit = full_commit(s(&past, "notes")).filter(|_| s(&past, "name") == s(&site, "name") && s(&past, "status") == "ok");
+    let commit = commit.ok_or_else(|| ApiError::bad_request("this deployment has no known commit"))?;
+    let cmd = start_deploy(&app, &site, commit).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({"id": cmd})))
+}
+
+#[derive(Deserialize)]
+struct Control {
+    op: String,
+}
+
+/// The service of a site: the one it was adopted with, or the one Nyx created.
+fn service_of(site: &Value) -> String {
+    if s(site, "service").is_empty() { format!("nyx-site-{}.service", s(site, "name")) } else { s(site, "service").into() }
+}
+
+async fn control(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<Control>) -> ApiResult<Json<Value>> {
+    if !["restart", "stop", "start", "logs"].contains(&b.op.as_str()) {
+        return Err(ApiError::bad_request("unknown operation"));
+    }
+    let site = app.core.pb.get("sites", &id).await.map_err(|_| ApiError::not_found())?;
+    let c = nyx_proto::SiteControl { op: b.op, service: service_of(&site), user: s(&site, "run_user").into() };
+    let cmd = link::site_control(&app, s(&site, "host"), &c).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({"id": cmd})))
+}
+
+/// `null` until the agent has answered.
+async fn command_result(_: Session, State(app): State<Arc<App>>, Path(cmd): Path<String>) -> ApiResult<Json<Value>> {
+    let r = link::result(&app, &cmd).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(r.map_or(Value::Null, |r| json!({"ok": r["ok"], "output": r["output"]}))))
 }
 
 async fn details(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
@@ -145,7 +188,7 @@ async fn webhook(State(app): State<Arc<App>>, Path(id): Path<String>, headers: H
     if payload["ref"].as_str() != Some(&format!("refs/heads/{}", s(&site, "branch"))) {
         return Ok("ignored");
     }
-    start_deploy(&app, &site).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    start_deploy(&app, &site, "").await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok("deploying")
 }
 
@@ -153,6 +196,38 @@ async fn webhook(State(app): State<Arc<App>>, Path(id): Path<String>, headers: H
 fn commit_of(output: &str) -> &str {
     let line = output.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim();
     if line.len() == 40 && line.chars().all(|c| c.is_ascii_hexdigit()) { &line[..7] } else { "" }
+}
+
+/// The full hash a deploy printed last, which a rollback needs.
+fn full_commit(output: &str) -> Option<&str> {
+    let line = output.lines().rev().find(|l| !l.trim().is_empty())?.trim();
+    (line.len() == 40 && line.chars().all(|c| c.is_ascii_hexdigit())).then_some(line)
+}
+
+/// `ok`, then `failing` after one miss and `down` after two, so a single lost request stays quiet.
+fn next_health(before: &str, up: bool) -> &'static str {
+    match (up, before) {
+        (true, _) => "ok",
+        (false, "failing" | "down") => "down",
+        (false, _) => "failing",
+    }
+}
+
+/// Asks each site's address. Only a change to or from `down` is told.
+pub async fn check_health(app: &App) -> anyhow::Result<()> {
+    let pb = &app.core.pb;
+    for site in pb.list("sites", "health_url != ''", "").await? {
+        let up = app.http.get(s(&site, "health_url")).timeout(std::time::Duration::from_secs(10)).send().await.is_ok_and(|r| r.status().is_success());
+        let (before, now) = (s(&site, "health"), next_health(s(&site, "health"), up));
+        pb.update("sites", s(&site, "id"), &json!({"health": now, "health_at": pb_date(Utc::now())})).await?;
+        let name = s(&site, "name");
+        match (before, now) {
+            (b, "down") if b != "down" => notify::emit(&app.core, "state", "crit", &format!("Site {name} is down"), s(&site, "health_url"), name).await,
+            ("down", "ok") => notify::emit(&app.core, "state", "ok", &format!("Site {name} is back"), "", name).await,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Close running deploys once their agent answered, or after a timeout.
@@ -183,6 +258,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/sites", post(create))
         .route("/api/sites/{id}/deploy", post(deploy))
         .route("/api/sites/{id}/details", axum::routing::get(details))
+        .route("/api/sites/{id}/control", post(control))
+        .route("/api/sites/{id}/rollback/{deployment}", post(rollback))
+        .route("/api/sites/result/{cmd}", axum::routing::get(command_result))
         .route("/hooks/git/{id}", post(webhook))
         .with_state(app)
 }
@@ -220,6 +298,27 @@ mod tests {
         let hash = "a".repeat(40);
         assert_eq!(commit_of(&format!("built\n{hash}\n")), "aaaaaaa");
         assert_eq!(commit_of("npm failed"), "");
+    }
+
+    #[test]
+    fn health_needs_two_misses_to_go_down_and_one_answer_to_recover() {
+        assert_eq!(next_health("", false), "failing");
+        assert_eq!(next_health("failing", false), "down");
+        assert_eq!(next_health("down", false), "down");
+        assert_eq!(next_health("down", true), "ok");
+    }
+
+    #[test]
+    fn a_rollback_needs_the_full_hash() {
+        let hash = "b".repeat(40);
+        assert_eq!(full_commit(&format!("built\n{hash}\n")), Some(hash.as_str()));
+        assert_eq!(full_commit("npm failed"), None);
+    }
+
+    #[test]
+    fn a_site_without_a_service_gets_the_one_nyx_made() {
+        assert_eq!(service_of(&json!({"name": "blog"})), "nyx-site-blog.service");
+        assert_eq!(service_of(&json!({"name": "blog", "service": "pm2:api"})), "pm2:api");
     }
 
     #[test]

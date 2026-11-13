@@ -160,6 +160,9 @@ fn describe(root: &Path, cwd: &Path, exe: Option<&Path>, args: &[String], user: 
         install_cmd,
         build_cmd,
         start_cmd,
+        cpu_pct: 0.0,
+        mem_bytes: 0,
+        uptime_s: 0,
     })
 }
 

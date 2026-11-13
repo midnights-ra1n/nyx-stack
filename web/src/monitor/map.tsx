@@ -1,6 +1,7 @@
 import { ArrowsPointingInIcon, HomeModernIcon, MinusIcon, PlusIcon, ServerIcon, SignalIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { Button, Empty, ErrorNote, IconButton, Status } from "../ui/components"
+import { GroupedView, TreeView } from "../ui/mapviews"
 import { api, type Level, levelText, useApi } from "../ui/lib"
 import { navigate, PageHeader } from "../ui/shell"
 import { HOST_TYPES } from "./hosts"
@@ -87,6 +88,7 @@ export function LiveMap({ nodes, still, onMove }: { nodes: MapNode[]; still?: bo
   const [view, setView] = useState(FIT)
   const [dragged, setDragged] = useState<{ i: number; at: At } | null>(null)
   const [shown, setShown] = useState<number | null>(null)
+  const [mode, setMode] = useState("radial")
   const canMove = !!onMove
 
   useEffect(() => {
@@ -140,9 +142,17 @@ export function LiveMap({ nodes, still, onMove }: { nodes: MapNode[]; still?: bo
     if (!g.moved && g.i != null && nodes[g.i].link) navigate(nodes[g.i].link!)
   }
   const hovered = shown == null ? undefined : nodes[shown]
+  const MODES = [["radial", "Map"], ["tree", "Tree"], ["groups", "By type"]]
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
+      {!still && (
+        <div role="tablist" className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 rounded-control border border-line bg-surface">
+          {MODES.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className={`h-9 max-sm:h-11 rounded-control px-3 text-[13px] ${mode === id ? "bg-accent-soft text-accent" : "text-fg2 hover:text-fg"}`}>{label}</button>)}
+        </div>
+      )}
+      {!still && mode !== "radial" && <div className="h-full overflow-auto pt-12">{mode === "tree" ? <TreeView nodes={nodes.map((n) => ({ ...n, sub: n.detail?.Address ?? n.detail?.IP ?? undefined }))} icons={ICONS} /> : <GroupedView nodes={nodes} icons={ICONS} />}</div>}
+      <div className={`size-full ${!still && mode !== "radial" ? "hidden" : ""}`}>
       <svg ref={svg} viewBox={`${left} ${top} ${right - left} ${low - top}`} className={`size-full select-none ${still ? "pointer-events-none" : `cursor-grab active:cursor-grabbing ${onMove ? "touch-none" : "touch-pan-y"}`}`} role="group" aria-label="Map of the homelab"
         onPointerDown={(e) => down(e)} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <g ref={inner} transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
@@ -172,6 +182,7 @@ export function LiveMap({ nodes, still, onMove }: { nodes: MapNode[]; still?: bo
           </dl>
         </div>
       )}
+      </div>
     </div>
   )
 }

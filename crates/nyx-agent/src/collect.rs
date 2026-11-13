@@ -4,6 +4,7 @@
 use crate::{config::Config, node, packages, proxmox, smart};
 use nyx_proto::*;
 use std::{
+    collections::HashMap,
     io::{Read, Write},
     os::unix::net::UnixStream,
     process::Command,
@@ -55,6 +56,8 @@ pub struct Collector {
     last_guests: Instant,
     detected: Option<HostKind>,
     containers: Option<Vec<Container>>,
+    /// CPU counters of each container at the last report: its own, then the whole system's.
+    container_cpu: HashMap<String, (u64, u64)>,
     /// Slow data sent only when it changed; `None` means "must be re-sent".
     updates: Option<Vec<PackageUpdate>>,
     updates_dirty: bool,
@@ -83,6 +86,7 @@ impl Collector {
             last_guests: Instant::now(),
             detected: detected_kind(),
             containers: None,
+            container_cpu: HashMap::new(),
             updates: None,
             updates_dirty: false,
             node: None,
@@ -171,7 +175,7 @@ impl Collector {
         r.reboot_required = packages::reboot_required(&r.kernel);
 
         if self.slow.due() {
-            r.containers = changed(&mut self.containers, docker_containers());
+            r.containers = changed(&mut self.containers, docker_containers(&mut self.container_cpu));
             r.logs.extend(journal("warning", "100", JOURNAL_CURSOR));
         }
         if self.rare.due() {
@@ -216,11 +220,21 @@ impl Collector {
             .filter_map(|(pid, p)| {
                 let user = p.user_id().and_then(|u| users.as_ref()?.get_user_by_id(u)).map_or(String::new(), |u| u.name().to_string());
                 let args: Vec<String> = p.cmd().iter().map(|a| a.to_string_lossy().to_string()).collect();
-                node::inspect(pid.as_u32(), p.cwd()?, p.exe(), &args, &user, &version)
+                let app = node::inspect(pid.as_u32(), p.cwd()?, p.exe(), &args, &user, &version)?;
+                Some(NodeApp { cpu_pct: p.cpu_usage(), mem_bytes: p.memory(), uptime_s: p.run_time(), ..app })
             })
             .collect();
         apps.sort_by(|a, b| a.path.cmp(&b.path));
-        apps.dedup_by(|a, b| a.path == b.path);
+        // Workers of one app add up.
+        apps.dedup_by(|a, b| {
+            let same = a.path == b.path;
+            if same {
+                b.cpu_pct += a.cpu_pct;
+                b.mem_bytes += a.mem_bytes;
+                b.uptime_s = b.uptime_s.max(a.uptime_s);
+            }
+            same
+        });
         apps.sort_by(|a, b| a.name.cmp(&b.name));
         Some(NodeInfo { version, apps })
     }
@@ -344,19 +358,79 @@ fn real_disks(disks: &Disks) -> Vec<Disk> {
         .collect()
 }
 
-fn docker_containers() -> Option<Vec<Container>> {
-    parse_containers(&docker_get("/containers/json?all=1")?)
+/// More than this many running containers are listed without figures: each costs one request.
+const MAX_STATS: usize = 60;
+
+/// Containers with what the running ones use. CPU needs two readings, so the first is 0.
+fn docker_containers(before: &mut HashMap<String, (u64, u64)>) -> Option<Vec<Container>> {
+    let mut list = parse_containers(&docker_get("/containers/json?all=1")?)?;
+    let mut now = HashMap::new();
+    for c in list.iter_mut().filter(|c| c.state == "running").take(MAX_STATS) {
+        let Some(s) = docker_get(&format!("/containers/{}/stats?stream=false&one-shot=true", c.id)).and_then(|b| parse_stats(&b)) else { continue };
+        (c.mem_used, c.mem_limit) = (s.mem_used, s.mem_limit);
+        if let Some(&(total, system)) = before.get(&c.id) {
+            c.cpu_pct = cpu_share(s.cpu_total.saturating_sub(total), s.system.saturating_sub(system), s.cpus);
+        }
+        now.insert(c.id.clone(), (s.cpu_total, s.system));
+    }
+    *before = now;
+    Some(list)
+}
+
+struct Stats {
+    cpu_total: u64,
+    system: u64,
+    cpus: u64,
+    mem_used: u64,
+    mem_limit: u64,
+}
+
+fn parse_stats(body: &str) -> Option<Stats> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let n = |x: &serde_json::Value| x.as_u64().unwrap_or(0);
+    let m = &v["memory_stats"];
+    // The page cache is not memory the container needs: `docker stats` leaves it out too.
+    let cache = n(&m["stats"]["inactive_file"]).max(n(&m["stats"]["cache"]));
+    Some(Stats {
+        cpu_total: n(&v["cpu_stats"]["cpu_usage"]["total_usage"]),
+        system: n(&v["cpu_stats"]["system_cpu_usage"]),
+        cpus: n(&v["cpu_stats"]["online_cpus"]).max(1),
+        mem_used: n(&m["usage"]).saturating_sub(cache),
+        mem_limit: n(&m["limit"]),
+    })
+}
+
+fn cpu_share(used: u64, system: u64, cpus: u64) -> f32 {
+    if system == 0 { 0.0 } else { (used as f64 / system as f64 * cpus as f64 * 100.0) as f32 }
 }
 
 /// Body of a GET on the Docker API, `None` without Docker.
 pub(crate) fn docker_get(path: &str) -> Option<String> {
+    Some(String::from_utf8_lossy(&docker_call("GET", path)?.1).into_owned())
+}
+
+/// `(status, body)` of a call on the Docker socket, `None` without Docker.
+pub(crate) fn docker_call(method: &str, path: &str) -> Option<(u16, Vec<u8>)> {
     let mut s = UnixStream::connect("/var/run/docker.sock").ok()?;
-    s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(30))).ok()?;
     // HTTP/1.0 so the daemon closes the connection and never answers chunked.
-    s.write_all(format!("GET {path} HTTP/1.0\r\n\r\n").as_bytes()).ok()?;
-    let mut buf = String::new();
-    s.read_to_string(&mut buf).ok()?;
-    Some(buf.split_once("\r\n\r\n")?.1.to_string())
+    s.write_all(format!("{method} {path} HTTP/1.0\r\nContent-Length: 0\r\n\r\n").as_bytes()).ok()?;
+    let mut buf = vec![];
+    s.read_to_end(&mut buf).ok()?;
+    let at = buf.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let status = String::from_utf8_lossy(&buf[..at]).lines().next()?.split(' ').nth(1)?.parse().ok()?;
+    Some((status, buf[at + 4..].to_vec()))
+}
+
+/// Logs of a container without a terminal come as frames: stream, 3 zero bytes, length, text.
+pub(crate) fn unframe(raw: &[u8]) -> String {
+    let (mut out, mut i) = (vec![], 0);
+    while i + 8 <= raw.len() && raw[i] <= 2 && raw[i + 1..i + 4] == [0, 0, 0] {
+        let end = (i + 8 + u32::from_be_bytes([raw[i + 4], raw[i + 5], raw[i + 6], raw[i + 7]]) as usize).min(raw.len());
+        out.extend_from_slice(&raw[i + 8..end]);
+        i = end;
+    }
+    String::from_utf8_lossy(if i == 0 { raw } else { &out }).into_owned()
 }
 
 fn parse_containers(body: &str) -> Option<Vec<Container>> {
@@ -370,6 +444,8 @@ fn parse_containers(body: &str) -> Option<Vec<Container>> {
             image: text(&c["Image"]),
             state: text(&c["State"]),
             status: text(&c["Status"]),
+            id: text(&c["Id"]).chars().take(12).collect(),
+            ..Container::default()
         })
         .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -427,6 +503,25 @@ mod tests {
         assert_eq!(log_line(long.as_bytes()).unwrap().chars().count(), MAX_LOG_LINE);
         assert!(log_line(b"").is_none());
         assert!(log_line(br#"{"__REALTIME_TIMESTAMP":"1000000","MESSAGE":null}"#).is_none());
+    }
+
+    #[test]
+    fn container_figures_leave_the_page_cache_out_and_cpu_is_a_share_of_a_core() {
+        let body = r#"{"cpu_stats":{"cpu_usage":{"total_usage":500},"system_cpu_usage":4000,"online_cpus":4},
+            "memory_stats":{"usage":1000,"limit":8000,"stats":{"inactive_file":300}}}"#;
+        let s = parse_stats(body).unwrap();
+        assert_eq!((s.mem_used, s.mem_limit, s.cpus), (700, 8000, 4));
+        // Half of the system time on 4 cores is two cores.
+        assert_eq!(cpu_share(2000, 4000, 4), 200.0);
+        assert_eq!(cpu_share(10, 0, 4), 0.0);
+        assert!(parse_stats("nope").is_none());
+    }
+
+    #[test]
+    fn log_frames_lose_their_headers() {
+        let framed = [&[1u8, 0, 0, 0, 0, 0, 0, 3][..], b"a\nb", &[2, 0, 0, 0, 0, 0, 0, 2], b"c\n"].concat();
+        assert_eq!(unframe(&framed), "a\nbc\n");
+        assert_eq!(unframe(b"plain tty output"), "plain tty output");
     }
 
     #[test]

@@ -15,7 +15,7 @@ const SERVICES: Record<string, string> = {
   Telegram: "telegram://token@telegram?chats=@channel",
   Teams: "teams://group@tenant/altid/groupowner?host=org.webhook.office.com",
 }
-const EVENTS = [["state", "State changes"], ["update", "Updates detected"], ["smart", "SMART health"], ["temperature", "High temperature"], ["task", "Task and deployment reminders"], ["tempo", "EDF Tempo colour of tomorrow"]]
+const EVENTS = [["state", "State changes"], ["update", "Updates detected"], ["smart", "SMART health"], ["temperature", "High temperature"], ["task", "Task and deployment reminders"], ["tempo", "EDF Tempo colour of tomorrow"], ["pipeline", "CI/CD pipeline failures"]]
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 const HTML_SAMPLE = `<div style="font-family:system-ui,sans-serif;background:#141a22;color:#edf1f6;padding:32px 16px">
@@ -259,6 +259,27 @@ export function SettingForm({ title, setting, fields, needs, children }: { title
         <div className="flex items-center gap-3"><Button onClick={save}>Save</Button><span className="text-[13px] text-fg2">{note}</span></div>
       </div>
     </Panel>
+  )
+}
+
+/** Where the Console buttons lead, and who signs in there. */
+export function ProxmoxSettings() {
+  const [note, setNote] = useState("")
+  const test = async () => {
+    setNote("Checking…")
+    try { const r = await api("/api/proxmox/test", { method: "POST" }); setNote(`Connected to Proxmox VE ${r.version}.`) } catch (e) { setNote((e as Error).message) }
+  }
+  return (
+    <>
+      <SettingForm title="Proxmox console" setting="proxmox" needs={["url"]} fields={[
+        { key: "url", label: "Proxmox URL", hint: "For example https://pve.lan:8006. Adds a noVNC console button." },
+        { key: "user", label: "User", hint: "With its realm, for example root@pam." },
+        { key: "password", label: "Password", type: "password", hint: "Opens the console already signed in, when Nyx and Proxmox share a domain such as nyx.home.lan and pve.home.lan. Elsewhere, Proxmox asks you to sign in." },
+        { key: "token", label: "API token", type: "password", hint: "Instead of a password: user@realm!name=secret. A token checks the connection but cannot sign a browser in. Prefer a dedicated user with the PVEVMConsole role over root." },
+        { key: "insecure", label: "Accept a self-signed certificate", type: "checkbox", hint: "Proxmox uses one until you install your own. This only applies to the calls Nyx makes." },
+      ]} />
+      <Panel title="Check Proxmox"><div className="flex items-center gap-3"><Button onClick={test}>Test the connection</Button><span className="text-[13px] text-fg2" role="status">{note}</span></div></Panel>
+    </>
   )
 }
 
