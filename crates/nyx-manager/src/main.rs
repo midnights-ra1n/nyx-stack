@@ -18,22 +18,23 @@ use std::{sync::Arc, time::Duration};
 struct Ui;
 
 const COLLECTIONS: &[crud::Spec] = &[
-    crud::Spec { name: "hardware", hidden: &[] },
-    crud::Spec { name: "virtual_assets", hidden: &[] },
-    crud::Spec { name: "subnets", hidden: &[] },
-    crud::Spec { name: "ip_addresses", hidden: &[] },
-    crud::Spec { name: "routes", hidden: &[] },
-    crud::Spec { name: "vlans", hidden: &[] },
-    crud::Spec { name: "vrfs", hidden: &[] },
-    crud::Spec { name: "deployments", hidden: &[] },
-    crud::Spec { name: "map_nodes", hidden: &[] },
-    crud::Spec { name: "map_links", hidden: &[] },
-    crud::Spec { name: "vpn_links", hidden: &[] },
-    crud::Spec { name: "sites", hidden: &["ssh_private_key", "webhook_secret"] },
-    crud::Spec { name: "mcp_tokens", hidden: &["token_hash"] },
-    crud::Spec { name: "notif_channels", hidden: &[] },
-    crud::Spec { name: "notif_rules", hidden: &[] },
-    crud::Spec { name: "notif_events", hidden: &[] },
+    crud::Spec { name: "hardware", hidden: &[], history: true },
+    crud::Spec { name: "virtual_assets", hidden: &[], history: true },
+    crud::Spec { name: "subnets", hidden: &[], history: false },
+    crud::Spec { name: "ip_addresses", hidden: &[], history: false },
+    crud::Spec { name: "routes", hidden: &[], history: false },
+    crud::Spec { name: "vlans", hidden: &[], history: false },
+    crud::Spec { name: "vrfs", hidden: &[], history: false },
+    crud::Spec { name: "deployments", hidden: &[], history: false },
+    crud::Spec { name: "ports", hidden: &[], history: false },
+    crud::Spec { name: "map_nodes", hidden: &[], history: false },
+    crud::Spec { name: "map_links", hidden: &[], history: false },
+    crud::Spec { name: "vpn_links", hidden: &[], history: false },
+    crud::Spec { name: "sites", hidden: &["ssh_private_key", "webhook_secret"], history: false },
+    crud::Spec { name: "mcp_tokens", hidden: &["token_hash"], history: false },
+    crud::Spec { name: "notif_channels", hidden: &[], history: false },
+    crud::Spec { name: "notif_rules", hidden: &[], history: false },
+    crud::Spec { name: "notif_events", hidden: &[], history: false },
 ];
 
 pub struct App {
@@ -51,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     notify::spawn(core.clone());
     spawn_loops(app.clone());
 
-    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(nyx_srv::proxmox::router()).merge(backup::router()).with_state(core.clone());
+    let shared = auth::router().merge(crud::router()).merge(notify::router()).merge(system::router()).merge(nyx_srv::proxmox::router()).merge(nyx_srv::nextdns::router()).merge(backup::router()).with_state(core.clone());
     let router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)

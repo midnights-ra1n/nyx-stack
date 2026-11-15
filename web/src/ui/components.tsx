@@ -189,7 +189,7 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
   if (all.length < 2) return <Empty>Not enough data yet.</Empty>
   const t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W, y = (v: number) => H - (Math.min(v, max) / max) * H
-  const clock = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  const clock = (t: number) => t1 - t0 > 2 * 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" }) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   return (
     <div>
       <div className="grid grid-cols-[32px_1fr] gap-2">

@@ -1,13 +1,14 @@
-import { ArrowPathIcon, ArrowsRightLeftIcon, BoltIcon, CircleStackIcon, CubeIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, ArrowsRightLeftIcon, PencilSquareIcon, TrashIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, type Icon, Input, Panel, Select, Stat, Status, Table, Td, TextArea } from "../ui/components"
-import { type Col, CrudPage, Editor, EditorGroup, RecordForm } from "../ui/crud"
-import { api, useApi } from "../ui/lib"
-import { Link, PageHeader, Section } from "../ui/shell"
+import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Select, Stat, Status, Table, Td, TextArea } from "../ui/components"
+import { type Col, CrudPage, Editor, EditorGroup, RecordForm, RecordPage } from "../ui/crud"
+import { api, fmt, type Level, levelText, sortRows, useApi } from "../ui/lib"
+import { Link, navigate, PageHeader, Section } from "../ui/shell"
 import { deployLevel } from "./overview"
 import { parseTags, type WorkItem, WorkView } from "./work"
 
+const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
 const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, Printer: PrinterIcon, Other: CubeIcon }
 const categoryCell = (h: any) => {
   const I = CATEGORIES[h.category]
@@ -41,37 +42,199 @@ const HARDWARE: Col[] = [
   { key: "serial", label: "Serial number", mono: true },
   ...SPECS,
   { key: "location", label: "Location", suggest: true, section: "Where it is" },
-  { key: "status", label: "Status", type: "select", options: ["In service", "Spare", "Broken", "Retired"] },
-  { key: "purchased_at", label: "Purchased", type: "date", formOnly: true, section: "Dates" },
-  { key: "warranty_until", label: "Warranty until", type: "date" },
-  { key: "notes", label: "Notes", type: "area", formOnly: true },
+  { key: "status", label: "Status", type: "select", options: Object.keys(STATUS_LEVEL), render: (h) => h.status ? <Status cell level={STATUS_LEVEL[h.status] ?? "off"} label={h.status} /> : "—" },
+  { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
+  // GLPI's financial information.
+  { key: "supplier", label: "Supplier", suggest: true, formOnly: true, tab: "Management", section: "Purchase" },
+  { key: "order_number", label: "Order number", mono: true, formOnly: true },
+  { key: "invoice_number", label: "Invoice number", mono: true, formOnly: true },
+  { key: "price", label: "Price", type: "number", formOnly: true, hint: "Taxes included, in your currency." },
+  { key: "purchased_at", label: "Purchased", type: "date", formOnly: true },
+  { key: "in_service_at", label: "In service since", type: "date", formOnly: true, section: "Warranty and life" },
+  { key: "warranty_until", label: "Warranty until", type: "date", render: (h) => { const w = warranty(h.warranty_until); return w ? <span className={levelText[w.level]}>{w.label}</span> : "—" } },
 ]
-export const Hardware = () => <CrudPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} defaults={{ category: "Server", status: "In service" }} />
+const HW_DEFAULTS = { category: "Server", status: "In service" }
+export const Hardware = () => <CrudPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+
+/** What the warranty of a device says today: gone, ending within 60 days, or running. */
+export function warranty(until: string | undefined, now = Date.now()): { level: Level; label: string } | null {
+  const end = until ? Date.parse(until.slice(0, 10)) : NaN
+  if (Number.isNaN(end)) return null
+  const days = Math.ceil((end - now) / 86_400_000)
+  if (days < 0) return { level: "crit", label: "Expired" }
+  if (days <= 60) return { level: "warn", label: days === 0 ? "Ends today" : `Ends in ${days} days` }
+  return { level: "ok", label: `Until ${fmt.date(until)}` }
+}
+
+const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
+
+/** Addresses of the IPAM held by a device of this name. */
+function LinkedAddresses({ device }: { device: string }) {
+  const { data } = useApi("/api/c/ip_addresses?perPage=500", { poll: false })
+  const rows = (data?.items ?? []).filter((a: any) => same(a.device, device) || same(a.hostname, device))
+  return (
+    <Panel title="Network addresses" actions={[{ label: "Open IPAM", onClick: () => navigate("/ipam") }]}>
+      {rows.length ? (
+        <ul className="divide-y divide-line">{rows.map((a: any) => <li key={a.id} className="flex justify-between gap-3 py-1.5"><Mono>{a.address}</Mono><span className="truncate text-fg3">{a.hostname || a.kind || ""}</span></li>)}</ul>
+      ) : <Empty>{device ? "No address in the IPAM names this device." : "Name the device to find its addresses."}</Empty>}
+    </Panel>
+  )
+}
+
+function HardwareAside(form: any) {
+  const I = CATEGORIES[form.category] ?? CubeIcon
+  const w = warranty(form.warranty_until)
+  const age = form.purchased_at ? Math.floor((Date.now() - Date.parse(form.purchased_at)) / (365.25 * 86_400_000)) : null
+  return <>
+    <Panel title="Summary">
+      <div className="flex items-center gap-4">
+        <span className="flex size-14 shrink-0 items-center justify-center rounded-panel bg-raised text-fg2"><I className="size-8" aria-hidden /></span>
+        <div className="min-w-0">
+          <div className="truncate text-[17px] font-medium">{form.name || "Unnamed"}</div>
+          <div className="truncate text-fg2">{[form.manufacturer, form.model].filter(Boolean).join(" ") || form.category}</div>
+        </div>
+      </div>
+      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+        <dt className="text-fg2">Status</dt><dd>{form.status ? <Status cell level={STATUS_LEVEL[form.status] ?? "off"} label={form.status} /> : "—"}</dd>
+        <dt className="text-fg2">Warranty</dt><dd className={w ? levelText[w.level] : "text-fg3"}>{w?.label ?? "Not set"}</dd>
+        <dt className="text-fg2">Age</dt><dd>{age == null || Number.isNaN(age) ? "—" : age < 1 ? "Under a year" : `${age} ${age > 1 ? "years" : "year"}`}</dd>
+        <dt className="text-fg2">Location</dt><dd className="truncate">{form.location || "—"}</dd>
+        {form.mgmt_ip && <><dt className="text-fg2">Management</dt><dd><a className="font-mono text-accent" href={/^https?:\/\//.test(form.mgmt_ip) ? form.mgmt_ip : `https://${form.mgmt_ip}`} target="_blank" rel="noreferrer noopener">{form.mgmt_ip}</a></dd></>}
+      </dl>
+    </Panel>
+  </>
+}
+
+/** Virtual assets that say they run on this device. */
+function RunsHere({ host }: { host: string }) {
+  const { data } = useApi("/api/c/virtual_assets?perPage=500", { poll: false })
+  const rows = (data?.items ?? []).filter((a: any) => same(a.parent, host))
+  return (
+    <Panel title={`Runs here (${rows.length})`}>
+      {rows.length ? <ul className="divide-y divide-line">{rows.map((a: any) => <li key={a.id} className="flex justify-between gap-3 py-1.5"><Link to={`/virtual/${a.id}`} className="truncate hover:text-accent">{a.name}</Link><span className="text-fg3">{a.type}</span></li>)}</ul>
+        : <Empty>No virtual asset names this device under Runs on.</Empty>}
+    </Panel>
+  )
+}
+
+/** The port at the other end of the cable. The link is kept on one of the two ports, either one. */
+export const peerOf = (p: any, ports: any[]) => ports.find((q) => p.peer && q.id === p.peer) ?? ports.find((q) => q.peer === p.id)
+
+const PORT_TAB = "Network ports"
+
+/** Network ports of a device, each cabled to a port of another device, as in GLPI. */
+function Ports({ device, onChange }: { device: any; onChange: () => void }) {
+  const ports = useApi("/api/c/ports?perPage=500", { poll: false })
+  const hw = useApi("/api/c/hardware?perPage=500", { poll: false })
+  const [edit, setEdit] = useState<any | null | undefined>()
+  const devices: any[] = hw.data?.items ?? []
+  const deviceName = (id: string) => devices.find((h) => h.id === id)?.name ?? ""
+  // shortcut: loads every port to find the far ends; filter on the server if inventories reach thousands of ports.
+  const all: any[] = (ports.data?.items ?? []).filter((p: any) => deviceName(p.device))
+  const mine = sortRows(all.filter((p) => p.device === device.id), (p) => p.name)
+  const free = all.filter((q) => q.device !== device.id && (!peerOf(q, all) || peerOf(q, all)?.id === edit?.id))
+  const cols: Col[] = [
+    { key: "name", label: "Name", required: true, hint: "As the device labels it, such as eno1 or port 12." },
+    { key: "speed", label: "Speed", suggest: true, hint: "Such as 1 GbE, 10 GbE SFP+." },
+    { key: "mac", label: "MAC address", mono: true },
+    { key: "vlan", label: "VLAN", hint: "Such as 10, or 10,20 tagged." },
+    { key: "peer", label: "Cabled to", type: "select", choices: sortRows(free.map((q) => ({ value: q.id, label: `${deviceName(q.device)} · ${q.name}` })), (o) => o.label) },
+    { key: "note", label: "Note" },
+  ]
+  // A port holds one cable: unlink whatever pointed here and is no longer the far end.
+  const tidy = async (saved: any) => {
+    await Promise.all(all.filter((q) => q.peer === saved.id && q.id !== saved.peer).map((q) => api(`/api/c/ports/${q.id}`, { method: "PATCH", body: { peer: "" } })))
+    changed()
+  }
+  const changed = () => { ports.reload(); onChange() }
+  const remove = async (p: any) => { if (confirm(`Delete port ${p.name}?`)) { await api(`/api/c/ports/${p.id}`, { method: "DELETE" }); changed() } }
+  return <>
+    {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit && { ...edit, peer: peerOf(edit, all)?.id ?? "" }} collection="ports" title={edit ? `Edit port ${edit.name}` : "Add port"}
+      defaults={{ device: device.id }} rows={all} onSaved={tidy} onDone={() => { setEdit(undefined); changed() }} />}
+    <Panel title={`${mine.length} ${mine.length === 1 ? "port" : "ports"}`} flush actions={[{ label: "Add port", onClick: () => setEdit(null) }]}>
+      <ErrorNote>{ports.error}</ErrorNote>
+      {mine.length === 0 ? <div className="px-4 pb-4"><Empty>No port yet. Add them to cable this device to others; cables show on the network map.</Empty></div> : (
+        <Table head={["Port", "Speed", "MAC", "VLAN", "Cabled to", ""]}>
+          {mine.map((p) => {
+            const q = peerOf(p, all)
+            return (
+              <tr key={p.id}>
+                <Td className="font-medium">{p.name}</Td>
+                <Td className="text-fg2">{p.speed || "—"}</Td>
+                <Td mono>{p.mac || "—"}</Td>
+                <Td className="text-fg2">{p.vlan || "—"}</Td>
+                <Td>{q ? <Link className="text-accent" to={`/hardware/${q.device}#${encodeURIComponent(PORT_TAB)}`}>{deviceName(q.device)} · {q.name}</Link> : <span className="text-fg3">Not cabled</span>}</Td>
+                <Td className="w-24 whitespace-nowrap text-right">
+                  <IconButton label={`Edit port ${p.name}`} icon={PencilSquareIcon} onClick={() => setEdit(p)} />
+                  <IconButton label={`Delete port ${p.name}`} icon={TrashIcon} onClick={() => remove(p)} />
+                </Td>
+              </tr>
+            )
+          })}
+        </Table>
+      )}
+    </Panel>
+  </>
+}
+
+export function HardwareRecord({ id }: { id: string }) {
+  const ports = useApi(id === "new" ? null : `/api/c/ports?filter=${encodeURIComponent(`device = '${id}'`)}&perPage=500`, { poll: false })
+  const tabs = [
+    { id: PORT_TAB, label: PORT_TAB, count: ports.data?.totalItems, render: (_: any, row: any) => <Ports device={row} onChange={ports.reload} /> },
+    { id: "Links", label: "Links", render: (form: any) => <><LinkedAddresses device={form.name} /><RunsHere host={form.name} /></> },
+  ]
+  return <RecordPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={HardwareAside} tabs={tabs} history />
+}
 
 function consoleUrl(pve: string, a: any) {
   if (!pve || !a.vmid || !a.pve_node) return ""
   return `/api/proxmox/console?console=${a.type === "vm" ? "kvm" : "lxc"}&vmid=${a.vmid}&vmname=${encodeURIComponent(a.name)}&node=${encodeURIComponent(a.pve_node)}`
 }
 
+const VIRTUAL_TYPES: Record<string, Icon> = { vm: ComputerDesktopIcon, container: CubeIcon, docker: CubeTransparentIcon }
+const VIRTUAL: Col[] = [
+  { key: "type", label: "Type", type: "select", options: Object.keys(VIRTUAL_TYPES), icons: VIRTUAL_TYPES, formOnly: true },
+  { key: "name", label: "Name", required: true, section: "Identity" },
+  { key: "type", label: "Type", type: "select", options: Object.keys(VIRTUAL_TYPES), listOnly: true },
+  { key: "parent", label: "Runs on", suggest: true, hint: "The name of a device of the hardware inventory." },
+  { key: "hostname", label: "Hostname", formOnly: true },
+  { key: "ip", label: "Address", mono: true },
+  { key: "status", label: "Status", suggest: true },
+  { key: "vcpu", label: "vCPU", type: "number", formOnly: true, section: "Resources" },
+  { key: "ram_mb", label: "RAM (MB)", type: "number", formOnly: true },
+  { key: "disk_gb", label: "Disk (GB)", type: "number", formOnly: true },
+  { key: "vmid", label: "Proxmox VMID", type: "number", formOnly: true, section: "Proxmox", when: { key: "type", in: ["vm", "container"] } },
+  { key: "pve_node", label: "Proxmox node", formOnly: true, when: { key: "type", in: ["vm", "container"] } },
+  { key: "source", label: "Source", listOnly: true },
+  { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
+]
+
 export function Virtual() {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const cols: Col[] = [
-    { key: "name", label: "Name", required: true },
-    { key: "type", label: "Type", type: "select", options: ["vm", "container", "docker"] },
-    { key: "parent", label: "Runs on" },
-    { key: "hostname", label: "Hostname", formOnly: true },
-    { key: "ip", label: "Address", mono: true },
-    { key: "vcpu", label: "vCPU", type: "number", formOnly: true },
-    { key: "ram_mb", label: "RAM (MB)", type: "number", formOnly: true },
-    { key: "disk_gb", label: "Disk (GB)", type: "number", formOnly: true },
-    { key: "status", label: "Status" },
-    { key: "vmid", label: "Proxmox VMID", type: "number", formOnly: true },
-    { key: "pve_node", label: "Proxmox node", formOnly: true },
-    { key: "source", label: "Source", listOnly: true },
-    { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>Console</a> : "—" } },
-    { key: "notes", label: "Notes", type: "area", formOnly: true },
-  ]
-  return <CrudPage title="Virtual" singular="asset" collection="virtual_assets" cols={cols} />
+  const cols: Col[] = [...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>Console</a> : "—" } }]
+  return <CrudPage title="Virtual" singular="asset" collection="virtual_assets" cols={cols} path="/virtual" facet="type" defaults={{ type: "vm" }} />
+}
+
+export function VirtualRecord({ id }: { id: string }) {
+  const proxmox = useApi("/api/settings/proxmox", { poll: false })
+  const devices = useApi("/api/c/hardware?perPage=500", { poll: false })
+  const aside = (form: any) => {
+    const url = consoleUrl(proxmox.data?.url ?? "", form)
+    const host = devices.data?.items.find((h: any) => same(h.name, form.parent))
+    const hw = form.parent && <Link to={host ? `/hardware/${host.id}` : `/search?q=${encodeURIComponent(form.parent)}`} className="text-accent">{form.parent}</Link>
+    return <>
+      <Panel title="Summary">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+          <dt className="text-fg2">Runs on</dt><dd className="truncate">{hw || "—"}</dd>
+          <dt className="text-fg2">Resources</dt><dd>{[form.vcpu && `${form.vcpu} vCPU`, form.ram_mb && `${form.ram_mb} MB`, form.disk_gb && `${form.disk_gb} GB`].filter(Boolean).join(" · ") || "—"}</dd>
+          <dt className="text-fg2">Address</dt><dd className="font-mono">{form.ip || "—"}</dd>
+        </dl>
+        {url && <a href={url} target="_blank" rel="noreferrer" className="mt-4 inline-block"><Button><CommandLineIcon className="size-5" aria-hidden />Console</Button></a>}
+      </Panel>
+    </>
+  }
+  const tabs = [{ id: "Links", label: "Links", render: (form: any) => <LinkedAddresses device={form.name} /> }]
+  return <RecordPage title="Virtual" singular="asset" collection="virtual_assets" cols={VIRTUAL} path="/virtual" id={id} defaults={{ type: "vm" }} aside={aside} tabs={tabs} history />
 }
 
 const DEPLOYMENTS: Col[] = [
@@ -224,8 +387,8 @@ export function Vpn() {
 
 
 const SEARCHED = [
-  { coll: "hardware", to: "/hardware", fields: ["name", "serial", "model", "location"] },
-  { coll: "virtual_assets", to: "/virtual", fields: ["name", "hostname", "ip"] },
+  { coll: "hardware", to: "/hardware", fields: ["name", "serial", "model", "location"], record: true },
+  { coll: "virtual_assets", to: "/virtual", fields: ["name", "hostname", "ip"], record: true },
   { coll: "ip_addresses", to: "/ipam", fields: ["address", "device", "hostname", "mac"] },
   { coll: "subnets", to: "/ipam", fields: ["name", "cidr", "description", "section"] },
   { coll: "vlans", to: "/ipam", fields: ["name", "domain", "description"] },
@@ -233,10 +396,10 @@ const SEARCHED = [
   { coll: "vpn_links", to: "/vpn", fields: ["name", "side_a", "side_b", "subnet"] },
 ]
 
-function Hits({ q, coll, to, fields }: { q: string; coll: string; to: string; fields: string[] }) {
+function Hits({ q, coll, to, fields, record }: { q: string; coll: string; to: string; fields: string[]; record?: boolean }) {
   const { data } = useApi(`/api/c/${coll}?perPage=500`, { poll: false })
   const hits = data?.items.filter((r: any) => fields.some((f) => r[f]?.toLowerCase().includes(q))) ?? []
-  return hits.map((r: any) => <li key={r.id}><Link className="text-accent" to={to}>{r[fields[0]]}</Link> <span className="text-fg3">{fields.slice(1).map((f) => r[f]).filter(Boolean).join(" · ")}</span></li>)
+  return hits.map((r: any) => <li key={r.id}><Link className="text-accent" to={record ? `${to}/${r.id}` : to}>{r[fields[0]]}</Link> <span className="text-fg3">{fields.slice(1).map((f) => r[f]).filter(Boolean).join(" · ")}</span></li>)
 }
 
 export function SearchPage() {

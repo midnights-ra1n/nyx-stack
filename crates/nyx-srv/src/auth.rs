@@ -273,13 +273,19 @@ async fn delete_passkey(session: Session, State(core): State<Arc<Core>>, Path(id
 
 #[derive(Deserialize)]
 struct LoginStart {
+    #[serde(default)]
     email: String,
 }
 
 async fn login_start(State(core): State<Arc<Core>>, Json(b): Json<LoginStart>) -> ApiResult<Json<Value>> {
     let w = webauthn(&core)?;
     let none = || ApiError::bad_request("no passkey for this account");
-    let user = core.pb.first("users", &format!("email = {}", crate::pb_quote(&b.email))).await?.ok_or_else(none)?;
+    // A server has a single account (setup refuses a second), so the email is optional.
+    let filter = match b.email.trim() {
+        "" => String::new(),
+        email => format!("email = {}", crate::pb_quote(email)),
+    };
+    let user = core.pb.first("users", &filter).await?.ok_or_else(none)?;
     let uid = user["id"].as_str().unwrap_or_default().to_string();
     let keys: Vec<Passkey> = user_passkeys(&core, &uid).await?.into_iter().map(|(_, k)| k).collect();
     if keys.is_empty() {

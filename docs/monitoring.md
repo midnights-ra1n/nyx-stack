@@ -27,6 +27,15 @@ server and VPS. The agent checks the type against the machine, see
 [host types](agent.md#host-types). **Add host** only offers **Runs on** for a VM or a
 container, and only lists your physical and Proxmox servers. A name can only be used once.
 
+**Add host** opens a page, `/hosts/new`, in two steps: describe the host, then copy the
+install command shown beside it. **Open** leads to the new host, **Add another** starts
+over with the same type.
+
+The host list has a search field (name, hostname, address or OS) and filters per type and
+state (healthy, warning or critical, offline). CPU and memory show as bars coloured by
+your thresholds, and the temperature turns amber or red past its own. Click a row to open
+the host. Agent-less Proxmox guests only show while no filter is set.
+
 **Update all**, on the Hosts page, upgrades the packages of every online host and brings
 its agent to the version of this server. A bar follows the whole run, with one per host,
 and failures keep their output on screen. The same page lists the hosts that need a

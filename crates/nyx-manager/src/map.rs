@@ -28,6 +28,25 @@ pub fn with_vpn(nodes: &[Value], links: &[Value], vpn: &[Value]) -> Vec<Value> {
     links.iter().cloned().chain(drawn).collect()
 }
 
+/// Cables between network ports of the hardware inventory, drawn when both devices are on the map under the same name.
+/// One line per pair of devices, even with several cables, unless a hand-drawn link already joins them.
+pub fn with_cables(nodes: &[Value], links: Vec<Value>, ports: &[Value], hardware: &[Value]) -> Vec<Value> {
+    let node_of = |device: &str| {
+        let name = s(hardware.iter().find(|h| s(h, "id") == device)?, "name");
+        nodes.iter().find(|n| !name.is_empty() && s(n, "name") == name).map(|n| s(n, "id").to_string())
+    };
+    let mut out = links;
+    for p in ports {
+        let Some(q) = ports.iter().find(|q| !s(p, "peer").is_empty() && s(q, "id") == s(p, "peer")) else { continue };
+        let (Some(a), Some(b)) = (node_of(s(p, "device")), node_of(s(q, "device"))) else { continue };
+        let joined = |l: &Value| (s(l, "source"), s(l, "target")) == (&a, &b) || (s(l, "source"), s(l, "target")) == (&b, &a);
+        if a != b && !out.iter().any(joined) {
+            out.push(json!({"id": p["id"], "source": a, "target": b, "label": format!("{} – {}", s(p, "name"), s(q, "name")), "kind": "cable"}));
+        }
+    }
+    out
+}
+
 fn is_vpn(l: &Value) -> bool {
     l["kind"] == "vpn"
 }
@@ -154,6 +173,25 @@ mod tests {
         assert_eq!((l[0]["source"].as_str(), l[0]["target"].as_str()), (Some("a"), Some("b")));
         assert!(svg(&n, &l).contains("stroke-dasharray") && dot(&n, &l).contains("style=dashed"));
         assert!(mermaid(&n, &l).contains("-.-|") && drawio(&n, &l).contains("dashed=1"));
+    }
+
+    #[test]
+    fn cables_join_devices_once_and_skip_unmapped_ones() {
+        let n = [json!({"id": "a", "name": "sw1"}), json!({"id": "b", "name": "pve"})];
+        let hw = [json!({"id": "h1", "name": "sw1"}), json!({"id": "h2", "name": "pve"}), json!({"id": "h3", "name": "nas"})];
+        let ports = [
+            json!({"id": "p1", "device": "h1", "name": "1", "peer": "p2"}),
+            json!({"id": "p2", "device": "h2", "name": "eno1", "peer": ""}),
+            json!({"id": "p3", "device": "h1", "name": "2", "peer": "p4"}),
+            json!({"id": "p4", "device": "h2", "name": "eno2", "peer": ""}),
+            json!({"id": "p5", "device": "h1", "name": "3", "peer": "p6"}),
+            json!({"id": "p6", "device": "h3", "name": "eth0", "peer": ""}),
+        ];
+        let l = with_cables(&n, vec![], &ports, &hw);
+        assert_eq!(l.len(), 1, "two cables between the same devices make one line, nas is not on the map: {l:?}");
+        assert_eq!((l[0]["source"].as_str(), l[0]["label"].as_str()), (Some("a"), Some("1 – eno1")));
+        let drawn = [json!({"id": "x", "source": "b", "target": "a", "label": ""})];
+        assert_eq!(with_cables(&n, drawn.to_vec(), &ports, &hw).len(), 1, "a hand-drawn link wins");
     }
 
     #[test]

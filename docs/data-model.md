@@ -45,7 +45,8 @@ contains the texts, theme, panels and the `embed` option.
 
 | Collection | Purpose |
 | --- | --- |
-| `hardware` | Physical inventory, warranty dates, and specifications by category (`cpu`, `ram`, `storage`, `ports`, `wifi`, `power`, `battery_at`, `firmware`, `mgmt_ip`) |
+| `hardware` | Physical inventory, warranty dates, and specifications by category (`cpu`, `ram`, `storage`, `ports`, `wifi`, `power`, `battery_at`, `firmware`, `mgmt_ip`). Purchase details: `supplier`, `order_number`, `invoice_number`, `price`, `purchased_at`, `in_service_at` |
+| `ports` | Network ports of a hardware record (`device` holds its id): name, speed, MAC, VLAN, note. `peer` holds the id of the port at the other end of the cable, on one of the two ports only |
 | `virtual_assets` | VMs, containers and Docker services. `source = monitor` rows are synced |
 | `subnets` | CIDR, gateway, VLAN number, section, VRF name, location, usage threshold |
 | `ip_addresses` | Address, state, device, hostname, MAC, owner, last time a scan saw it |
@@ -57,5 +58,6 @@ contains the texts, theme, panels and the `embed` option.
 | `vpn_links` | VPN links kept by hand |
 | `sites` | Node.js sites, deploy keys, webhook secrets and the existing `service` they run under |
 | `tasks` | Tasks and calendar events, with state, tags and CalDAV `uid`, `etag` and `href` |
+| `history` | Changes saved from the web interface to `hardware` and `virtual_assets`: `coll`, `record` id, `name`, `action` (`create` or `update`) and `changes`, a list of `{field, from, to}` |
 
 A task with an empty `etag` is a local change that still has to reach Nextcloud.

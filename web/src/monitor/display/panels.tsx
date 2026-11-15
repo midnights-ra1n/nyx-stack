@@ -109,6 +109,30 @@ function Gauges({ rows }: { rows: any[] }) {
   return <div className="grid h-full auto-cols-fr grid-flow-col items-center gap-2 max-sm:grid-flow-row max-sm:grid-cols-2">{rows.map((r, i) => <ScalingGauge key={i} {...r} />)}</div>
 }
 
+/** Totals over the curves; on a wall, the most blocked domains beside them. */
+function NextDns({ data }: { data: any }) {
+  if (data == null) return <div className="flex h-full items-center justify-center text-fg3">No NextDNS data</div>
+  const share = data.total ? ((data.blocked / data.total) * 100).toFixed(1) : "0.0"
+  const top: { domain: string; queries: number }[] = data.top_blocked ?? []
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="grid shrink-0 grid-cols-3 gap-2 text-center">
+        {[["Queries", data.total.toLocaleString(), ""], ["Blocked", data.blocked.toLocaleString(), "text-warn"], ["Blocked share", `${share} %`, ""]].map(([label, value, cls]) => (
+          <div key={label}><div className={`text-[22px] leading-7 font-medium ${cls}`}>{value}</div><div className="text-xs text-fg2">{label}</div></div>
+        ))}
+      </div>
+      <div className={`grid min-h-0 flex-1 gap-3 ${top.length ? "grid-cols-[2fr_1fr]" : ""}`}>
+        <Chart data={data} />
+        {top.length > 0 && (
+          <ol className="min-h-0 overflow-hidden text-xs">
+            {top.map((d) => <li key={d.domain} className="flex justify-between gap-2 border-b border-line py-1"><span className="truncate font-mono">{d.domain}</span><span className="text-fg2">{d.queries.toLocaleString()}</span></li>)}
+          </ol>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Chart({ data }: { data: any }) {
   const series = (data?.series ?? []).filter((s: any) => s.values.length > 1)
   const all = series.flatMap((s: any) => s.values)
@@ -177,6 +201,7 @@ function Body({ p, overall, generated, paged }: { p: any; overall: Level; genera
     case "text": return <p className="whitespace-pre-wrap">{p.text}</p>
     case "clock": return <Clock />
     case "pipelines": return <PipelineView rows={p.data} view={p.metric || "list"} />
+    case "nextdns": return <NextDns data={p.data} />
     case "map": return <LiveMap nodes={p.data ?? []} still={paged} />
     default: return null
   }

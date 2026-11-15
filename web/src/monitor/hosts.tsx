@@ -2,7 +2,7 @@ import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, Co
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { ProxmoxIcon } from "../ui/brand-icons"
-import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries } from "../ui/components"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries, Variable } from "../ui/components"
 import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
@@ -158,46 +158,110 @@ function InstallCommand({ id }: { id: string }) {
   )
 }
 
-function AddHost({ hosts, onDone }: { hosts: any[]; onDone: () => void }) {
+const STEP = "flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-medium"
+
+/** Adding a host on a page of its own: describe it, then install the agent with the command it gets. */
+export function AddHostPage() {
+  const hosts = useApi<any[]>("/api/hosts", { poll: false })
   const [f, setF] = useState({ name: "", kind: "vm", parent: "", ct_autoinstall: false })
   const [res, setRes] = useState<any>()
   const [error, setError] = useState("")
   // Only a VM or a container runs on something, and only on one of your physical servers.
   const nested = f.kind === "vm" || f.kind === "lxc"
-  const servers = hosts.filter((h) => h.kind === "physical" || h.kind === "proxmox")
+  const servers = (hosts.data ?? []).filter((h) => h.kind === "physical" || h.kind === "proxmox")
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
     try { setRes(await api("/api/hosts", { body: { ...f, parent: nested ? f.parent : "" } })) } catch (err) { setError((err as Error).message) }
   }
-  if (res) return <Modal title="Install the agent" onClose={onDone}><InstallCommand id={res.id} /></Modal>
-  return (
-    <Modal title="Add host" onClose={onDone}>
-      <form className="flex flex-col gap-4" onSubmit={submit}>
-        <Input label="Name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <Select label="Deployment type" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} options={KINDS} hint={f.kind === "physical" || f.kind === "proxmox" ? "SMART monitoring is included; smartmontools is installed if missing." : undefined} />
-        {nested && <Select label="Runs on" value={f.parent} onChange={(e) => setF({ ...f, parent: e.target.value })} options={[{ value: "", label: "Nothing (top level)" }, ...servers.map((h) => ({ value: h.id, label: `${h.name} (${h.kind === "proxmox" ? "Proxmox" : "physical"})` }))]} />}
-        {f.kind === "proxmox" && <Check label={WATCH_CTS} hint={WATCH_CTS_HINT} checked={f.ct_autoinstall} onChange={(e) => setF({ ...f, ct_autoinstall: e.target.checked })} />}
-        <ErrorNote>{error}</ErrorNote>
-        <div><Button variant="primary" type="submit">Generate install command</Button></div>
-      </form>
-    </Modal>
+  const step = (n: number, title: string, active: boolean) => (
+    <span className="flex items-center gap-3"><span className={`${STEP} ${active ? "bg-accent text-accent-ink" : "bg-raised text-fg2"}`}>{n}</span>{title}</span>
   )
+  return (
+    <>
+      <PageHeader title="Add host" crumbs={[{ label: "Hosts", to: "/hosts" }, { label: "Add host" }]} />
+      <div className="grid max-w-5xl items-start gap-4 lg:grid-cols-2">
+        <Panel title="Describe the host" badge={res && <Status level="ok" label="Created" />}>
+          <form className="flex flex-col gap-4" onSubmit={submit}>
+            <p className="flex flex-col gap-2 text-[13px] text-fg2">{step(1, "Name it and pick how it runs", !res)}</p>
+            <Input label="Name" required autoFocus disabled={!!res} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            <fieldset disabled={!!res}>
+              <legend className="mb-1 text-[13px] text-fg2">Deployment type</legend>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
+                {KINDS.map((k) => {
+                  const I = HOST_TYPES[k.value === "lxc" ? "ct" : k.value]?.icon ?? ServerIcon
+                  return (
+                    <label key={k.value} className={`flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-box border px-2 text-center text-[13px] has-focus-visible:outline-2 has-focus-visible:outline-accent ${f.kind === k.value ? "border-accent bg-accent-soft text-accent" : "border-line2 bg-raised text-fg2 hover:border-fg3"}`}>
+                      <input type="radio" className="sr-only" name="kind" checked={f.kind === k.value} onChange={() => setF({ ...f, kind: k.value })} />
+                      <I className="size-6" aria-hidden />{k.label}
+                    </label>
+                  )
+                })}
+              </div>
+              {(f.kind === "physical" || f.kind === "proxmox") && <p className="mt-2 text-xs text-fg3">SMART monitoring is included; smartmontools is installed if missing.</p>}
+            </fieldset>
+            {nested && <Select label="Runs on" disabled={!!res} value={f.parent} onChange={(e) => setF({ ...f, parent: e.target.value })} options={[{ value: "", label: "Nothing (top level)" }, ...servers.map((h) => ({ value: h.id, label: `${h.name} (${h.kind === "proxmox" ? "Proxmox" : "physical"})` }))]} />}
+            {f.kind === "proxmox" && <Check label={WATCH_CTS} hint={WATCH_CTS_HINT} disabled={!!res} checked={f.ct_autoinstall} onChange={(e) => setF({ ...f, ct_autoinstall: e.target.checked })} />}
+            <ErrorNote>{error}</ErrorNote>
+            {!res && <div className="flex gap-3"><Button variant="primary" type="submit">Generate install command</Button><Button onClick={() => navigate("/hosts")}>Cancel</Button></div>}
+          </form>
+        </Panel>
+        <Panel title="Install the agent">
+          <div className="flex flex-col gap-4">
+            <p className="flex flex-col gap-2 text-[13px] text-fg2">{step(2, "Run the command on the host", !!res)}</p>
+            {res ? <>
+              <InstallCommand id={res.id} />
+              <p className="text-[13px] text-fg3">The host turns online with the agent's first report, usually within a minute.</p>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="primary" onClick={() => navigate(`/hosts/${res.id}`)}>Open {f.name}</Button>
+                <Button onClick={() => { setRes(undefined); setF({ ...f, name: "" }) }}><PlusIcon className="size-5" aria-hidden />Add another</Button>
+              </div>
+            </> : <Empty>The command appears here once the host is described.</Empty>}
+          </div>
+        </Panel>
+      </div>
+    </>
+  )
+}
+
+const STATES = [{ value: "", label: "All" }, { value: "ok", label: "Healthy" }, { value: "problem", label: "Warning or critical" }, { value: "off", label: "Offline" }]
+
+/** Search, type and state together. A guest without an agent only shows on the unfiltered tree. */
+export function filterHosts(hosts: any[], q: string, type: string, state: string) {
+  const n = q.trim().toLowerCase()
+  return hosts.filter((h) =>
+    (!n || [h.name, h.hostname, h.ip, h.os].some((v) => String(v ?? "").toLowerCase().includes(n))) &&
+    (!type || hostType(h, hosts) === type) &&
+    (!state || (state === "problem" ? h.status === "warn" || h.status === "crit" : h.status === state)))
+}
+
+/** A number with its bar, so a busy host stands out down the column. */
+function Usage({ pct, warn, crit }: { pct?: number | null; warn?: number; crit?: number }) {
+  if (pct == null) return <span className="text-fg3">—</span>
+  return <span className="flex w-28 items-center gap-2"><span className="flex-1"><Meter pct={pct} warn={warn} crit={crit} /></span><span className="w-11 text-right text-[13px] tabular-nums text-fg2">{fmt.pct(pct)}</span></span>
 }
 
 export function Hosts() {
   const hosts = useApi<any[]>("/api/hosts")
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const [add, setAdd] = useState(false)
+  const th = useApi("/api/settings/thresholds", { poll: false }).data ?? {}
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [updateError, setUpdateError] = useState("")
+  const [q, setQ] = useState("")
+  const [type, setType] = useState("")
+  const [state, setState] = useState("")
   const list = hosts.data ?? []
+  const filtered = !!(q.trim() || type || state)
   const updating = list.some((h) => h.update && !h.update.done)
   useUpdatePolling(updating, hosts.reload)
-  const rows = buildTree(list, (h) => h.guests ?? [], collapsed)
+  const rows = buildTree(filterHosts(list, q, type, state), (h) => (filtered ? [] : h.guests ?? []), collapsed)
   const toggle = (id: string) => { const s = new Set(collapsed); s.has(id) ? s.delete(id) : s.add(id); setCollapsed(s) }
   const online = list.filter((h) => h.status !== "off").length
+  const problems = list.filter((h) => h.status === "warn" || h.status === "crit").length
   const updatable = list.filter((h) => h.status !== "off" && h.agent_version).length
   const updates = list.reduce((n, h) => n + (h.updates || 0), 0)
+  const restart = list.filter((h) => h.reboot_required).length
+  const types = [...new Set(list.map((h) => hostType(h, list)))]
   const updateAll = async () => {
     if (!confirm(`Upgrade the packages of ${updatable} online hosts and bring their agents up to date? Services can restart while packages are replaced. Hosts are not rebooted.`)) return
     setUpdateError("")
@@ -206,34 +270,45 @@ export function Hosts() {
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title="Summary" edit={edit}>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
           <Stat label="Online" value={`${online} / ${list.length}`} level={online === list.length ? "ok" : "warn"} />
-          <Stat label="Pending updates" value={updates} level={updates ? "warn" : "ok"} />
-          <Stat label="Agent-less guests" value={rows.filter((r) => r.guest).length} />
+          <Stat label="Need attention" value={problems} level={problems ? "warn" : "ok"} />
+          <Stat label="Pending updates" value={updates} level={updates ? "warn" : "ok"} sub={restart ? `${restart} to restart` : undefined} />
+          <Stat label="Agent-less guests" value={list.reduce((n, h) => n + buildTree([h], (x) => x.guests ?? [], new Set()).filter((r) => r.guest).length, 0)} />
         </div>
       </Panel>
     ) },
     { id: "fleet", title: "Fleet", render: (edit: any) => (
-      <Panel title="Fleet" flush edit={edit}>
-        {list.length === 0 ? <div className="px-4 pb-4"><Empty>No hosts yet. Add one to get an install command.</Empty></div> : (
-          <Table head={["Host", "Type", "Address", "CPU", "Mem.", "Temp.", "Updates", "State"]}>
+      <Panel title={filtered ? `Fleet · ${rows.length} of ${list.length}` : "Fleet"} flush edit={edit}>
+        {list.length > 0 && (
+          <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
+            <div className="w-64 max-sm:w-full"><Input label="Search" type="search" placeholder="Name, address or OS" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+            <Variable label="Type" value={type} onChange={setType} options={[{ value: "", label: "All" }, ...types.map((t) => ({ value: t, label: HOST_TYPES[t]?.label ?? t }))]} />
+            <Variable label="State" value={state} onChange={setState} options={STATES} />
+          </div>
+        )}
+        {list.length === 0 ? <div className="px-4 pb-4"><Empty>No hosts yet. Add one to get an install command.</Empty></div> : rows.length === 0 ? <div className="px-4 pb-4"><Empty>No host matches.</Empty></div> : (
+          <Table head={["Host", "Type", "Address", "CPU", "Memory", "Temp.", "Updates", "State"]}>
             {rows.map((r) => r.host ? (
-              <tr key={r.key} className="hover:bg-raised">
+              <tr key={r.key} className="cursor-pointer hover:bg-raised" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) navigate(`/hosts/${r.host.id}`) }}>
                 <Td className="font-medium">
                   <span className="flex items-center gap-1" style={{ paddingLeft: r.depth * 24 }}>
                     {r.hasChildren
                       ? <button aria-label="Toggle children" aria-expanded={!collapsed.has(r.host.id)} className="text-fg3" onClick={() => toggle(r.host.id)}><ChevronRightIcon className={`size-4 ${collapsed.has(r.host.id) ? "" : "rotate-90"}`} aria-hidden /></button>
                       : <span className="w-4" />}
                     <HostIcon type={hostType(r.host, list)} />
-                    <Link to={`/hosts/${r.host.id}`} className="ml-1 hover:text-accent">{r.host.name}</Link>
-                    {r.host.muted && <BellSlashIcon className="size-4 text-fg3" aria-label="Excluded from alerts" />}
+                    <span className="ml-1 flex min-w-0 flex-col">
+                      <Link to={`/hosts/${r.host.id}`} className="truncate hover:text-accent">{r.host.name}</Link>
+                      {r.host.os && <span className="truncate text-xs font-normal text-fg3">{r.host.os}</span>}
+                    </span>
+                    {r.host.muted && <BellSlashIcon className="size-4 shrink-0 text-fg3" aria-label="Excluded from alerts" />}
                   </span>
                 </Td>
                 <Td className="text-fg2">{HOST_TYPES[hostType(r.host, list)]?.label ?? r.host.kind}</Td>
                 <Td mono>{r.host.ip || "—"}</Td>
-                <Td className="text-fg2">{fmt.pct(r.host.cpu)}</Td>
-                <Td className="text-fg2">{fmt.pct(r.host.mem)}</Td>
-                <Td className="text-fg2">{fmt.temp(r.host.temp)}</Td>
+                <Td><Usage pct={r.host.status === "off" ? null : r.host.cpu} warn={th.warn} crit={th.crit} /></Td>
+                <Td><Usage pct={r.host.status === "off" ? null : r.host.mem} warn={th.warn} crit={th.crit} /></Td>
+                <Td className={r.host.temp >= (th.temp_crit ?? 90) ? "text-crit" : r.host.temp >= (th.temp_warn ?? 80) ? "text-warn" : "text-fg2"}>{fmt.temp(r.host.temp)}</Td>
                 <Td className="text-fg2"><span className="flex items-center gap-2 whitespace-nowrap">{r.host.updates || "—"}{r.host.reboot_required && <Status cell level="warn" label="Restart" />}</span></Td>
                 <StateCell level={hostLevel(r.host.status)} label={r.host.installed ? undefined : r.host.kind === "lxc" ? "Stopped" : "Waiting for install"} />
               </tr>
@@ -252,11 +327,10 @@ export function Hosts() {
   ]
   return (
     <>
-      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<><CustomizeButton /><Button disabled={updating || !updatable} onClick={updateAll}><ArrowPathIcon className="size-5" aria-hidden />Update all</Button><Button variant="primary" onClick={() => setAdd(true)}><PlusIcon className="size-5" aria-hidden />Add host</Button></>} />
+      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<><CustomizeButton /><Button disabled={updating || !updatable} onClick={updateAll}><ArrowPathIcon className="size-5" aria-hidden />Update all</Button><Button variant="primary" onClick={() => navigate("/hosts/new")}><PlusIcon className="size-5" aria-hidden />Add host</Button></>} />
       <ErrorNote>{updateError}</ErrorNote>
       <FleetUpdates hosts={list} />
-      <Board id="hosts" panels={panels} desktop={{ cols: [["fleet"]], hidden: ["summary"] }} phone={{ cols: [["fleet"]], hidden: ["summary"] }} />
-      {add && <AddHost hosts={list} onDone={() => { setAdd(false); hosts.reload() }} />}
+      <Board id="hosts" panels={panels} desktop={{ cols: [["summary", "fleet"]], hidden: [] }} phone={{ cols: [["summary", "fleet"]], hidden: [] }} />
     </>
   )
 }

@@ -199,7 +199,7 @@ function Gate({ setup, passkeys, onDone, name }: { setup: boolean; passkeys: boo
         {setup && <Input label="Restore from a backup (optional)" type="file" accept=".json,application/json" onChange={(e) => setBackup(e.target.files?.[0])} hint="Hosts, agents, probes and integrations come back as they were. Keep the same public URL so agents and passkeys reconnect." />}
         <ErrorNote>{error}</ErrorNote>
         <Button variant="primary" type="submit" disabled={busy}>{setup ? (busy && backup ? "Restoring…" : backup ? "Create account and restore" : "Create account") : "Sign in"}</Button>
-        {!setup && passkeys && <Button onClick={() => run(() => passkeyLogin(email))} disabled={!email}>Use a passkey</Button>}
+        {!setup && passkeys && <Button onClick={() => run(() => passkeyLogin(email))} disabled={busy}>Use a passkey</Button>}
       </form>
     </main>
   )

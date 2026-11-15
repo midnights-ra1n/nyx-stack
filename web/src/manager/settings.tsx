@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Button, Mono, Panel } from "../ui/components"
 import { api } from "../ui/lib"
 import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, ProxmoxSettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
+import { NextDnsSettings } from "../ui/nextdns"
 
 const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
 
@@ -83,6 +84,7 @@ export function Settings() {
           { key: "password", label: "App password", type: "password" },
           { key: "calendar", label: "Calendar", hint: "The name in the calendar's link, for example personal." }]} />
         <ProxmoxSettings />
+        <NextDnsSettings />
         <Sync />
       </> },
       { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },

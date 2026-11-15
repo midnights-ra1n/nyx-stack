@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildTree, consoleUrl, hostType, noAgent, updateRun } from "./hosts"
+import { buildTree, consoleUrl, filterHosts, hostType, noAgent, updateRun } from "./hosts"
 
 const pve = { id: "p", kind: "proxmox", hostname: "pve1", guests: [{ vmid: 101, name: "web", kind: "lxc", node: "pve1" }, { vmid: 102, name: "db", kind: "qemu", node: "pve1" }] }
 const ct = { id: "c", parent: "p", vmid: 101 }
@@ -67,5 +67,23 @@ describe("noVNC links", () => {
     expect(consoleUrl("https://pve:8006/", pve)).toBe("/api/proxmox/console?console=shell&node=pve1")
     expect(consoleUrl("https://pve:8006", pve, pve.guests[1])).toContain("console=kvm&vmid=102")
     expect(consoleUrl("", pve)).toBe("")
+  })
+})
+
+describe("filterHosts", () => {
+  const fleet = [
+    { id: "a", name: "web", ip: "10.0.0.2", os: "Debian 13", kind: "vm", status: "ok" },
+    { id: "b", name: "nas", ip: "10.0.0.3", os: "TrueNAS", kind: "physical", status: "crit" },
+    { id: "c", name: "edge", ip: "1.2.3.4", os: "Ubuntu", kind: "vps", status: "off" },
+  ]
+  const names = (r: any[]) => r.map((h) => h.name)
+  it("searches name, address and OS", () => {
+    expect(names(filterHosts(fleet, "debian", "", ""))).toEqual(["web"])
+    expect(names(filterHosts(fleet, " 10.0.0 ", "", ""))).toEqual(["web", "nas"])
+  })
+  it("filters by type and state together", () => {
+    expect(names(filterHosts(fleet, "", "physical", "problem"))).toEqual(["nas"])
+    expect(names(filterHosts(fleet, "", "vm", "problem"))).toEqual([])
+    expect(names(filterHosts(fleet, "", "", "off"))).toEqual(["edge"])
   })
 })

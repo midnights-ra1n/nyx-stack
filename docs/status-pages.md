@@ -53,6 +53,7 @@ Phones show panels one above the other, from top to bottom and left to right.
 | Live map | The [map](monitoring.md#map) of the homelab, updated at the page's refresh rate |
 | EDF Tempo | Colour of today and tomorrow, and the days left |
 | CI/CD pipelines | Name, branch and result of the [pipelines](monitoring.md#cicd-pipelines) followed. Repositories and addresses stay private |
+| NextDNS | Queries, blocked queries and their curves over 24 hours, 7, 30 or 90 days (set in the panel). The ten most blocked domains show on walls only, since they tell what people browse. Needs the [NextDNS integration](integrations.md#nextdns); the monitor refreshes it every 5 minutes |
 
 ### Live map
 

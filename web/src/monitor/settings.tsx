@@ -4,6 +4,7 @@ import { TrashIcon } from "@heroicons/react/24/outline"
 import { Button, Copy, ErrorNote, IconButton, Input, Panel, Status, TextArea } from "../ui/components"
 import { api, useApi } from "../ui/lib"
 import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, ProxmoxSettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
+import { NextDnsSettings } from "../ui/nextdns"
 
 interface Plug { name: string; ip: string; mac: string }
 const MAC = /^([0-9a-f]{2}[:-]?){5}[0-9a-f]{2}$/i
@@ -120,6 +121,7 @@ export function Settings() {
         </SettingForm>
         <Panel title="Send the Tempo days to Nextcloud"><TempoCalendarSync /></Panel>
         <ProxmoxSettings />
+        <NextDnsSettings />
         <Meross />
       </> },
       { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },

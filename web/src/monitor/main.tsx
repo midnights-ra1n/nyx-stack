@@ -8,7 +8,7 @@ import { Storage } from "./disks"
 import { Logs } from "./logs"
 import { MapPage } from "./map"
 import { Alerts, Containers, Network, SearchPage } from "./pages"
-import { HostDetail, Hosts } from "./hosts"
+import { AddHostPage, HostDetail, Hosts } from "./hosts"
 import { Overview } from "./overview"
 import { Pipelines } from "./pipelines"
 import { Settings } from "./settings"
@@ -16,6 +16,7 @@ import { Settings } from "./settings"
 function route(path: string) {
   if (path === "/") return <Overview />
   if (path === "/hosts") return <Hosts />
+  if (path === "/hosts/new") return <AddHostPage />
   if (path.startsWith("/hosts/")) return <HostDetail id={path.slice(7)} />
   if (path === "/map") return <MapPage />
   if (path === "/containers") return <Containers />

@@ -113,6 +113,17 @@ The sign-in follows the protocol documented by the community
 [meross-iot](https://github.com/albertogeniola/MerossIot) project, and is not tested against a
 physical plug or account.
 
+## NextDNS
+
+Both the manager and the monitor can show the DNS queries of a [NextDNS](https://nextdns.io) profile: the number of queries, how many were blocked, the blocked share, a curve of both and the ten most blocked domains, over 24 hours, 7, 30 or 90 days (picked on the panel).
+
+1. On [my.nextdns.io](https://my.nextdns.io), open **Account** and copy the **API key**.
+2. Copy the **profile ID**: the code in the address of the profile, such as `abc123` in `my.nextdns.io/abc123/setup`.
+3. In Nyx, open **Settings → Integrations → NextDNS**, paste both and save.
+4. Add the panel: on the monitor, **Customize** the overview and show **NextDNS**; on the manager, **Add widget → NextDNS**. On a wall or a status page, add a **NextDNS** panel (see [status pages](status-pages.md)).
+
+Each server keeps its own key, so the manager works without a monitor. The calls go from the server to `api.nextdns.io`, never from your browser. The panel follows the refresh of the page, and the server keeps each answer in memory for 5 minutes, so NextDNS sees at most two calls per period every 5 minutes, however many screens are open. Nothing is written to disk.
+
 ## MCP server
 
 Lets AI assistants read your infrastructure. All tools are read-only.
@@ -143,3 +154,6 @@ Example prompt: *"Give me the overall state of my infrastructure."*
 
 Add them in **Settings, Security**. They need an `https://` `NYX_PUBLIC_URL`, and a
 passkey is bound to that domain: changing the domain means registering a new one.
+
+On the sign-in page, **Use a passkey** works with both fields empty: a server has a
+single account, so Nyx asks for its passkeys.

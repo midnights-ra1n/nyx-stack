@@ -37,10 +37,24 @@ function LinkForm({ nodes, onDone }: { nodes: any[]; onDone: () => void }) {
   )
 }
 
+/** Cables between network ports, one line per pair of devices on the map, unless a link already joins them. Same rule as the exports. */
+export function cables(links: any[], ports: any[], node: (device: string) => string | undefined) {
+  const out = [...links]
+  for (const p of ports) {
+    const q = ports.find((q) => p.peer && q.id === p.peer)
+    const [a, b] = [node(p.device), q && node(q.device)]
+    if (a && b && a !== b && !out.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a)))
+      out.push({ id: p.id, source: a, target: b, label: `${p.name} – ${q.name}`, cable: true })
+  }
+  return out.slice(links.length)
+}
+
 export function NetworkMap() {
   const nodes = useApi("/api/c/map_nodes?perPage=500", { poll: false })
   const links = useApi("/api/c/map_links?perPage=500", { poll: false })
   const vpn = useApi("/api/c/vpn_links?perPage=500", { poll: false })
+  const ports = useApi("/api/c/ports?perPage=500", { poll: false })
+  const hardware = useApi("/api/c/hardware?perPage=500", { poll: false })
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({})
   const [form, setForm] = useState<"node" | "link" | any>()
   const [note, setNote] = useState("")
@@ -55,7 +69,8 @@ export function NetworkMap() {
   const tunnels = (vpn.data?.items ?? []).filter((v: any) => v.side_b && nodeId(v.side_a) && nodeId(v.side_b)).map((v: any) => ({ id: v.id, source: nodeId(v.side_a), target: nodeId(v.side_b), label: v.name, vpn: true }))
   const right = Math.max(600, ...list.map((n) => n.x + W + 40))
   const bottom = Math.max(320, ...list.map((n) => n.y + H + 40))
-  const allLinks: any[] = [...(links.data?.items ?? []), ...tunnels]
+  const drawn: any[] = [...(links.data?.items ?? []), ...tunnels]
+  const allLinks = [...drawn, ...cables(drawn, ports.data?.items ?? [], (device) => nodeId(hardware.data?.items.find((h: any) => h.id === device)?.name ?? ""))]
   const parent = parents(list, links.data?.items ?? [])
   const isTree = (l: any) => !l.vpn && (parent[l.source] === l.target || parent[l.target] === l.source)
   const hosts = list.filter((n) => Object.values(parent).includes(n.id))
@@ -128,7 +143,7 @@ export function NetworkMap() {
       {form && form !== "link" && <RecordForm title={form === "node" ? "Add device" : "Edit device"} cols={NODE} collection="map_nodes" key={form === "node" ? "new" : form.id} row={form === "node" ? null : form} onDone={done} defaults={undefined} />}
       <Board id="map" desktop={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} phone={{ cols: [["map", "export", "devices", "links"]], hidden: [] }} panels={[
         { id: "map", title: "Map", render: (edit: any) => (
-        <Panel title="Map" flush edit={edit} footer="Drag a device to move it, double-click it to edit. Guests sit in the frame of their host; blue curves are your own links, dashed orange ones VPN tunnels.">
+        <Panel title="Map" flush edit={edit} footer="Drag a device to move it, double-click it to edit. Guests sit in the frame of their host; blue curves are your own links, grey ones cables between network ports of the hardware inventory, dashed orange ones VPN tunnels.">
           {list.length > 0 && <div className="px-4 pb-3"><Tabs tabs={MAP_VIEWS} value={view} onChange={setView} /></div>}
           {list.length === 0 ? <div className="px-4 pb-4"><Empty>Add a device or import hosts from monitoring.</Empty></div> : view === "tree" ? <TreeView nodes={viewNodes} icons={icons} /> : view === "groups" ? <GroupedView nodes={viewNodes} icons={icons} /> : (
             // Nodes capture touches to drag, the empty canvas keeps scrolling the page.
@@ -148,7 +163,7 @@ export function NetworkMap() {
                   const c = curve(a, b)
                   return (
                     <g key={l.id}>
-                      <path d={c.d} fill="none" strokeWidth={1.5} className={l.vpn ? "stroke-accent" : "stroke-info/70"} strokeDasharray={l.vpn ? "6 4" : undefined} />
+                      <path d={c.d} fill="none" strokeWidth={1.5} className={l.vpn ? "stroke-accent" : l.cable ? "stroke-fg3" : "stroke-info/70"} strokeDasharray={l.vpn ? "6 4" : undefined} />
                       {l.label && <text x={c.mx} y={c.my - 6} textAnchor="middle" className="fill-fg2 text-xs" stroke="var(--color-surface)" strokeWidth={3} paintOrder="stroke">{l.label}</text>}
                     </g>
                   )

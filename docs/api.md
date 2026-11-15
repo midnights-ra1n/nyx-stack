@@ -31,7 +31,8 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | GET | `/api/auth/passkeys` | Session | List passkeys |
 | DELETE | `/api/auth/passkeys/{id}` | Session | Remove a passkey |
 | GET, POST | `/api/c/{coll}` | Session | List or create records |
-| PATCH, DELETE | `/api/c/{coll}/{id}` | Session | Change or delete a record |
+| GET, PATCH, DELETE | `/api/c/{coll}/{id}` | Session | Read, change or delete a record |
+| GET | `/api/c/{coll}/{id}/history` | Session | Changes of a record, newest first (hardware and virtual assets) |
 | GET, PUT | `/api/settings/{key}` | Session | Read or write an allowed setting |
 | POST | `/api/notify/preview` | Session | Render templates with sample events |
 | POST | `/api/notify/test/{id}` | Session | Send a test through a channel |
@@ -75,6 +76,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/integrations/power` | Session | Meross power, with `problems` for plugs that could not be read |
 | POST | `/api/integrations/meross/login` | Session | `{email, password}`: signs in to Meross, keeps the account key and not the password |
 | POST | `/api/proxmox/test` | Session | Checks the Proxmox credentials, returns `{version}` |
+| GET | `/api/nextdns?days=7` | Session | NextDNS queries of the last 1–365 days: `{configured, days, total, blocked, times, series_total, series_blocked, top_blocked: [{domain, queries}]}`, cached 5 minutes |
 | GET | `/api/proxmox/console` | Session | `?console=lxc\|kvm\|shell&vmid=&node=&vmname=`: redirects to the noVNC console, signed in when the domain is shared |
 | GET, POST | `/api/pages` | Session | List pages, or create one |
 | PATCH, DELETE | `/api/pages/{id}` | Session | Change or delete a page |

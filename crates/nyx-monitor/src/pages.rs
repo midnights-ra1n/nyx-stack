@@ -41,7 +41,7 @@ const MAX_PANELS: usize = 64;
 const MAX_TEXT: usize = 20_000;
 const MAX_LOGO: usize = 350_000; // about 256 KB once decoded
 const COLS: i64 = 24;
-const PANEL_TYPES: [&str; 13] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map", "pipelines"];
+const PANEL_TYPES: [&str; 14] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map", "pipelines", "nextdns"];
 const PRESETS: [&str; 3] = ["nyx", "graphite", "light"];
 /// The id of the monitor's own heartbeat among the probe rollups.
 pub const MONITOR: &str = "_monitor";
@@ -594,6 +594,7 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
         "map" => json!(map_nodes(c, &rows, p.items.is_empty()).into_iter().map(|(_, node)| node).collect::<Vec<_>>()),
         "pipelines" => crate::pipelines::public(c.st),
         "tempo" => c.st.tempo.as_ref().map_or(Value::Null, |(_, v)| json!({"today": v["today"], "tomorrow": v["tomorrow"], "remaining": v["remaining"]})),
+        "nextdns" => nyx_srv::nextdns::latest(nextdns_days(p)).map_or(Value::Null, |v| nextdns_shown(&v, c.wall)),
         "alerts" if c.wall => {
             let mut open: Vec<_> = c.st.alerts.values().collect();
             open.sort_by_key(|a| (a.severity != "crit", std::cmp::Reverse(a.opened.clone())));
@@ -601,6 +602,38 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
         }
         _ => Value::Null,
     }
+}
+
+/// The period of a NextDNS panel, in days, kept in its `metric`.
+fn nextdns_days(p: &Panel) -> u32 {
+    p.metric.parse().unwrap_or(7)
+}
+
+/// Totals and curves. The blocked domain names tell what people browse, so they stay on walls.
+fn nextdns_shown(v: &Value, wall: bool) -> Value {
+    if v["configured"] != true {
+        return Value::Null;
+    }
+    let curve = |k: &str| -> Vec<Value> {
+        v["times"].as_array().into_iter().flatten().zip(v[k].as_array().into_iter().flatten()).map(|(t, q)| json!({"t": t, "v": q})).collect()
+    };
+    let mut out = json!({"total": v["total"], "blocked": v["blocked"], "days": v["days"], "unit": "", "series": [
+        {"name": "Queries", "values": curve("series_total")}, {"name": "Blocked", "values": curve("series_blocked")}]});
+    if wall {
+        out["top_blocked"] = v["top_blocked"].clone();
+    }
+    out
+}
+
+/// Keeps the NextDNS answers of every panel warm, for pages read without a session.
+pub async fn refresh_nextdns(app: &App) -> anyhow::Result<()> {
+    let mut days: Vec<u32> = app.pages.lock().unwrap().list.iter().flat_map(|p| &p.config.panels).filter(|p| p.kind == "nextdns").map(nextdns_days).collect();
+    days.sort_unstable();
+    days.dedup();
+    for d in days {
+        nyx_srv::nextdns::get(&app.core, d).await.map_err(|e| anyhow::anyhow!(e.1))?;
+    }
+    Ok(())
 }
 
 /// The complete anonymous answer. Panels are rebuilt by hand so their item lists
@@ -767,6 +800,10 @@ struct Preview {
 async fn preview(_: Session, State(app): State<Arc<App>>, Json(b): Json<Preview>) -> ApiResult<Json<Value>> {
     let config = clean_config(b.config).map_err(bad)?;
     let kind = if b.kind == "wall" { "wall" } else { "status" };
+    // A panel just added has no answer in memory yet. Errors show as an empty panel.
+    for p in config.panels.iter().filter(|p| p.kind == "nextdns") {
+        let _ = nyx_srv::nextdns::get(&app.core, nextdns_days(p)).await;
+    }
     let out = build(&app.lock(), kind, &config, Local::now());
     Ok(Json(out))
 }
@@ -851,6 +888,16 @@ mod tests {
         assert!(build(&st, "wall", &cfg, now)["panels"][0]["data"].is_null());
         st.tempo = Some((std::time::Instant::now(), json!({"date": "2026-11-06", "configured": true, "today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}})));
         assert_eq!(build(&st, "wall", &cfg, now)["panels"][0]["data"], json!({"today": "BLUE", "tomorrow": null, "remaining": {"blue": 299}}));
+    }
+
+    #[test]
+    fn nextdns_domains_stay_off_status_pages() {
+        let v = json!({"configured": true, "total": 9, "blocked": 2, "days": 7, "times": [1, 2], "series_total": [4, 5], "series_blocked": [1, 1], "top_blocked": [{"domain": "ads.example", "queries": 2}]});
+        let status = nextdns_shown(&v, false);
+        assert_eq!(status["series"][0]["values"], json!([{"t": 1, "v": 4}, {"t": 2, "v": 5}]));
+        assert!(status.get("top_blocked").is_none());
+        assert_eq!(nextdns_shown(&v, true)["top_blocked"][0]["domain"], "ads.example");
+        assert!(nextdns_shown(&json!({"configured": false}), true).is_null());
     }
 
     #[test]

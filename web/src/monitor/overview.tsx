@@ -9,6 +9,7 @@ import { RecentLogs } from "./logs"
 import { StoragePanel } from "./storage-tree"
 import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
+import { NextDnsPanel } from "../ui/nextdns"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
@@ -144,6 +145,7 @@ export function Overview() {
       </Panel>
     ) },
     { id: "tempo", title: "EDF Tempo", render: (edit: any) => <TempoPanel edit={edit} tempo={tempo.data} error={tempo.error} /> },
+    { id: "nextdns", title: "NextDNS", render: (edit: any) => <NextDnsPanel edit={edit} /> },
     { id: "disks", title: "Disk health", render: (edit: any) => <DiskHealth edit={edit} /> },
     { id: "logs", title: "Recent logs", render: (edit: any) => <RecentLogs edit={edit} /> },
     { id: "probes", title: "Probes", render: (edit: any) => <Probes edit={edit} /> },
@@ -169,8 +171,8 @@ export function Overview() {
       <Board
         id="overview"
         panels={panels}
-        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
-        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
+        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
+        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
       />
     </>
   )

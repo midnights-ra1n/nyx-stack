@@ -121,7 +121,9 @@ async fn simulate(_: Session, State(app): State<Arc<App>>, Json(b): Json<Simulat
 
 async fn map_export(_: Session, State(app): State<Arc<App>>, Path(format): Path<String>) -> ApiResult<impl IntoResponse> {
     let nodes = app.core.pb.list("map_nodes", "", "").await?;
-    let links = map::with_vpn(&nodes, &app.core.pb.list("map_links", "", "").await?, &app.core.pb.list("vpn_links", "", "").await?);
+    let pb = &app.core.pb;
+    let links = map::with_vpn(&nodes, &pb.list("map_links", "", "").await?, &pb.list("vpn_links", "", "").await?);
+    let links = map::with_cables(&nodes, links, &pb.list("ports", "", "").await?, &pb.list("hardware", "", "").await?);
     let (body, mime, ext) = map::export(&format, &nodes, &links).ok_or_else(ApiError::not_found)?;
     Ok(([(header::CONTENT_TYPE, mime.to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"nyx-network.{ext}\""))], body))
 }

@@ -21,14 +21,57 @@ The category decides which specifications the form asks for:
 Each one is free text, so "64 GB DDR4 ECC" is kept as typed. Changing the category hides
 the other details without erasing them, and the search field finds them too.
 
-Every inventory list has a search field and a filter per category or status. Click a
+Above the list, one tile per category gives the count and filters on a click; click it
+again, or **All**, to clear. A search field and a filter per status sit below. Click a
 column header to sort on it, again to reverse; the order is remembered on this device.
-On a phone, use **Sort by**.
+On a phone, use **Sort by**. The status and the warranty are coloured: expired in red,
+ending within 60 days in amber.
+
+**Columns** picks the columns of the list among every field, specifications and purchase
+details included; the first one, the name, always stays. The choice is remembered on
+this device, per list. Tick rows, or the box in the header for every row shown, to act
+on them together: **Set** one field to one value on all of them (status, location,
+supplier…), or **Delete** them. Fields unique to a record, such as the name or the serial
+number, cannot be set in bulk. Lists of the monitor work the same way.
+
+Each device has a page of its own, `/hardware/<id>`, opened by clicking its row, with
+tabs on the left as in GLPI:
+
+| Tab | Holds |
+| --- | --- |
+| General | Identity, specifications, location and status, notes. A summary beside them shows the status, the warranty, the age since purchase and a link to the management address |
+| Management | Supplier, order and invoice numbers, price, purchase date, date in service and end of warranty |
+| Network ports | One row per port: name, speed, MAC address, VLAN and the port of another device it is cabled to |
+| Links | The **Network addresses** of the IPAM whose device or hostname matches the name, and the virtual assets that **run here** (their **Runs on** field holds the device's name) |
+| History | Every change saved from this interface: when, which field, before and after |
+
+The address keeps the tab, such as `/hardware/<id>#Management`, to share or bookmark it.
+Global search leads straight to these pages.
+
+### Network ports
+
+**Add port** on the **Network ports** tab records a port. **Cabled to** lists the ports
+of other devices that are free, as `device · port`; pick one to record the cable. A port
+holds one cable: cabling it elsewhere frees the former far end. Both devices show the
+cable, and the far end links to the other device's page. Cables between two devices of
+the [network map](#network-map) are drawn there.
+
+### History
+
+Each save on a hardware or virtual page, and each change made in bulk, adds one line per
+field that actually changed, with its value before and after. Long text is cut to 200
+characters. A save that changes nothing writes nothing, and nothing is written in the
+background: the inventory sync from a linked monitor and imports are not recorded. The
+history of a deleted record stays in the database, without a page to read it.
 
 **Virtual** tracks VMs, containers and Docker services. With a linked monitor these
 fill themselves every five minutes, and rows marked `monitor` follow the agents: they
 disappear when the host does. Manual rows are never touched. Physical hosts are not
 copied into **Hardware**, because agents do not report serial or warranty data.
+
+Virtual assets have the same tiles, per type, and pages of their own at
+`/virtual/<id>`, with their resources and the console, a **Links** tab with their
+addresses, and a **History** tab. **Runs on** links to the hardware page of that name.
 
 With a Proxmox URL in the settings, assets with a VMID and node get a noVNC **Console**
 button. You sign in to Proxmox itself.
@@ -57,9 +100,15 @@ Tempo, Pipelines and Monitoring need a [linked monitor](deployment.md#linking-ma
 
 ## Forms
 
-Adding or editing a record opens a form at the top of the page, above the list, rather
-than in a window. Fields are grouped under headings on the left. **Escape** or
-**Cancel** closes it without saving.
+Hardware and virtual assets are added and edited on a page of their own (**Add hardware**
+leads to `/hardware/new`), never in a window. Each heading of the form is a panel, and
+**Save** stays at the bottom of the screen on long forms. The form keeps what you typed
+when you switch tabs, and **Save** saves every tab at once; a required field left empty
+on another tab opens that tab. Saving stays on the page; adding a record opens its new
+page, where the other tabs appear. **Escape** or **Back** goes back to the list.
+
+Other records (deployments, tasks, IPAM, VPN links) open a form at the top of their page,
+above the list. **Escape** or **Cancel** closes it without saving.
 
 ## IPAM
 
@@ -151,6 +200,11 @@ device sets its icon and decides whether it is a host or a guest.
 
 A VPN link whose **From** and **To** are both device names of the map is drawn there as
 a dashed orange line, and exported the same way.
+
+A cable between [network ports](#network-ports) of two hardware devices whose names are
+on the map is drawn as a grey line labelled with both ports, and exported too. Two
+devices get one line, however many cables join them, and a link you drew between them
+wins over the cable.
 
 Exports: SVG, draw.io, Mermaid, Graphviz DOT and JSON.
 

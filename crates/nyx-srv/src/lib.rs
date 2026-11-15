@@ -7,6 +7,7 @@ pub mod backup;
 pub mod crud;
 pub mod database;
 pub mod mcp;
+pub mod nextdns;
 pub mod notify;
 pub mod pb;
 pub mod proxmox;
