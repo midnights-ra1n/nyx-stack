@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 8] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "updates", "map_layout"];
+const SETTINGS: [&str; 9] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout"];
 const MAX_POINTS: usize = 400;
 
 fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {

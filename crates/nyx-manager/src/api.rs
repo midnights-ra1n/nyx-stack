@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 6] = ["link", "nextcloud", "proxmox", "updates", "reminders", "dashboard"];
+const SETTINGS: [&str; 7] = ["link", "nextcloud", "proxmox", "nextdns", "updates", "reminders", "dashboard"];
 
 /// Days from the `reminders` setting, kept above zero so a blank field keeps the default.
 async fn lead_days(app: &App, key: &str, default: i64) -> anyhow::Result<i64> {
