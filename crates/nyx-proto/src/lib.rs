@@ -58,6 +58,9 @@ pub struct Report {
     pub ip: String,
     pub kind: HostKind,
     pub ct_autoinstall: bool,
+    /// Servers the agent resolves the monitor with; empty means the system's.
+    #[serde(default)]
+    pub dns: Vec<String>,
     pub uptime_s: u64,
     pub cpu_pct: f32,
     pub mem_used: u64,
@@ -86,6 +89,37 @@ pub struct Report {
     /// Sent when it changed. Absent from older agents.
     #[serde(default)]
     pub firewall: Option<Firewall>,
+    /// Package sources, sent when they changed. Absent from older agents.
+    #[serde(default)]
+    pub repos: Option<Vec<RepoFile>>,
+}
+
+/// A package source file: `/etc/apt/sources.list`, one in `/etc/apt/sources.list.d`
+/// (`.list` or `.sources`) or a dnf `.repo` in `/etc/yum.repos.d`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct RepoFile {
+    pub path: String,
+    /// Empty in [`Action::Repos`]: delete the file.
+    pub content: String,
+}
+
+impl RepoFile {
+    /// Only these paths, so a command cannot write anywhere else as root.
+    pub fn check(&self) -> Result<(), &'static str> {
+        let ok_name = |name: &str, exts: &[&str]| {
+            !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) && exts.iter().any(|e| name.len() > e.len() && name.ends_with(e))
+        };
+        let path_ok = self.path == "/etc/apt/sources.list"
+            || self.path.strip_prefix("/etc/apt/sources.list.d/").is_some_and(|n| ok_name(n, &[".list", ".sources"]))
+            || self.path.strip_prefix("/etc/yum.repos.d/").is_some_and(|n| ok_name(n, &[".repo"]));
+        if !path_ok {
+            return Err("a source file is /etc/apt/sources.list, a .list or .sources file in /etc/apt/sources.list.d, or a .repo file in /etc/yum.repos.d");
+        }
+        if self.content.len() > 64 * 1024 || self.content.contains('\0') {
+            return Err("a source file holds at most 64 KiB of text");
+        }
+        Ok(())
+    }
 }
 
 /// The firewall of a host, as its own tool sees it.
@@ -442,6 +476,8 @@ pub struct Command {
 pub enum Action {
     /// Change the deployment type without reinstalling.
     SetKind { kind: HostKind, ct_autoinstall: bool },
+    /// Resolve the monitor through these servers, or the system's when empty.
+    SetDns { servers: Vec<std::net::IpAddr> },
     /// Refresh the package index and report available updates.
     CheckUpdates,
     UpdateSystem,
@@ -451,6 +487,8 @@ pub enum Action {
     Deploy(Deploy),
     /// Undone by the agent when it cannot reach the monitor afterwards.
     Firewall(FirewallChange),
+    /// Write these package source files, then refresh the index. Undone when it fails.
+    Repos(Vec<RepoFile>),
     /// Proxmox host only: install the agent inside one of its containers with `pct`, so that
     /// the container reports for itself. The container reaches the monitor at the host's address.
     InstallInCt { vmid: u32, token: String, key: String },
@@ -556,6 +594,18 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repo_files_stay_in_the_source_folders() {
+        let f = |path: &str| RepoFile { path: path.into(), content: "deb http://x y main".into() }.check();
+        for ok in ["/etc/apt/sources.list", "/etc/apt/sources.list.d/debian.sources", "/etc/apt/sources.list.d/docker.list", "/etc/yum.repos.d/epel.repo"] {
+            assert!(f(ok).is_ok(), "{ok}");
+        }
+        for bad in ["/etc/passwd", "/etc/apt/sources.list.d/../../shadow.list", "/etc/apt/sources.list.d/.list", "/etc/apt/sources.list.d/x.repo", "/etc/yum.repos.d/a/b.repo", "/etc/apt/sources.list.d/a b.list"] {
+            assert!(f(bad).is_err(), "{bad}");
+        }
+        assert!(RepoFile { path: "/etc/apt/sources.list".into(), content: "a\0".into() }.check().is_err());
+    }
 
     #[test]
     fn firewall_changes_only_take_plain_values() {

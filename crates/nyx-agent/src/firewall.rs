@@ -162,8 +162,8 @@ fn guarded(cfg: &Config, apply: impl FnOnce() -> anyhow::Result<String>, undo: i
 }
 
 /// A fresh client: a pooled connection could outlive rules that block new ones.
-fn monitor_reachable(cfg: &Config) -> bool {
-    let http = transport::client();
+pub fn monitor_reachable(cfg: &Config) -> bool {
+    let http = transport::client(&cfg.dns);
     (0..3).any(|attempt| {
         if attempt > 0 {
             std::thread::sleep(Duration::from_secs(2));

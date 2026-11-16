@@ -36,3 +36,4 @@ variables of the same name win, which is how the Docker image is configured.
 | `NYX_KEY` | Host signing key, from **Add host** |
 | `NYX_KIND` | `vm`, `lxc`, `physical`, `proxmox` or `vps` |
 | `NYX_CT_AUTOINSTALL` | `1` to watch the LXC containers of a Proxmox host, without an agent inside |
+| `NYX_DNS` | DNS servers that resolve the monitor's name, such as `1.1.1.1,1.0.0.1`. Empty uses the system's resolver |

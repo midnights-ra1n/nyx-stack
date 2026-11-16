@@ -10,3 +10,4 @@
         nyx_agent_key: "{{ vault_nyx_key }}"
         nyx_agent_kind: vm # vm, lxc, physical, proxmox or vps
         nyx_agent_ct_autoinstall: false # proxmox only: install the agent in its LXC containers
+        nyx_agent_dns: [] # e.g. ["1.1.1.1", "1.0.0.1"] to bypass a local NextDNS

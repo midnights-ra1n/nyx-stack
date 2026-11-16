@@ -123,6 +123,7 @@ pub struct Live {
     pub guests: Vec<Guest>,
     pub vpn: Vec<VpnLink>,
     pub firewall: Option<nyx_proto::Firewall>,
+    pub repos: Vec<nyx_proto::RepoFile>,
     pub logs: VecDeque<String>,
     pub series: VecDeque<Point>,
 }
@@ -676,6 +677,7 @@ impl State {
         if let Some(s) = r.smart.take() { live.smart = s; }
         if let Some(n) = r.node.take() { live.node = Some(n); }
         if let Some(f) = r.firewall.take() { live.firewall = Some(f); }
+        if let Some(f) = r.repos.take() { live.repos = f; }
         if let Some(mut g) = r.guests.take() {
             if !r.ct_autoinstall { g.retain(|g| g.kind != "lxc"); } // Older agents always list them.
             live.guests = g;

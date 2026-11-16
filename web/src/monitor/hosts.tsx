@@ -7,6 +7,7 @@ import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
 import { FirewallPanel } from "./firewall"
+import { ReposPanel } from "./repos"
 import { HostLogs } from "./logs"
 import { hostLevel } from "./overview"
 import { VpnTable } from "./vpn"
@@ -437,11 +438,18 @@ export function HostDetail({ id }: { id: string }) {
         </div>
       </Panel>
     ) },
+    { id: "repos", title: "Package sources", absent: watched || !h.repos?.length, render: (edit: any) => (
+      <Panel title="Package sources" edit={edit}><ReposPanel key={h.repos.map((f: any) => f.path + f.content.length).join()} files={h.repos} send={send} /></Panel>
+    ) },
     { id: "agent", title: "Agent", absent: watched, render: (edit: any) => (
       <Panel title="Agent" edit={edit}>
         <div className="flex flex-col gap-4">
           <Select label="Deployment type" value={h.kind} onChange={(e) => send({ action: "set_kind", kind: e.target.value, ct_autoinstall: h.ct_autoinstall }, "Type change requested.")} options={KINDS} hint="Applied live, without reinstalling. The agent corrects VM, LXC and physical if the machine says otherwise." />
           {h.kind === "proxmox" && <Check label={WATCH_CTS} hint={WATCH_CTS_HINT} checked={h.ct_autoinstall} onChange={(e) => send({ action: "set_kind", kind: h.kind, ct_autoinstall: e.target.checked }, "Change requested.")} />}
+          <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); const v = String(new FormData(e.currentTarget).get("dns")); send({ action: "set_dns", dns: v.split(/[\s,]+/).filter(Boolean) }, "DNS change requested.") }}>
+            <Input label="DNS servers" name="dns" key={h.dns?.join()} defaultValue={h.dns?.join(", ") ?? ""} placeholder="The system's resolver" hint="Only used to reach the monitor, for example 1.1.1.1, 1.0.0.1 to bypass a local NextDNS. Kept only if the monitor answers through them. Empty to go back to the system's." />
+            <div><Button type="submit">Apply DNS</Button></div>
+          </form>
           {note && <p className="text-[13px] text-fg2" role="status">{note}</p>}
           {h.results?.slice(-3).reverse().map((r: any) => <p key={r.id} className={`font-mono text-[13px] whitespace-pre-wrap ${r.ok ? "text-fg2" : "text-crit"}`}>{r.output}</p>)}
           <div className="flex flex-wrap gap-3">

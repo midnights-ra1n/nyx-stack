@@ -4,11 +4,13 @@
 
 mod collect;
 mod config;
+mod dns;
 mod exec;
 mod firewall;
 mod node;
 mod packages;
 mod proxmox;
+mod repos;
 mod smart;
 mod transport;
 mod uninstall;
@@ -25,12 +27,14 @@ pub enum Msg {
     Progress(nyx_proto::Progress),
     /// A rule was added or removed: read the firewall again for the next report.
     FirewallChanged,
+    /// Package sources were written: read them again for the next report.
+    ReposChanged,
     Restart,
 }
 
 const TAIL_STEP: Duration = Duration::from_secs(2);
 
-const USAGE: &str = "usage: nyx-agent [run] [--config PATH] | version | uninstall | configure --url URL --token T --key K --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall] [--config PATH]";
+const USAGE: &str = "usage: nyx-agent [run] [--config PATH] | version | uninstall | configure --url URL --token T --key K --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall] [--dns IP,IP] [--config PATH]";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -51,7 +55,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run(mut cfg: Config) -> anyhow::Result<()> {
-    let http = transport::client();
+    let http = transport::client(&cfg.dns);
     let mut collector = collect::Collector::new()?;
     let (job_tx, job_rx) = mpsc::channel::<nyx_proto::Command>();
     let (msg_tx, msg_rx) = mpsc::channel::<Msg>();
@@ -75,6 +79,7 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
                 Msg::Progress(p) => collector.progress = Some(p),
                 Msg::Updates(u) => collector.set_updates(u),
                 Msg::FirewallChanged => collector.firewall_changed(),
+                Msg::ReposChanged => collector.repos_changed(),
                 Msg::Restart => restart = true,
             }
         }
@@ -86,7 +91,7 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
                     std::process::exit(0); // systemd brings the new binary up
                 }
                 tail = reply.live_logs;
-                interval = handle_reply(reply, &mut cfg, &mut collector, &job_tx);
+                interval = handle_reply(reply, &mut cfg, &mut collector, &job_tx, &mut restart);
             }
             Err(e) => {
                 eprintln!("report failed: {e:#}");
@@ -114,7 +119,7 @@ fn tail_logs(http: &ureq::Agent, cfg: &Config, until: Instant) {
     }
 }
 
-fn handle_reply(reply: Reply, cfg: &mut Config, collector: &mut collect::Collector, jobs: &mpsc::Sender<nyx_proto::Command>) -> u64 {
+fn handle_reply(reply: Reply, cfg: &mut Config, collector: &mut collect::Collector, jobs: &mpsc::Sender<nyx_proto::Command>, restart: &mut bool) -> u64 {
     if reply.resync {
         collector.resync();
     }
@@ -131,6 +136,17 @@ fn handle_reply(reply: Reply, cfg: &mut Config, collector: &mut collect::Collect
                     ok: saved.is_ok(),
                     output: saved.err().map_or(format!("kind set to {}", kind.as_str()), |e| format!("applied, not persisted: {e}")),
                 });
+            }
+            // Kept only if the monitor answers through the new servers; the restart
+            // gives every client the new resolver.
+            Action::SetDns { servers } => {
+                let next = Config { dns: servers, ..cfg.clone() };
+                let res = if firewall::monitor_reachable(&next) { next.save().map_err(|e| format!("not saved: {e:#}")) } else { Err("the monitor was out of reach through these servers, nothing changed".into()) };
+                let ok = res.is_ok();
+                *restart |= ok;
+                let names = next.dns.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+                let output = res.map_or_else(|e| e, |_| format!("DNS set to {}", if names.is_empty() { "the system's" } else { &names }));
+                collector.pending_results.push(nyx_proto::CommandResult { id: cmd.id, ok, output });
             }
             _ => {
                 let _ = jobs.send(cmd);

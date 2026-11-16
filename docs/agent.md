@@ -23,6 +23,18 @@ command**. Without `NYX_PUBLIC_URL`, Nyx suggests the address in your browser.
 Add `--ct-autoinstall` on Proxmox to have the agent installed in its containers, see
 [Proxmox containers](#proxmox-containers). On `physical` and `proxmox` the script installs smartmontools, because SMART is mandatory there.
 
+### DNS servers
+
+By default the agent finds the monitor through the host's resolver. When that resolver
+should not be used, say NextDNS runs on the host, give the agent its own servers:
+`--dns 1.1.1.1,1.0.0.1` in the install line, `nyx_agent_dns` in Ansible, `NYX_DNS` in
+`/etc/nyx/agent.conf`, or **DNS servers** in the **Agent** panel of the host page. The
+servers serve only the agent's calls to the monitor, nothing else on the host changes.
+From the interface the change is live: the agent keeps the new servers only if the
+monitor answers through them, then restarts. The first server that answers is used,
+the next ones are fallbacks. The agent asks over plain UDP port 53; TLS still checks
+that it reaches the real monitor.
+
 ### Ansible
 
 The role in `packaging/ansible/roles/nyx_agent` takes the same four values:
@@ -258,6 +270,25 @@ agent calls the monitor. If that fails three times in 15 seconds, it puts the ru
 and reports the failure. SSH is not tested this way: Nyx asks for confirmation before a
 change that could block port 22, and since the agent does not use SSH, you can still undo
 such a rule from Nyx.
+
+## Package sources
+
+The **Package sources** panel of a host lists every source file the agent finds:
+`/etc/apt/sources.list` and the `.list` and `.sources` files of `/etc/apt/sources.list.d`
+on Debian and Ubuntu, the `.repo` files of `/etc/yum.repos.d` on RHEL, Fedora and Alma.
+Debian's and third-party ones alike can be edited, deleted or added (**New file…**).
+
+**Debian mirror** moves the Debian sources, one-line or deb822, to another server and
+picks HTTP or HTTPS. It changes the sources whose path ends in `/debian` and that have
+the `main` component, so Docker, Proxmox or Sury stay as they are. Security sources
+(`/debian-security`) keep their server, as few mirrors carry them, and only take the
+protocol. The confirmation lists the files that change.
+
+After writing, the agent refreshes the package index (`apt-get update` or
+`dnf makecache`). When the refresh fails, for an unknown server or a missing signing
+key, every file is put back and the error shows under the panel. A source that was
+already failing makes every change fail the same way: fix or delete it first. Signing
+keys are not managed here, a new third-party source needs its key on the host.
 
 ## Files
 

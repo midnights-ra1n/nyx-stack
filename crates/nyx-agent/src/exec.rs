@@ -34,8 +34,13 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
             let _ = tx.send(Msg::FirewallChanged); // also after a failure: it may have been undone
             done
         }
+        Action::Repos(files) => {
+            let done = crate::repos::write(&files);
+            let _ = tx.send(Msg::ReposChanged);
+            done
+        }
         Action::InstallInCt { vmid, token, key } => install_in_ct(cfg, http, vmid, &token, &key),
-        Action::SetKind { .. } => Ok(String::new()), // handled by the main loop
+        Action::SetKind { .. } | Action::SetDns { .. } => Ok(String::new()), // handled by the main loop
     };
     let (ok, output) = match outcome {
         Ok(o) => (true, o),

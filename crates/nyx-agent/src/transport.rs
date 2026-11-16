@@ -3,20 +3,26 @@
 use crate::config::Config;
 use anyhow::{bail, Context};
 use nyx_proto::{sign, verify, LiveLogs, LiveReply, Report, Reply};
+use std::net::IpAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ureq::tls::{RootCerts, TlsConfig};
+use ureq::unversioned::transport::DefaultConnector;
 
 pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// Uses the OS trust store so a homelab CA works without extra configuration.
-pub fn client() -> ureq::Agent {
-    ureq::Agent::config_builder()
+/// Uses the OS trust store so a homelab CA works without extra configuration, and
+/// `dns` instead of the system resolver when it is set.
+pub fn client(dns: &[IpAddr]) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))
         .tls_config(TlsConfig::builder().root_certs(RootCerts::PlatformVerifier).build())
-        .build()
-        .new_agent()
+        .build();
+    if dns.is_empty() {
+        return config.new_agent();
+    }
+    ureq::Agent::with_parts(config, DefaultConnector::new(), crate::dns::Servers(dns.to_vec()))
 }
 
 pub fn post_report(http: &ureq::Agent, cfg: &Config, report: &Report) -> anyhow::Result<Reply> {

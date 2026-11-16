@@ -3,7 +3,7 @@
 
 use anyhow::{bail, Context};
 use nyx_proto::HostKind;
-use std::{fs, os::unix::fs::OpenOptionsExt};
+use std::{fs, net::IpAddr, os::unix::fs::OpenOptionsExt};
 
 pub const DEFAULT_PATH: &str = "/etc/nyx/agent.conf";
 
@@ -15,6 +15,8 @@ pub struct Config {
     pub key: String,
     pub kind: HostKind,
     pub ct_autoinstall: bool,
+    /// Servers that resolve the monitor's name; empty means the system's.
+    pub dns: Vec<IpAddr>,
 }
 
 impl Config {
@@ -34,6 +36,7 @@ impl Config {
             key: need("NYX_KEY")?,
             kind: parse_kind(&get("NYX_KIND").unwrap_or_else(|| "vm".into()))?,
             ct_autoinstall: get("NYX_CT_AUTOINSTALL").is_some_and(|v| v == "1" || v == "true"),
+            dns: parse_dns(&get("NYX_DNS").unwrap_or_default())?,
             path: path.clone(),
         };
         Ok(cfg)
@@ -47,6 +50,7 @@ impl Config {
             key: need("--key")?,
             kind: parse_kind(&need("--kind")?)?,
             ct_autoinstall,
+            dns: parse_dns(&flag("--dns").unwrap_or_default())?,
             path,
         })
     }
@@ -58,8 +62,9 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let body = format!(
-            "NYX_URL={}\nNYX_TOKEN={}\nNYX_KEY={}\nNYX_KIND={}\nNYX_CT_AUTOINSTALL={}\n",
-            self.url, self.token, self.key, self.kind.as_str(), self.ct_autoinstall as u8
+            "NYX_URL={}\nNYX_TOKEN={}\nNYX_KEY={}\nNYX_KIND={}\nNYX_CT_AUTOINSTALL={}\nNYX_DNS={}\n",
+            self.url, self.token, self.key, self.kind.as_str(), self.ct_autoinstall as u8,
+            self.dns.iter().map(IpAddr::to_string).collect::<Vec<_>>().join(",")
         );
         let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
         std::io::Write::write_all(&mut f, body.as_bytes())?;
@@ -75,6 +80,11 @@ fn parse_kind(s: &str) -> anyhow::Result<HostKind> {
     }
 }
 
+/// `1.1.1.1,1.0.0.1`, commas or spaces.
+pub fn parse_dns(s: &str) -> anyhow::Result<Vec<IpAddr>> {
+    s.split([',', ' ']).filter(|v| !v.is_empty()).map(|v| v.parse().with_context(|| format!("{v:?} is not an IP address"))).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +96,10 @@ mod tests {
         assert_eq!((c.url.as_str(), c.key.as_str(), c.kind), ("https://m.lan", "a=b", HostKind::Physical));
         let c = Config::parse("p".into(), file, |k| (k == "NYX_KIND").then(|| "vps".to_string())).unwrap();
         assert_eq!(c.kind, HostKind::Vps);
+        assert!(c.dns.is_empty());
+        let c = Config::parse("p".into(), &format!("{file}NYX_DNS=1.1.1.1, 2606:4700:4700::1111\n"), |_| None).unwrap();
+        assert_eq!(c.dns, vec!["1.1.1.1".parse::<IpAddr>().unwrap(), "2606:4700:4700::1111".parse().unwrap()]);
+        assert!(Config::parse("p".into(), &format!("{file}NYX_DNS=cloudflare\n"), |_| None).is_err());
     }
 
     #[test]
@@ -98,7 +112,7 @@ mod tests {
     fn save_round_trips_with_private_mode() {
         let dir = std::env::temp_dir().join(format!("nyx-agent-test-{}", std::process::id()));
         let path = dir.join("agent.conf").to_string_lossy().to_string();
-        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true };
+        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true, dns: parse_dns("9.9.9.9,1.1.1.1").unwrap() };
         c.save().unwrap();
         assert_eq!(Config::parse(path.clone(), &fs::read_to_string(&path).unwrap(), |_| None).unwrap(), c);
         use std::os::unix::fs::PermissionsExt;

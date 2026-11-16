@@ -1,2 +1,4 @@
 nyx_agent_kind: vm
 nyx_agent_ct_autoinstall: false
+# Resolve the monitor through these servers instead of the system's, e.g. ["1.1.1.1", "1.0.0.1"].
+nyx_agent_dns: []

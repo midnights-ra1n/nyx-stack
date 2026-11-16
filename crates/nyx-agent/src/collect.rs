@@ -53,6 +53,7 @@ pub struct Collector {
     smart_every: Every,
     guests_every: Every,
     firewall_every: Every,
+    repos_every: Every,
     last_guests: Instant,
     detected: Option<HostKind>,
     containers: Option<Vec<Container>>,
@@ -65,6 +66,7 @@ pub struct Collector {
     guests: Option<Vec<Guest>>,
     smart: Option<Vec<SmartDisk>>,
     firewall: Option<nyx_proto::Firewall>,
+    repos: Option<Vec<nyx_proto::RepoFile>>,
 }
 
 impl Collector {
@@ -83,6 +85,7 @@ impl Collector {
             smart_every: Every(SMART, None),
             guests_every: Every(RARE, None),
             firewall_every: Every(RARE, None),
+            repos_every: Every(RARE, None),
             last_guests: Instant::now(),
             detected: detected_kind(),
             containers: None,
@@ -93,6 +96,7 @@ impl Collector {
             guests: None,
             smart: None,
             firewall: None,
+            repos: None,
         })
     }
 
@@ -105,6 +109,10 @@ impl Collector {
         self.firewall_every.reset();
     }
 
+    pub fn repos_changed(&mut self) {
+        self.repos_every.reset();
+    }
+
     /// Forget what the monitor has seen: everything goes out on the next report.
     pub fn resync(&mut self) {
         self.containers = None;
@@ -113,6 +121,8 @@ impl Collector {
         self.smart = None;
         self.firewall = None;
         self.firewall_every.reset();
+        self.repos = None;
+        self.repos_every.reset();
         self.updates_dirty = self.updates.is_some();
         self.slow.reset();
         self.rare.reset();
@@ -128,7 +138,7 @@ impl Collector {
         logs.drain(..excess);
         self.pending_logs = logs;
         self.pending_results.splice(0..0, failed.results);
-        if failed.containers.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() {
+        if failed.containers.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() || failed.repos.is_some() {
             self.resync();
         }
     }
@@ -156,6 +166,7 @@ impl Collector {
             ip: primary_ip(&self.nets),
             kind,
             ct_autoinstall: cfg.ct_autoinstall,
+            dns: cfg.dns.iter().map(ToString::to_string).collect(),
             uptime_s: System::uptime().unwrap_or(0),
             cpu_pct: self.sys.global_cpu_usage(),
             mem_used: self.sys.used_memory(),
@@ -197,6 +208,9 @@ impl Collector {
         }
         if self.firewall_every.due() {
             r.firewall = changed(&mut self.firewall, crate::firewall::scan());
+        }
+        if self.repos_every.due() {
+            r.repos = changed(&mut self.repos, crate::repos::scan());
         }
         if self.updates_dirty {
             self.updates_dirty = false;

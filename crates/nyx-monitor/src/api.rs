@@ -27,7 +27,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     json!({
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
         "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted,
-        "ct_autoinstall": h.ct_autoinstall, "last_seen": h.last_seen, "status": host_status(h, now, th),
+        "ct_autoinstall": h.ct_autoinstall, "dns": r.map(|r| &r.dns), "last_seen": h.last_seen, "status": host_status(h, now, th),
         "installed": h.last_seen > 0,
         "oci": parent.is_some_and(|p| p.guests.iter().any(|g| g.vmid == h.vmid && g.oci)),
         "cpu": r.map(|r| r.cpu_pct), "mem": r.map(|r| pct(r.mem_used, r.mem_total)),
@@ -104,6 +104,7 @@ pub fn host_json(app: &App, id: &str) -> Option<Value> {
         v["update_list"] = json!(l.updates);
         v["node"] = json!(l.node);
         v["firewall"] = json!(l.firewall);
+        v["repos"] = json!(l.repos);
         v["guests"] = json!(l.guests);
         v["logs"] = json!(l.logs);
     }
@@ -215,9 +216,13 @@ struct CommandReq {
     action: String,
     kind: Option<String>,
     ct_autoinstall: Option<bool>,
+    /// For `set_dns`: IP addresses, empty for the system's resolver.
+    dns: Option<Vec<String>>,
     /// For `firewall`: `add` or `delete`, and the rule.
     op: Option<String>,
     rule: Option<nyx_proto::FwRule>,
+    /// For `repos`: the source files to write, an empty one is deleted.
+    files: Option<Vec<nyx_proto::RepoFile>>,
     /// For `container`: its name.
     name: Option<String>,
 }
@@ -231,10 +236,21 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
             kind: b.kind.as_deref().and_then(HostKind::parse).ok_or_else(|| ApiError::bad_request("unknown deployment type"))?,
             ct_autoinstall: b.ct_autoinstall.unwrap_or(false),
         },
+        "set_dns" => Action::SetDns {
+            servers: b.dns.unwrap_or_default().iter().map(|s| s.trim().parse()).collect::<Result<_, _>>().map_err(|_| ApiError::bad_request("DNS servers are IP addresses"))?,
+        },
         "firewall" => {
             let change = nyx_proto::FirewallChange { op: b.op.unwrap_or_default(), rule: b.rule.unwrap_or_default() };
             change.check().map_err(ApiError::bad_request)?;
             Action::Firewall(change)
+        }
+        "repos" => {
+            let files = b.files.unwrap_or_default();
+            if files.is_empty() {
+                return Err(ApiError::bad_request("no source file to write"));
+            }
+            files.iter().try_for_each(nyx_proto::RepoFile::check).map_err(ApiError::bad_request)?;
+            Action::Repos(files)
         }
         "container" => {
             let (op, name) = (b.op.unwrap_or_default(), b.name.unwrap_or_default());
