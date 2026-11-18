@@ -124,6 +124,11 @@ Both the manager and the monitor can show the DNS queries of a [NextDNS](https:/
 
 Each server keeps its own key, so the manager works without a monitor. The calls go from the server to `api.nextdns.io`, never from your browser. The panel follows the refresh of the page, and the server keeps each answer in memory for 5 minutes, so NextDNS sees at most two calls per period every 5 minutes, however many screens are open. Nothing is written to disk.
 
+## Grafana
+
+The monitor exposes all its metrics in the Prometheus format, and a ready-made kit
+runs Grafana with a dashboard in one command. See the [Grafana guide](grafana.md).
+
 ## MCP server
 
 Lets AI assistants read your infrastructure. All tools are read-only.

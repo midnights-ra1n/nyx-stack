@@ -1,6 +1,6 @@
 import { PencilSquareIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
-import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Stat, StateCell, Table, Td, Tabs } from "../ui/components"
+import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Stat, StateCell, Table, Td, Tabs, ask } from "../ui/components"
 import { api, type Level, useApi } from "../ui/lib"
 import { PIPELINE_VIEWS, pipelineWord, PipelineView } from "../ui/pipelines"
 import { PageHeader } from "../ui/shell"
@@ -80,7 +80,7 @@ export function Pipelines() {
                     <StateCell level={level} label={!d.enabled ? "Disabled" : !p ? "Pending" : p.error && p.state === "off" ? "Unreachable" : pipelineWord(p)} />
                     <Td className="whitespace-nowrap">
                       <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setEdit(d)} />
-                      <IconButton label="Delete" icon={TrashIcon} onClick={async () => { if (confirm(`Delete ${d.name}?`)) { await api(`/api/c/pipelines/${d.id}`, { method: "DELETE" }); done() } }} />
+                      <IconButton label="Delete" icon={TrashIcon} onClick={async () => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/pipelines/${d.id}`, { method: "DELETE" }); done() } }} />
                     </Td>
                   </tr>
                 )

@@ -1,7 +1,7 @@
 import { PencilSquareIcon, PlusIcon, SignalIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, IconButton, Input, Meter, Mono, Panel, Stat, Status, Table, Tabs, Td, Variable } from "../ui/components"
+import { Button, Empty, ErrorNote, IconButton, Input, Meter, Mono, Panel, Stat, Status, Table, Tabs, Td, Variable, ask } from "../ui/components"
 import { type Col, CrudPage, RecordForm } from "../ui/crud"
 import { api, fmt, useApi, useStored } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
@@ -191,7 +191,7 @@ function Subnets({ report, reload, tabs }: { report: any; reload: () => void; ta
   const shown = all.filter((s) => (!section || (s.section || "") === section) && (!n || [s.name, s.cidr, s.description, s.vrf, String(s.vlan || "")].some((v) => v?.toLowerCase().includes(n))))
   const vlanName = (num: number) => vlans.data?.items.find((v: any) => v.number === num)?.name
   const done = () => { setEdit(undefined); reload(); rows.reload() }
-  const remove = async (s: any) => { if (confirm(`Delete ${s.name}? Its addresses stay.`)) { await api(`/api/c/subnets/${s.id}`, { method: "DELETE" }); done() } }
+  const remove = async (s: any) => { if (await ask(`Delete ${s.name}? Its addresses stay.`, { action: "Delete", danger: true })) { await api(`/api/c/subnets/${s.id}`, { method: "DELETE" }); done() } }
   return (
     <>
       <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<Button variant="primary" disabled={edit === null} onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add subnet</Button>} />
@@ -291,7 +291,7 @@ export function SubnetPage({ id }: { id: string }) {
   const cells = addressMap(d.calc.network + "/" + d.calc.prefix, s.gateway, addresses, alive, d.seen.map((x: any) => x.address))
   const done = () => { setEdit(undefined); reload(); all.reload() }
   const add = (address: string, extra: any = {}) => setEdit({ ...extra, address, state: "Active", id: undefined, _new: true })
-  const remove = async (a: any) => { if (confirm(`Delete ${a.address}?`)) { await api(`/api/c/ip_addresses/${a.id}`, { method: "DELETE" }); done() } }
+  const remove = async (a: any) => { if (await ask(`Delete ${a.address}?`, { action: "Delete", danger: true })) { await api(`/api/c/ip_addresses/${a.id}`, { method: "DELETE" }); done() } }
   const runScan = async () => {
     setScanning(true); setNote("")
     try { setScan(await api(`/api/ipam/scan/${id}`, { method: "POST" })); reload() } catch (e) { setNote((e as Error).message) }

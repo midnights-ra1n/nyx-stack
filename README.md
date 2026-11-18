@@ -50,7 +50,8 @@ and report what breaks. You can also [build it from source](docs/development.md)
   when one drops. The manager keeps them on their page and on the network map.
 - **Tasks and deployments:** Kanban board or list, with states, tags and due dates.
 - **Integrations:** Nextcloud tasks and calendar, EDF Tempo (RTE), Proxmox noVNC
-  console, Meross power plugs, an MCP server for AI assistants, and passkeys.
+  console, Meross power plugs, Prometheus metrics for Grafana, an MCP server for AI
+  assistants, and passkeys.
 - **Update channels:** stable releases by default, or opt in to beta from the settings.
 - **Your pages, your layout:** nearly every page is made of blocks. Slide them, hide
   them, choose up to four columns, on each device. Arrows do the same from the keyboard.
@@ -150,6 +151,7 @@ Each step, packages for Debian and RHEL, HTTPS, backups, updates and removal are
 - [Site cache behind a reverse proxy](docs/reverse-proxy-cache.md): no forced refresh after a deploy
 - [Notifications](docs/notifications.md): channels, rules, templates
 - [Integrations](docs/integrations.md): Nextcloud, Tempo, Proxmox, Meross, MCP, passkeys
+- [Grafana](docs/grafana.md): dashboards in five minutes, and every metric Nyx exposes
 - [Security](docs/security.md): trust model and hardening
 - [Troubleshooting](docs/troubleshooting.md)
 - [HTTP API](docs/api.md) and [data model](docs/data-model.md): reference

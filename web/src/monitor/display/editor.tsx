@@ -1,6 +1,6 @@
 import { ArrowTopRightOnSquareIcon, Cog6ToothIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
-import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Status, Table, Tabs, Td, TextArea } from "../../ui/components"
+import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Status, Table, Tabs, Td, TextArea, ask } from "../../ui/components"
 import { api, useApi, useMedia } from "../../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../../ui/shell"
 import { addPanel, type Box, type Item, type PageConfig, PANEL_TYPES, type PanelCfg, place, slugify, template, themeVars } from "./model"
@@ -48,7 +48,7 @@ function NewPage({ onDone }: { onDone: () => void }) {
 export function PagesList() {
   const { data, reload, error } = useApi<any[]>("/api/pages", { poll: false })
   const [adding, setAdding] = useState(false)
-  const remove = async (p: any) => { if (confirm(`Delete ${p.name}? Its address stops working.`)) { await api(`/api/pages/${p.id}`, { method: "DELETE" }); reload() } }
+  const remove = async (p: any) => { if (await ask(`Delete ${p.name}? Its address stops working.`, { action: "Delete", danger: true })) { await api(`/api/pages/${p.id}`, { method: "DELETE" }); reload() } }
   return (
     <>
       <PageHeader title="Status pages" subtitle="Public status pages and wall displays." actions={<Button variant="primary" onClick={() => setAdding(true)}><PlusIcon className="size-5" aria-hidden />New page</Button>} />
@@ -229,7 +229,7 @@ function Sharing({ page, onChange, c, set }: { page: any; onChange: (p: any) => 
   const patch = async (body: any) => {
     try { onChange(await api(`/api/pages/${page.id}`, { method: "PATCH", body })); setError("") } catch (e) { setError((e as Error).message) }
   }
-  const rotate = async () => { if (confirm("Replace the link? Screens using the old one stop updating.")) onChange(await api(`/api/pages/${page.id}/key`, { method: "POST" })) }
+  const rotate = async () => { if (await ask("Replace the link? Screens using the old one stop updating.", { action: "Replace link", danger: true })) onChange(await api(`/api/pages/${page.id}/key`, { method: "POST" })) }
   return (
     <Panel title="Sharing">
       <div className="flex flex-col gap-4">

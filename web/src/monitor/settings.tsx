@@ -1,7 +1,7 @@
 import { ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, Cog6ToothIcon, PuzzlePieceIcon, ShieldCheckIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { TrashIcon } from "@heroicons/react/24/outline"
-import { Button, Copy, ErrorNote, IconButton, Input, Panel, Status, TextArea } from "../ui/components"
+import { Button, Copy, ErrorNote, IconButton, Input, Mono, Panel, Status, TextArea } from "../ui/components"
 import { api, useApi } from "../ui/lib"
 import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, ProxmoxSettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 import { NextDnsSettings } from "../ui/nextdns"
@@ -93,6 +93,28 @@ function ManagerLink() {
   )
 }
 
+function Grafana() {
+  const { data, reload } = useApi("/api/metrics", { poll: false })
+  const [token, setToken] = useState("")
+  const create = async () => { setToken((await api("/api/metrics/token", { method: "POST" })).token); reload() }
+  const disable = async () => { await api("/api/metrics", { method: "DELETE" }); setToken(""); reload() }
+  const url = new URL(data?.url ?? "http://monitor:8081/metrics")
+  const env = `NYX_METRICS_TOKEN=${token || "<your token>"}\n# Only when Grafana runs apart from this monitor:\n#NYX_METRICS_HOST=${url.host}\n#NYX_METRICS_SCHEME=${url.protocol.replace(":", "")}`
+  return (
+    <Panel title="Grafana (Prometheus metrics)">
+      <div className="flex flex-col gap-3">
+        <p className="text-fg2">Exposes every host, disk, SMART, container, guest, probe, pipeline, alert, power and Tempo figure at <Mono>{data?.url ?? "/metrics"}</Mono> in the Prometheus format. The <Mono>grafana</Mono> profile of the Docker setup runs Grafana with its dashboard: see the Grafana guide in the docs. Creating a token replaces the previous one.</p>
+        <div className="flex gap-3">
+          <Button onClick={create}>{data?.enabled ? "Replace token" : "Create token"}</Button>
+          {data?.enabled && <Button variant="ghost" onClick={disable}>Turn off</Button>}
+        </div>
+        {token && <><p className="text-fg2">Copy this token now, it will not be shown again.</p><Copy text={token} /></>}
+        {data?.enabled && <><p className="text-fg2">Put these lines in <Mono>.env</Mono>, then run <Mono>docker compose --profile grafana up -d</Mono>:</p><Copy text={env} /></>}
+      </div>
+    </Panel>
+  )
+}
+
 export function Settings() {
   return (
     <SettingsPage sections={[
@@ -109,6 +131,7 @@ export function Settings() {
       </> },
       { id: "integrations", label: "Integrations", icon: PuzzlePieceIcon, description: "Optional links to the services around the monitor.", body: <>
         <ManagerLink />
+        <Grafana />
         <SettingForm title="EDF Tempo (RTE)" setting="tempo" needs={["client_id", "client_secret"]} fields={[{ key: "client_id", label: "Client ID" }, { key: "client_secret", label: "Client secret", type: "password" }]}>
           <p className="text-fg2">Your application on data.rte-france.com must be subscribed to the Tempo Like Supply Contract API. The calls come from this server, so it works over plain HTTP too.</p>
         </SettingForm>

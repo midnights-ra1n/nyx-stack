@@ -1,7 +1,7 @@
 import { ArrowPathIcon, ArrowsRightLeftIcon, PencilSquareIcon, TrashIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Select, Stat, Status, Table, Td, TextArea } from "../ui/components"
+import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Select, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
 import { type Col, CrudPage, Editor, EditorGroup, RecordForm, RecordPage } from "../ui/crud"
 import { api, fmt, type Level, levelText, sortRows, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../ui/shell"
@@ -147,7 +147,7 @@ function Ports({ device, onChange }: { device: any; onChange: () => void }) {
     changed()
   }
   const changed = () => { ports.reload(); onChange() }
-  const remove = async (p: any) => { if (confirm(`Delete port ${p.name}?`)) { await api(`/api/c/ports/${p.id}`, { method: "DELETE" }); changed() } }
+  const remove = async (p: any) => { if (await ask(`Delete port ${p.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/ports/${p.id}`, { method: "DELETE" }); changed() } }
   return <>
     {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit && { ...edit, peer: peerOf(edit, all)?.id ?? "" }} collection="ports" title={edit ? `Edit port ${edit.name}` : "Add port"}
       defaults={{ device: device.id }} rows={all} onSaved={tidy} onDone={() => { setEdit(undefined); changed() }} />}
@@ -259,7 +259,7 @@ export function Deployments() {
     await api(`/api/c/deployments/${d.id}`, { method: "PATCH", body: { status, ...(finished ? { done_at: new Date().toISOString().replace("T", " ") } : {}) } })
     reload()
   }
-  const remove = async (d: any) => { if (confirm(`Delete ${d.name}?`)) { await api(`/api/c/deployments/${d.id}`, { method: "DELETE" }); reload() } }
+  const remove = async (d: any) => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/deployments/${d.id}`, { method: "DELETE" }); reload() } }
   const items: WorkItem[] = (data?.items ?? []).map((d: any) => ({
     id: d.id, title: d.name, state: d.status || "planned", tags: parseTags(d.tags), due: d.scheduled_at, open: d.status === "planned" || !d.status,
     detail: [d.target, d.version].filter(Boolean).join(" · "), row: d,
@@ -308,7 +308,7 @@ export function Tasks() {
   const [note, setNote] = useState("")
   const done = () => { setEdit(undefined); reload() }
   const move = async (t: any, status: string) => { await api(`/api/tasks/${t.id}`, { method: "PATCH", body: { ...t, status } }); reload() }
-  const remove = async (t: any) => { if (confirm(`Delete ${t.title}?`)) { await api(`/api/tasks/${t.id}`, { method: "DELETE" }); reload() } }
+  const remove = async (t: any) => { if (await ask(`Delete ${t.title}?`, { action: "Delete", danger: true })) { await api(`/api/tasks/${t.id}`, { method: "DELETE" }); reload() } }
   const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote("Synced."); reload() } catch (e) { setNote((e as Error).message) } }
   const open = data?.filter((t) => !t.done).length ?? 0
   const items: WorkItem[] = (data ?? []).map((t) => ({

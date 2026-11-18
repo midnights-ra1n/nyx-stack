@@ -1,6 +1,6 @@
 import { TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
-import { Button, Empty, ErrorNote, IconButton, Input, Mono, Select, StateCell, Status, Table, Td } from "../ui/components"
+import { Button, Empty, ErrorNote, IconButton, Input, Mono, Select, StateCell, Status, Table, Td, ask } from "../ui/components"
 import { api, type Level } from "../ui/lib"
 
 const DOCKER = "DOCKER-USER"
@@ -66,7 +66,7 @@ function Saving({ fw, send }: { fw: any; send: (op: string, rule: any, what: str
     <div className="flex flex-wrap items-center gap-3">
       <Status level="warn" label="Not saved" />
       <span className="text-fg2">Rules made outside Nyx are lost at the next restart. Nyx puts its own back.</span>
-      {fw.installable && <Button onClick={() => { if (confirm(`Install ${fw.installable} on this host, then save the current rules for the next boot?`)) send("persist", {}, `Installing ${fw.installable}.`) }}>Install {fw.installable}</Button>}
+      {fw.installable && <Button onClick={async () => { if (await ask(`Install ${fw.installable} on this host, then save the current rules for the next boot?`, { action: "Install" })) send("persist", {}, `Installing ${fw.installable}.`) }}>Install {fw.installable}</Button>}
     </div>
   )
 }
@@ -86,15 +86,15 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
   }
   // A port Docker publishes skips the host rules: its rule goes in DOCKER-USER.
   const published = form.port ? fw.listening?.find((l: any) => l.docker && portMatches(form.port, l.port) && (!form.proto || form.proto === l.proto)) : undefined
-  const add = (e: React.FormEvent) => {
+  const add = async (e: React.FormEvent) => {
     e.preventDefault()
     const rule = { ...form, chain: published ? DOCKER : "" }
-    if (!published && form.action !== "allow" && (!form.port || portMatches(form.port, 22)) && !confirm(`This can block SSH to ${name}. Nyx can still undo it, as the agent does not need SSH. Continue?`)) return
+    if (!published && form.action !== "allow" && (!form.port || portMatches(form.port, 22)) && !await ask(`This can block SSH to ${name}. Nyx can still undo it, as the agent does not need SSH. Continue?`, { action: "Add rule", danger: true })) return
     send("add", rule, published ? `Rule for ${published.process} sent.` : "Rule sent.").then(() => setForm(empty))
   }
-  const remove = (r: any) => {
+  const remove = async (r: any) => {
     const ssh = r.chain !== DOCKER && r.action === "allow" && r.port && portMatches(r.port, 22)
-    if (!confirm(ssh ? `This rule lets SSH in. Removing it can lock you out of ${name} over SSH. Remove it?` : `Remove this rule from ${name}?`)) return
+    if (!await ask(ssh ? `This rule lets SSH in. Removing it can lock you out of ${name} over SSH. Remove it?` : `Remove this rule from ${name}?`, { action: "Remove", danger: true })) return
     send("delete", r, "Removal sent.")
   }
   const field = (k: "port" | "source", label: string, p: any = {}) => <Input label={label} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} {...p} />

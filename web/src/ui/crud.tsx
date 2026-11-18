@@ -1,6 +1,6 @@
 import { PencilSquareIcon, PlusIcon, TrashIcon, ViewColumnsIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useId, useRef, useState } from "react"
-import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable } from "./components"
+import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable, ask } from "./components"
 import { api, fmt, sortRows, useApi, useStored } from "./lib"
 import { Link, navigate, PageHeader, Section } from "./shell"
 
@@ -234,7 +234,7 @@ function RecordBody({ title, singular, collection, cols, path, defaults, aside, 
     setBusy(false)
   }
   const remove = async () => {
-    if (!confirm(`Delete ${name}?`)) return
+    if (!await ask(`Delete ${name}?`, { action: "Delete", danger: true })) return
     try { await api(`/api/c/${collection}/${row.id}`, { method: "DELETE" }); navigate(path) } catch (err) { setError((err as Error).message) }
   }
   const side = aside?.(form, row)
@@ -349,7 +349,7 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
   const open = (row: any | null) => (path ? navigate(`${path}/${row ? row.id : "new"}`) : setEdit(row))
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const remove = async (row: any) => {
-    if (!confirm(`Delete ${recordName(row, "this record")}?`)) return
+    if (!await ask(`Delete ${recordName(row, "this record")}?`, { action: "Delete", danger: true })) return
     await api(`/api/c/${collection}/${row.id}`, { method: "DELETE" })
     done()
   }
@@ -421,7 +421,7 @@ function Bulk({ cols, rows, all, collection, onDone, onClear }: { cols: Col[]; r
     else onDone()
   }
   const apply = (e: React.FormEvent) => { e.preventDefault(); if (c) each((r) => api(`/api/c/${collection}/${r.id}`, { method: "PATCH", body: { [c.key]: fromInput(c, value) } })) }
-  const removeAll = () => confirm(`Delete ${rows.length} records?`) && each((r) => api(`/api/c/${collection}/${r.id}`, { method: "DELETE" }))
+  const removeAll = async () => (await ask(`Delete ${rows.length} records?`, { action: "Delete", danger: true })) && each((r) => api(`/api/c/${collection}/${r.id}`, { method: "DELETE" }))
   const known = [...new Set(all.map((r) => r[key]).filter(Boolean))] as string[]
   return (
     <form onSubmit={apply} aria-label="Change the selected records" className="flex flex-wrap items-end gap-3 rounded-panel border border-accent/40 bg-surface p-3">

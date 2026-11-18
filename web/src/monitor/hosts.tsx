@@ -2,8 +2,8 @@ import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, Co
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { ProxmoxIcon } from "../ui/brand-icons"
-import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries, Variable } from "../ui/components"
-import { api, fmt, levelOf, useApi, useStored } from "../ui/lib"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, ask } from "../ui/components"
+import { api, fmt, type Level, levelOf, levelSoft, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
 import { FirewallPanel } from "./firewall"
@@ -264,7 +264,7 @@ export function Hosts() {
   const restart = list.filter((h) => h.reboot_required).length
   const types = [...new Set(list.map((h) => hostType(h, list)))]
   const updateAll = async () => {
-    if (!confirm(`Upgrade the packages of ${updatable} online hosts and bring their agents up to date? Services can restart while packages are replaced. Hosts are not rebooted.`)) return
+    if (!await ask(`Upgrade the packages of ${updatable} online hosts and bring their agents up to date? Services can restart while packages are replaced. Hosts are not rebooted.`, { action: "Update all" })) return
     setUpdateError("")
     try { await api("/api/hosts/update-all", { method: "POST" }); hosts.reload() } catch (e) { setUpdateError((e as Error).message) }
   }
@@ -336,6 +336,22 @@ export function Hosts() {
   )
 }
 
+/** State badge; when not green, a click lists what made it so. */
+function IssuesBadge({ level, issues }: { level: Level; issues?: { level: Level; message: string }[] }) {
+  const [open, setOpen] = useState(false)
+  if ((level !== "warn" && level !== "crit") || !issues?.length) return <Status level={level} />
+  return (
+    <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false) }} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false) }}>
+      <button type="button" aria-expanded={open} aria-haspopup="true" className="rounded-full hover:brightness-125" onClick={() => setOpen(!open)}><Status level={level} label={`${level === "crit" ? "Critical" : "Warning"} · ${issues.length}`} /></button>
+      {open && (
+        <ul className="absolute right-0 top-10 z-20 flex w-72 flex-col gap-1 rounded-panel border border-line2 bg-surface p-2">
+          {issues.map((i) => <li key={i.message} className={`flex items-start gap-2 rounded-control px-2 py-1.5 text-[13px] ${levelSoft[i.level]}`}><Status cell level={i.level} label="" /><span className="text-fg">{i.message}</span></li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function HostDetail({ id }: { id: string }) {
   const [range, setRange] = useState("1h")
   const { data: h, reload, error } = useApi(`/api/hosts/${id}`)
@@ -357,7 +373,7 @@ export function HostDetail({ id }: { id: string }) {
     navigate("/hosts")
   }
   const mute = async () => {
-    if (!h.muted && !confirm(`Keep ${h.name} out of alerts and notifications? It stays measured, and its open alerts close without a notice.`)) return
+    if (!h.muted && !await ask(`Keep ${h.name} out of alerts and notifications? It stays measured, and its open alerts close without a notice.`, { action: "Exclude" })) return
     try { await api(`/api/hosts/${id}`, { method: "PATCH", body: { muted: !h.muted } }); reload() } catch (e) { setNote((e as Error).message) }
   }
   const consoleLink = consoleUrl(proxmox.data?.url ?? "", h)
@@ -433,7 +449,7 @@ export function HostDetail({ id }: { id: string }) {
         ) : <p className="mb-4 text-fg3">No pending updates known.</p>}
         <div className="flex flex-wrap gap-3">
           <Button onClick={() => send({ action: "check_updates" }, "Check requested.")}>Check now</Button>
-          <Button variant="primary" disabled={updating} onClick={() => { if (confirm(`Upgrade all packages on ${h.name}?`)) send({ action: "update_system" }, "System update requested.") }}>Update system</Button>
+          <Button variant="primary" disabled={updating} onClick={async () => { if (await ask(`Upgrade all packages on ${h.name}?`, { action: "Update" })) send({ action: "update_system" }, "System update requested.") }}>Update system</Button>
           <Button disabled={updating} onClick={() => send({ action: "update_agent" }, "Agent update requested.")}>Update agent</Button>
         </div>
       </Panel>
@@ -469,7 +485,7 @@ export function HostDetail({ id }: { id: string }) {
         subtitle={<><Mono>{h.ip || "no address yet"}</Mono> · {kindLabel(h.kind)} · {h.os || "waiting for first report"} · up {fmt.uptime(h.uptime_s)}</>}
         onRefresh={reload}
         actions={<>
-          <Status level={hostLevel(h.status)} />
+          <IssuesBadge level={hostLevel(h.status)} issues={h.issues} />
           <Button aria-pressed={!!h.muted} onClick={mute}>{h.muted ? <><BellIcon className="size-5" aria-hidden />Alert again</> : <><BellSlashIcon className="size-5" aria-hidden />Exclude from alerts</>}</Button>
           {consoleLink && <a href={consoleLink} target="_blank" rel="noreferrer"><Button><CommandLineIcon className="size-5" aria-hidden />Console</Button></a>}
           <CustomizeButton />

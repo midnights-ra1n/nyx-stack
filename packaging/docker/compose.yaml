@@ -2,6 +2,7 @@
 #   docker compose --profile monitor --profile manager up -d
 # Keep one profile to run a single role. Each server asks at its first start whether to
 # use its own database or a shared one: add `--profile db` for the latter.
+# `--profile grafana` adds Grafana with the Nyx dashboard, see docs/grafana.md.
 x-server: &server
   restart: unless-stopped
   init: true
@@ -77,7 +78,83 @@ services:
       - /run/log/journal:/run/log/journal:ro
       - /var/log/journal:/var/log/journal:ro
 
+  # Stores what the monitor's /metrics gives, for Grafana. Prometheus-compatible, far lighter.
+  victoriametrics:
+    <<: *server
+    profiles: [grafana]
+    image: victoriametrics/victoria-metrics:v1.106.1
+    command:
+      - -promscrape.config=/etc/nyx/scrape.yml
+      - -retentionPeriod=${NYX_METRICS_RETENTION:-90d}
+    configs:
+      - source: scrape
+        target: /etc/nyx/scrape.yml
+    volumes:
+      - metrics-data:/victoria-metrics-data
+
+  grafana:
+    restart: unless-stopped
+    profiles: [grafana]
+    image: grafana/grafana-oss:11.3.0
+    environment:
+      # Empty: admin / admin, and Grafana asks for a new one at first sign-in.
+      GF_SECURITY_ADMIN_PASSWORD: ${NYX_GRAFANA_PASSWORD:-admin}
+      # Privacy first: no usage reports, update checks or news from grafana.com.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/nyx/dashboards/nyx-dashboard.json
+    ports:
+      - 3000:3000
+    configs:
+      - source: grafana-datasource
+        target: /etc/grafana/provisioning/datasources/nyx.yml
+      - source: grafana-dashboards
+        target: /etc/grafana/provisioning/dashboards/nyx.yml
+    volumes:
+      - ./nyx-dashboard.json:/etc/nyx/dashboards/nyx-dashboard.json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - victoriametrics
+
+# Inline, so that compose.yaml and the dashboard are the only files to download.
+configs:
+  scrape:
+    content: |
+      scrape_configs:
+        - job_name: nyx
+          # Agents report every 60 s while nobody has the monitor open: faster adds nothing.
+          scrape_interval: 60s
+          scheme: ${NYX_METRICS_SCHEME:-http}
+          metrics_path: /metrics
+          authorization:
+            credentials: "${NYX_METRICS_TOKEN:-}"
+          static_configs:
+            - targets: ["${NYX_METRICS_HOST:-monitor:8081}"]
+  grafana-datasource:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Nyx
+          uid: nyx
+          type: prometheus
+          access: proxy
+          url: http://victoriametrics:8428
+          isDefault: true
+  grafana-dashboards:
+    content: |
+      apiVersion: 1
+      providers:
+        - name: Nyx
+          folder: Nyx
+          type: file
+          options:
+            path: /etc/nyx/dashboards
+
 volumes:
   monitor-data:
   manager-data:
   db-data:
+  metrics-data:
+  grafana-data:

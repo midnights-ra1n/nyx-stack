@@ -353,6 +353,41 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   )
 }
 
+interface Asked { message: string; action: string; danger?: boolean; info?: boolean; done: (ok: boolean) => void }
+let showAsk: ((a: Asked) => void) | null = null
+
+/** Styled stand-in for window.confirm; resolves true when confirmed. */
+export const ask = (message: string, opts: { action?: string; danger?: boolean } = {}) =>
+  new Promise<boolean>((done) => (showAsk ? showAsk({ message, action: opts.action ?? "Confirm", danger: opts.danger, done }) : done(window.confirm(message))))
+
+/** Styled stand-in for window.alert. */
+export const tell = (message: string) =>
+  new Promise<void>((done) => (showAsk ? showAsk({ message, action: "OK", info: true, done: () => done() }) : (window.alert(message), done())))
+
+/** Hosts the dialogs opened by ask() and tell(); mounted once next to the app. */
+export function Dialogs() {
+  const [a, setA] = useState<Asked | null>(null)
+  const ref = useRef<HTMLDialogElement>(null)
+  const answer = useRef(false)
+  useEffect(() => { showAsk = setA; return () => { showAsk = null } }, [])
+  useEffect(() => { if (a) { answer.current = false; ref.current?.showModal() } }, [a])
+  if (!a) return null
+  const close = (ok: boolean) => { answer.current = ok; ref.current?.close() }
+  const Mark = a.danger ? ExclamationTriangleIcon : InformationCircleIcon
+  return (
+    <dialog ref={ref} onClose={() => { a.done(answer.current); setA(null) }} aria-label={a.info ? "Notice" : "Confirm"} className="m-auto w-[calc(100vw-40px)] max-w-md rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60">
+      <div className="flex gap-3 p-5">
+        <span className={`flex size-9 shrink-0 items-center justify-center rounded-full ${a.danger ? "bg-crit-soft text-crit" : "bg-accent-soft text-accent"}`}><Mark className="size-5" aria-hidden /></span>
+        <p className="pt-1.5 whitespace-pre-wrap text-fg2">{a.message}</p>
+      </div>
+      <div className="flex justify-end gap-3 border-t border-line px-5 py-3">
+        {!a.info && <Button autoFocus={a.danger} onClick={() => close(false)}>Cancel</Button>}
+        <Button autoFocus={!a.danger} variant={a.danger ? "danger" : "primary"} onClick={() => close(true)}>{a.action}</Button>
+      </div>
+    </dialog>
+  )
+}
+
 export function Copy({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (

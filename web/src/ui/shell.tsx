@@ -1,7 +1,7 @@
 import { ArrowPathIcon, Cog6ToothIcon, EllipsisHorizontalIcon, MagnifyingGlassIcon, PencilSquareIcon, ChevronRightIcon, ChevronUpDownIcon } from "@heroicons/react/24/outline"
 import { createRoot } from "react-dom/client"
 import { type ReactNode, createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
-import { Button, ErrorNote, type Icon, Input, Tabs } from "./components"
+import { Button, Dialogs, ErrorNote, type Icon, Input, Tabs } from "./components"
 import { api, AUTH_LOST, markUrl, REFRESH, setRefresh, useApi, useOnline, useRefresh } from "./lib"
 
 // Router: the app has few, flat routes; history API is all it needs.
@@ -289,6 +289,6 @@ export function App({ name, useNav, route, customizable }: { name: string; useNa
 
 /** Render the app and install the service worker (HTTPS or localhost only). */
 export function mount(app: ReactNode) {
-  createRoot(document.getElementById("root")!).render(app)
+  createRoot(document.getElementById("root")!).render(<>{app}<Dialogs /></>)
   if (import.meta.env.PROD && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {})
 }

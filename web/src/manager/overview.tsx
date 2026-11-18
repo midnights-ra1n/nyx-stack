@@ -1,7 +1,7 @@
 import { BoltIcon, ShieldCheckIcon, CodeBracketSquareIcon, ClockIcon, DocumentTextIcon, GlobeAltIcon, HeartIcon, LinkIcon, PlusIcon, WindowIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton, reveal } from "../ui/board"
-import { BarGauge, Button, Empty, ErrorNote, type Icon, Input, Meter, Panel, Stat, Status, Table, Td, TextArea } from "../ui/components"
+import { BarGauge, Button, Empty, ErrorNote, type Icon, Input, Meter, Panel, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
 import { Editor, EditorGroup } from "../ui/crud"
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
@@ -153,7 +153,7 @@ export function Overview() {
     setEditing(undefined)
   }
   const remove = async () => {
-    if (!editing || !confirm(`Remove ${editing.title}?`)) return
+    if (!editing || !await ask(`Remove ${editing.title}?`, { action: "Remove", danger: true })) return
     await saveAll(widgets.filter((x) => x.id !== editing.id))
     setEditing(undefined)
   }

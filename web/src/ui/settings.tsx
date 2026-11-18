@@ -1,6 +1,6 @@
 import { PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useState } from "react"
-import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Progress, Select, Status, Table, Td, TextArea } from "./components"
+import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Progress, Select, Status, Table, Td, TextArea, ask } from "./components"
 import { api, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
 import { MessagePreview } from "./preview"
 import { PageHeader } from "./shell"
@@ -112,7 +112,7 @@ export function NotificationSettings() {
   const [rule, setRule] = useState<any | null | undefined>()
   const [note, setNote] = useState("")
   const del = async (coll: string, id: string) => {
-    if (!confirm("Delete?")) return
+    if (!await ask("Delete?", { action: "Delete", danger: true })) return
     await api(`/api/c/${coll}/${id}`, { method: "DELETE" })
     channels.reload(); rules.reload()
   }

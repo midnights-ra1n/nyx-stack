@@ -313,20 +313,31 @@ pub fn offline_after(interval_s: u64) -> i64 {
 
 /// Health of a host: `off` when silent, otherwise its worst metric.
 pub fn host_status(h: &Host, now: i64, th: &Thresholds) -> &'static str {
-    let Some(live) = h.live.as_ref().filter(|_| h.online(now)) else { return "off" };
+    if h.live.is_none() || !h.online(now) { return "off" }
+    host_issues(h, th).iter().fold("ok", |s, (l, _)| worst(s, l))
+}
+
+/// Each metric past its threshold, with its level, so a badge can say why it is not green.
+pub fn host_issues(h: &Host, th: &Thresholds) -> Vec<(&'static str, String)> {
+    let Some(live) = h.live.as_ref() else { return vec![] };
     let r = &live.report;
-    let mut s = level(r.cpu_pct, th.warn, th.crit);
-    s = worst(s, level(pct(r.mem_used, r.mem_total), th.warn, th.crit));
+    let mut out = vec![];
+    let mut add = |l: &'static str, what: String| if l != "ok" { out.push((l, what)) };
+    add(level(r.cpu_pct, th.warn, th.crit), format!("CPU at {:.0} %", r.cpu_pct));
+    let mem = pct(r.mem_used, r.mem_total);
+    add(level(mem, th.warn, th.crit), format!("Memory at {mem:.0} %"));
     for d in &r.disks {
-        s = worst(s, level(pct(d.used, d.total), th.warn, th.crit));
+        let p = pct(d.used, d.total);
+        add(level(p, th.warn, th.crit), format!("Disk {} at {p:.0} %", d.mount));
     }
     if let Some(t) = r.temp_c {
-        s = worst(s, level(t, th.temp_warn, th.temp_crit));
+        add(level(t, th.temp_warn, th.temp_crit), format!("Temperature at {t:.0} °C"));
     }
     for d in &live.smart {
-        s = worst(s, match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" });
+        let l = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
+        add(l, if d.reason.is_empty() { format!("SMART {}", d.device) } else { format!("SMART {}: {}", d.device, d.reason) });
     }
-    s
+    out
 }
 
 pub struct OpenAlert {
@@ -438,6 +449,10 @@ impl App {
     /// host before agents had one full window to report.
     pub fn settled(&self) -> bool {
         self.started.elapsed().as_secs() >= offline_after(IDLE_INTERVAL_S) as u64
+    }
+
+    pub fn uptime_s(&self) -> u64 {
+        self.started.elapsed().as_secs()
     }
 
     pub fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -951,6 +966,9 @@ mod tests {
         assert_eq!(host_status(&st.hosts["h1"], 1000, &th), "warn");
         st.apply("h1", report(10.0, 80, 95), 1000);
         assert_eq!(host_status(&st.hosts["h1"], 1000, &th), "crit");
+        let issues = host_issues(&st.hosts["h1"], &th);
+        assert_eq!(issues.len(), 2);
+        assert!(issues.iter().any(|(l, m)| *l == "crit" && m.starts_with("Disk ")), "{issues:?}");
         assert_eq!(host_status(&st.hosts["h1"], 1000 + offline_after(IDLE_INTERVAL_S) + 1, &th), "off");
     }
 

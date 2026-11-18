@@ -2,7 +2,7 @@
 
 use crate::{
     ingest,
-    state::{host_status, pct, App, Host},
+    state::{host_issues, host_status, pct, App, Host},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -28,6 +28,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
         "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted,
         "ct_autoinstall": h.ct_autoinstall, "dns": r.map(|r| &r.dns), "last_seen": h.last_seen, "status": host_status(h, now, th),
+        "issues": host_issues(h, th).into_iter().map(|(level, message)| json!({"level": level, "message": message})).collect::<Vec<_>>(),
         "installed": h.last_seen > 0,
         "oci": parent.is_some_and(|p| p.guests.iter().any(|g| g.vmid == h.vmid && g.oci)),
         "cpu": r.map(|r| r.cpu_pct), "mem": r.map(|r| pct(r.mem_used, r.mem_total)),

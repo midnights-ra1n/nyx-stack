@@ -1,7 +1,7 @@
 import { ArrowPathIcon, DocumentTextIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable } from "../ui/components"
+import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable, ask } from "../ui/components"
 import { api, fmt, type Level, levelSoft, levelText, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
 import { PRESETS } from "./snmp-presets"
@@ -40,7 +40,7 @@ export function Containers() {
   const shown = rows.filter((c) => (state === "all" || (state === "running") === (c.state === "running")) && `${c.name} ${c.image} ${c.host}`.toLowerCase().includes(q.toLowerCase()))
   const act = async (c: any, op: string) => {
     if (op === "logs") return setLogs(c)
-    if (op === "stop" && !confirm(`Stop ${c.name}?`)) return
+    if (op === "stop" && !await ask(`Stop ${c.name}?`, { action: "Stop", danger: true })) return
     setBusy(c.host_id + c.name); setNote("")
     try { const r = await onHost(c.host_id, { action: "container", op, name: c.name }); setNote(`${c.name}: ${r.ok ? r.output : `failed. ${r.output}`}`); reload() } catch (e) { setNote((e as Error).message) }
     setBusy("")
@@ -271,7 +271,7 @@ export function Network() {
                   <StateCell level={d.enabled ? level(p) : "off"} label={!d.enabled ? "Disabled" : p?.up == null ? "Pending" : p.up ? undefined : "Down"} />
                   <Td className="whitespace-nowrap">
                     <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setEdit(d)} />
-                    <IconButton label="Delete" icon={TrashIcon} onClick={async () => { if (confirm(`Delete ${d.name}?`)) { await api(`/api/c/probes/${d.id}`, { method: "DELETE" }); done() } }} />
+                    <IconButton label="Delete" icon={TrashIcon} onClick={async () => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/probes/${d.id}`, { method: "DELETE" }); done() } }} />
                   </Td>
                 </tr>
               )

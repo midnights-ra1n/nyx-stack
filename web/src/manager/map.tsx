@@ -1,7 +1,7 @@
 import { ArrowDownTrayIcon, ArrowsRightLeftIcon, CloudIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, LinkIcon, PlusIcon, ServerIcon, ServerStackIcon, SignalIcon, Squares2X2Icon, TrashIcon } from "@heroicons/react/24/outline"
 import { useRef, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, IconButton, Panel, Select, Table, Td, Tabs, Input } from "../ui/components"
+import { Button, Empty, IconButton, Panel, Select, Table, Td, Tabs, Input, ask } from "../ui/components"
 import { GroupedView, MAP_VIEWS, TreeView, type ViewNode } from "../ui/mapviews"
 import { type Col, Editor, EditorGroup, RecordForm } from "../ui/crud"
 import { api, useApi } from "../ui/lib"
@@ -102,7 +102,7 @@ export function NetworkMap() {
   const done = () => { setForm(undefined); nodes.reload(); links.reload() }
   const remove = async (coll: string, id: string) => { await api(`/api/c/${coll}/${id}`, { method: "DELETE" }); done() }
   const removeNode = async (n: any) => {
-    if (!confirm(`Delete ${n.name}?`)) return
+    if (!await ask(`Delete ${n.name}?`, { action: "Delete", danger: true })) return
     for (const l of links.data.items.filter((l: any) => l.source === n.id || l.target === n.id)) await api(`/api/c/map_links/${l.id}`, { method: "DELETE" })
     remove("map_nodes", n.id)
   }
@@ -114,7 +114,7 @@ export function NetworkMap() {
     setMoved({})
   }
   const arrangeAll = async () => {
-    if (!confirm("Place every device again: network gear on top, each host with its guests under it, the rest below? Places you set by hand are replaced.")) return
+    if (!await ask("Place every device again: network gear on top, each host with its guests under it, the rest below? Places you set by hand are replaced.", { action: "Arrange", danger: true })) return
     try { await tidy(list, links.data?.items ?? []); setNote("Map arranged."); done() } catch (e) { setNote((e as Error).message) }
   }
   const importHosts = async () => {

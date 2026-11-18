@@ -86,6 +86,9 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/public/pages/{slug}/{step}` | Key | Page at that position of a wall's rotation, with the first wall's key |
 | GET | `/status/{slug}` | Public | The status page itself, framable if the page allows it |
 | POST | `/api/link/token` | Session | Create the manager link token |
+| GET, DELETE | `/api/metrics` | Session | Whether `/metrics` is on, and its URL; turn it off |
+| POST | `/api/metrics/token` | Session | Create the metrics token, replacing the old one |
+| GET | `/metrics` | Metrics token | Prometheus metrics for [Grafana](grafana.md) |
 | GET | `/api/link/hosts` | Link | Hosts for the manager |
 | GET | `/api/link/overview` | Link | Fleet health for the manager's dashboard |
 | GET | `/api/link/tempo` | Link | EDF Tempo summary for the manager's dashboard |

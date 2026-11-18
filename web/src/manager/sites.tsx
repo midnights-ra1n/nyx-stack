@@ -1,7 +1,7 @@
 import { ArrowPathIcon, PencilSquareIcon, PlayIcon, PlusIcon, RocketLaunchIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Copy, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, Panel, Select, Stat, Status, Table, Td, Tabs, TextArea } from "../ui/components"
+import { Button, Copy, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, Panel, Select, Stat, Status, Table, Td, Tabs, TextArea, ask } from "../ui/components"
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { PageHeader } from "../ui/shell"
 import { deployLevel } from "./overview"
@@ -32,7 +32,7 @@ function Details({ site, onClose, onChange }: { site: any; onClose: () => void; 
   }
   useEffect(() => { if (tab === "logs" && !out) run("logs") }, [tab])
   const rollback = async (d: any) => {
-    if (!confirm(`Deploy ${d.version} again?`)) return
+    if (!await ask(`Deploy ${d.version} again?`, { action: "Deploy" })) return
     try { await api(`/api/sites/${site.id}/rollback/${d.id}`, { method: "POST" }); onChange(); onClose() } catch (e) { setOut({ ok: false, text: (e as Error).message }); setTab("setup") }
   }
   return (
@@ -165,7 +165,7 @@ export function Sites() {
   const deploy = async (s: any) => {
     try { await api(`/api/sites/${s.id}/deploy`, { method: "POST" }); setNote(`Deploy of ${s.name} queued.`); reload() } catch (e) { setNote((e as Error).message) }
   }
-  const remove = async (s: any) => { if (confirm(`Stop tracking ${s.name}? Nothing is removed from the host.`)) { await api(`/api/c/sites/${s.id}`, { method: "DELETE" }); reload() } }
+  const remove = async (s: any) => { if (await ask(`Stop tracking ${s.name}? Nothing is removed from the host.`, { action: "Stop", danger: true })) { await api(`/api/c/sites/${s.id}`, { method: "DELETE" }); reload() } }
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
         <Panel title="Summary" edit={edit}>

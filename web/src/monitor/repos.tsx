@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Button, Input, Select, TextArea } from "../ui/components"
+import { Button, Input, Select, TextArea, ask, tell } from "../ui/components"
 
 type RepoFile = { path: string; content: string }
 type Send = (body: any, msg: string) => void
@@ -64,10 +64,10 @@ export function ReposPanel({ files, send }: { files: RepoFile[]; send: Send }) {
   const dir = files.some((f) => f.path.startsWith("/etc/yum.repos.d/")) ? "/etc/yum.repos.d/" : "/etc/apt/sources.list.d/"
   const pick = (p: string) => { setPath(p); setText(files.find((f) => f.path === p)?.content ?? "") }
 
-  const applyMirror = () => {
+  const applyMirror = async () => {
     const changed = setMirror(files, mirror, scheme)
-    if (!changed.length) return alert("The Debian sources already use this mirror and protocol.")
-    if (confirm(`Point Debian to ${scheme}://${mirror.trim()} in:\n${changed.map((f) => f.path).join("\n")}`)) send({ action: "repos", files: changed }, "Mirror change requested.")
+    if (!changed.length) return await tell("The Debian sources already use this mirror and protocol.")
+    if (await ask(`Point Debian to ${scheme}://${mirror.trim()} in:\n${changed.map((f) => f.path).join("\n")}`, { action: "Change mirror" })) send({ action: "repos", files: changed }, "Mirror change requested.")
   }
   const save = () => {
     const target = path === NEW ? dir + name.trim() : path
@@ -91,7 +91,7 @@ export function ReposPanel({ files, send }: { files: RepoFile[]; send: Send }) {
         <TextArea label="Content" value={text} onChange={(e) => setText(e.target.value)} rows={10} spellCheck={false} hint="Saved, then the package index is refreshed. If the refresh fails, every file is put back as it was." />
         <div className="flex flex-wrap gap-3">
           <Button variant="primary" onClick={save} disabled={!text.trim() || (path === NEW && !name.trim()) || text === file?.content}>Save</Button>
-          {file && <Button variant="danger" onClick={() => { if (confirm(`Delete ${file.path}?`)) send({ action: "repos", files: [{ path: file.path, content: "" }] }, "Deletion requested.") }}>Delete file</Button>}
+          {file && <Button variant="danger" onClick={async () => { if (await ask(`Delete ${file.path}?`, { action: "Delete", danger: true })) send({ action: "repos", files: [{ path: file.path, content: "" }] }, "Deletion requested.") }}>Delete file</Button>}
         </div>
       </div>
     </div>

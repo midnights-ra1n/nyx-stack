@@ -53,6 +53,7 @@ The folder name becomes the prefix of your volumes (`nyx_monitor-data`), so keep
 | `NYX_DB_EMAIL` | `db` profile | Superuser of the shared database |
 | `NYX_DB_PASSWORD` | `db` profile | Its password: `openssl rand -hex 24` |
 | `NYX_AGENT_URL`, `NYX_AGENT_TOKEN`, `NYX_AGENT_KEY`, `NYX_AGENT_KIND` | `agent` profile | See [Agent in a container](#agent-in-a-container) |
+| `NYX_METRICS_TOKEN`, `NYX_GRAFANA_PASSWORD`... | `grafana` profile | See [Grafana](grafana.md) |
 
 Keep both URL lines even if you run a single role: Compose reads the whole file, and an
 unset URL stops it with `set it in .env`. Agents use `NYX_MONITOR_URL` to call home, so it
@@ -76,6 +77,8 @@ For one shared login across both, add the database. It needs `NYX_DB_PASSWORD`:
 ```sh
 docker compose --profile monitor --profile manager --profile db up -d
 ```
+
+For Grafana with the Nyx dashboard, add `--profile grafana`: see [Grafana](grafana.md).
 
 To avoid repeating the profiles, add `COMPOSE_PROFILES=monitor,manager` to `.env`, and
 every command below becomes a plain `docker compose ...`.
@@ -175,7 +178,7 @@ SMART needs raw disk access. Treat it as root on that host.
 ### Removing
 
 ```sh
-docker compose --profile monitor --profile manager --profile db --profile agent down
+docker compose --profile monitor --profile manager --profile db --profile agent --profile grafana down
 ```
 
 Volumes stay. Add `--volumes` to delete them, and all your data with them.
@@ -471,3 +474,4 @@ docker compose up -d --remove-orphans
 | 8082 | Manager | Users, and Git forges for webhooks |
 | Random, loopback only | Local database | Its own server |
 | 8090 | `nyx-db` | The servers only. Private network or HTTPS |
+| 3000 | Grafana (`grafana` profile) | Users |

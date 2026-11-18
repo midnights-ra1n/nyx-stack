@@ -8,6 +8,7 @@ mod compact;
 mod ingest;
 mod integrations;
 mod link;
+mod metrics;
 mod pages;
 mod pipelines;
 mod probes;
@@ -61,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::router(app.clone()))
         .merge(ingest::router(app.clone()))
         .merge(link::router(app.clone()))
+        .merge(metrics::router(app.clone()))
         .merge(integrations::router(app.clone()))
         .merge(pages::router(app.clone()))
         .merge(mcp::router(core.clone(), api::mcp_tools(app.clone())))
