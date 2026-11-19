@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 9] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout"];
+const SETTINGS: [&str; 10] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout", "probe_dns"];
 const MAX_POINTS: usize = 400;
 
 fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
@@ -439,6 +439,9 @@ async fn get_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
 
 async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<String>, Json(v): Json<Value>) -> ApiResult<Json<Value>> {
     check_setting(&key)?;
+    if key == "probe_dns" {
+        crate::probes::parse_servers(v["servers"].as_str().unwrap_or_default()).map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    }
     app.core.pb.set_setting(&key, &v).await?;
     if key == "tempo" {
         app.lock().tempo = None; // New keys must be tried right away.

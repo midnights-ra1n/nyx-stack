@@ -18,8 +18,8 @@ use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 use std::{
     collections::{HashMap, VecDeque},
-    net::IpAddr,
-    sync::Arc,
+    net::{IpAddr, SocketAddr},
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
@@ -39,18 +39,44 @@ pub struct Shared {
     limit: Semaphore,
     icmp4: Option<surge_ping::Client>,
     icmp6: Option<surge_ping::Client>,
+    /// Resolves through [`Shared::dns`].
+    http: reqwest::Client,
     /// Accepts any certificate, so expired ones can still be measured.
     cert_http: reqwest::Client,
+    /// The `probe_dns` setting: servers every probe resolves names through, empty for the system's.
+    pub dns: Arc<RwLock<Vec<IpAddr>>>,
+}
+
+/// Lets website and certificate probes resolve through [`Shared::dns`].
+struct ProbeResolver(Arc<RwLock<Vec<IpAddr>>>);
+
+impl reqwest::dns::Resolve for ProbeResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let servers = self.0.read().unwrap().clone();
+        let name = name.as_str().to_string();
+        Box::pin(async move {
+            let ip = resolve(&name, &servers).await?;
+            Ok(Box::new(std::iter::once(SocketAddr::new(ip, 0))) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// `"1.1.1.1, 9.9.9.9"` or one per line; empty means the system's resolver.
+pub fn parse_servers(s: &str) -> anyhow::Result<Vec<IpAddr>> {
+    s.split(|c: char| c == ',' || c.is_whitespace()).filter(|x| !x.is_empty()).map(|x| x.parse().with_context(|| format!("{x} is not an IP address"))).collect()
 }
 
 impl Shared {
     pub fn new() -> anyhow::Result<Self> {
         let icmp = |kind| surge_ping::Client::new(&surge_ping::Config::builder().kind(kind).build()).map_err(|e| eprintln!("ICMP socket unavailable ({kind:?}): {e}")).ok();
+        let dns = Arc::new(RwLock::new(vec![]));
         Ok(Self {
             limit: Semaphore::new(MAX_CONCURRENT),
             icmp4: icmp(surge_ping::ICMP::V4),
             icmp6: icmp(surge_ping::ICMP::V6),
-            cert_http: reqwest::Client::builder().tls_danger_accept_invalid_certs(true).tls_info(true).timeout(CHECK_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build()?,
+            http: reqwest::Client::builder().timeout(CHECK_TIMEOUT).dns_resolver(ProbeResolver(dns.clone())).build()?,
+            cert_http: reqwest::Client::builder().dns_resolver(ProbeResolver(dns.clone())).tls_danger_accept_invalid_certs(true).tls_info(true).timeout(CHECK_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build()?,
+            dns,
         })
     }
 }
@@ -259,9 +285,15 @@ fn alerts_for(p: &ProbeLive) -> Vec<Wanted> {
 
 async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Outcome> {
     let ms = || started.elapsed().as_secs_f64() * 1000.0;
+    // The probe's own server wins over the `probe_dns` setting.
+    let servers = match def.dns_server.parse::<IpAddr>() {
+        Ok(ip) => vec![ip],
+        Err(_) if def.dns_server.is_empty() => app.probes.dns.read().unwrap().clone(),
+        Err(_) => bail!("DNS server must be an IP address"),
+    };
     match def.kind.as_str() {
         "ping" => {
-            let ip = resolve(&def.target, &def.dns_server).await?;
+            let ip = resolve(&def.target, &servers).await?;
             let client = if ip.is_ipv4() { &app.probes.icmp4 } else { &app.probes.icmp6 };
             let client = client.as_ref().context("ICMP socket unavailable, see the deployment docs")?;
             let id = surge_ping::PingIdentifier(started.elapsed().subsec_nanos() as u16);
@@ -271,7 +303,7 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
             Ok(Outcome { latency_ms: rtt.as_secs_f64() * 1000.0, message: format!("reply from {ip}"), ..Outcome::default() })
         }
         "http" => {
-            let res = app.http.get(&def.target).send().await.context("request failed")?;
+            let res = app.probes.http.get(&def.target).send().await.context("request failed")?;
             let code = res.status().as_u16();
             let ok = if def.expect_status > 0 { code == def.expect_status } else { res.status().is_success() || res.status().is_redirection() };
             if !ok {
@@ -284,7 +316,7 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
             Ok(Outcome { latency_ms, message, cert_days, ..Outcome::default() })
         }
         "dns" => {
-            let message = dns_lookup(&def.target, &def.dns_server).await?;
+            let message = lookup(&def.target, &servers).await?.to_string();
             Ok(Outcome { latency_ms: ms(), message, ..Outcome::default() })
         }
         "cert" => {
@@ -301,28 +333,23 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
     }
 }
 
-/// Through `server` when set, so a local resolver such as NextDNS does not log every ping.
-async fn resolve(target: &str, server: &str) -> anyhow::Result<IpAddr> {
+/// Through `servers` when set, so a local resolver such as NextDNS does not log every probe.
+async fn resolve(target: &str, servers: &[IpAddr]) -> anyhow::Result<IpAddr> {
     if let Ok(ip) = target.parse() {
         return Ok(ip);
     }
-    if !server.is_empty() {
-        return lookup(target, server).await;
+    if !servers.is_empty() {
+        return lookup(target, servers).await;
     }
     tokio::net::lookup_host((target, 0)).await.context("cannot resolve")?.next().map(|a| a.ip()).context("no address")
 }
 
-async fn dns_lookup(name: &str, server: &str) -> anyhow::Result<String> {
-    Ok(lookup(name, server).await?.to_string())
-}
-
-async fn lookup(name: &str, server: &str) -> anyhow::Result<IpAddr> {
+async fn lookup(name: &str, servers: &[IpAddr]) -> anyhow::Result<IpAddr> {
     let provider = TokioRuntimeProvider::default();
-    let builder = if server.is_empty() {
+    let builder = if servers.is_empty() {
         Resolver::builder(provider)?
     } else {
-        let ip: IpAddr = server.parse().context("DNS server must be an IP address")?;
-        Resolver::builder_with_config(ResolverConfig::from_parts(None, vec![], vec![NameServerConfig::udp_and_tcp(ip)]), provider)
+        Resolver::builder_with_config(ResolverConfig::from_parts(None, vec![], servers.iter().map(|ip| NameServerConfig::udp_and_tcp(*ip)).collect::<Vec<_>>()), provider)
     };
     let ips = builder.build()?.lookup_ip(name).await.context("DNS lookup failed")?;
     ips.iter().next().context("empty answer")
@@ -357,6 +384,13 @@ pub fn snapshot(app: &App) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_dns_servers_parse() {
+        assert_eq!(parse_servers("1.1.1.1, 2606:4700:4700::1111\n9.9.9.9").unwrap().len(), 3);
+        assert!(parse_servers("  ").unwrap().is_empty());
+        assert!(parse_servers("1.1.1.1, dns.google").is_err());
+    }
 
     fn probe(warn_days: u64) -> ProbeLive {
         ProbeLive::new(parse_def(&json!({"id": "p", "name": "site", "type": "cert", "target": "x", "warn_days": warn_days})))

@@ -463,6 +463,8 @@ impl App {
         let thresholds = self.core.pb.setting("thresholds").await?.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         let maintenance = self.core.pb.setting("maintenance").await?.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         let map_layout = self.core.pb.setting("map_layout").await?.unwrap_or_default();
+        let probe_dns = self.core.pb.setting("probe_dns").await?.unwrap_or_default();
+        *self.probes.dns.write().unwrap() = crate::probes::parse_servers(probe_dns["servers"].as_str().unwrap_or_default()).unwrap_or_default();
         let mut st = self.lock();
         st.map_layout = map_layout;
         st.thresholds = thresholds;

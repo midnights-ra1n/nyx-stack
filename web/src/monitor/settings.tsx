@@ -128,6 +128,8 @@ export function Settings() {
           { key: "agent_auto_update", label: "Update agents automatically", type: "checkbox" },
           { key: "agent_beta", label: "Use beta agents", type: "checkbox", hint: "Agents take the newest release from GitHub rather than the version this server ships." },
           { key: "retention_days", label: "Keep history for (days)", type: "number", hint: "From 30 to 365. Past 7 days, history is stored hour by hour, so a year takes about 3 MB per host." }]} />
+        <SettingForm title="DNS for probes" setting="probe_dns" fields={[
+          { key: "servers", label: "DNS servers", hint: "IP addresses separated by commas, for example 1.1.1.1, 9.9.9.9. Ping, website, certificate and DNS probes resolve names through them, which keeps them out of a local NextDNS or Pi-hole log. A probe's own DNS server still wins. Empty uses this server's resolver." }]} />
       </> },
       { id: "integrations", label: "Integrations", icon: PuzzlePieceIcon, description: "Optional links to the services around the monitor.", body: <>
         <ManagerLink />

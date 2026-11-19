@@ -154,8 +154,8 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Select label="Type" value={f.type} onChange={(e) => set("type", e.target.value)} options={PROBE_TYPES} />
         <Input label="Target" required value={f.target} hint={TARGET_HINT[f.type]} onChange={(e) => set("target", e.target.value)} />
         <Input label="Interval (seconds)" type="number" min={10} value={f.interval_s} onChange={(e) => set("interval_s", Number(e.target.value))} />
-        {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the system resolver." onChange={(e) => set("dns_server", e.target.value)} />}
-        {f.type === "ping" && <Input label="DNS server" value={f.dns_server} placeholder="The system's resolver" hint="IP that resolves the host name, for example 1.1.1.1 so the pings stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
+        {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the DNS for probes from Settings, or the system's resolver." onChange={(e) => set("dns_server", e.target.value)} />}
+        {f.type === "ping" && <Input label="DNS server" value={f.dns_server} placeholder="The DNS for probes from Settings" hint="IP that resolves the host name, for example 1.1.1.1 so the pings stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
         {f.type === "http" && <Input label="Expected status" type="number" value={f.expect_status || ""} hint="Empty accepts any 2xx or 3xx." onChange={(e) => set("expect_status", Number(e.target.value))} />}
         {(f.type === "cert" || (f.type === "http" && f.target.startsWith("https://"))) && <Input label="Warn this many days before the certificate expires" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
         {f.type === "snmp" && <>
