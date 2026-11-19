@@ -10,6 +10,8 @@ export interface PageConfig {
   logo: string; preset: string; accent: string; refresh_s: number; zoom: number; embed?: boolean; panels: PanelCfg[]
   /** On a wall: the pages shown in turn after this one, and for how long each. */
   rotate?: string[]; rotate_s?: number
+  /** On a wall: scroll at the layout's size instead of fitting the screen. */
+  scroll?: boolean
 }
 
 export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number; title: string; metric?: string; uptime?: boolean }[] = [

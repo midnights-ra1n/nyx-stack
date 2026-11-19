@@ -2,3 +2,7 @@ nyx_agent_kind: vm
 nyx_agent_ct_autoinstall: false
 # Resolve the monitor through these servers instead of the system's, e.g. ["1.1.1.1", "1.0.0.1"].
 nyx_agent_dns: []
+# Serve Prometheus metrics from the agent, e.g. "0.0.0.0:9101". Empty: off.
+nyx_agent_metrics_listen: ""
+# Bearer token for it, 16 characters or more; required off loopback.
+nyx_agent_metrics_token: ""

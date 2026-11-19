@@ -37,3 +37,5 @@ variables of the same name win, which is how the Docker image is configured.
 | `NYX_KIND` | `vm`, `lxc`, `physical`, `proxmox` or `vps` |
 | `NYX_CT_AUTOINSTALL` | `1` to watch the LXC containers of a Proxmox host, without an agent inside |
 | `NYX_DNS` | DNS servers that resolve the monitor's name, such as `1.1.1.1,1.0.0.1`. Empty uses the system's resolver |
+| `NYX_METRICS_LISTEN` | Address and port of the agent's own Prometheus endpoint, such as `127.0.0.1:9101`. Unset: off. See [Grafana](grafana.md#scraping-the-agents-directly) |
+| `NYX_METRICS_TOKEN` | Bearer token for that endpoint, 16 characters or more. Required unless it listens on loopback |

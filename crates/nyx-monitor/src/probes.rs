@@ -344,7 +344,14 @@ pub fn snapshot(app: &App) -> Vec<Value> {
     let st = app.lock();
     let mut v: Vec<&ProbeLive> = st.probes.values().collect();
     v.sort_by(|a, b| a.def.name.cmp(&b.def.name));
-    v.iter().map(|p| p.to_json()).collect()
+    let today = chrono::Local::now().date_naive();
+    v.iter().map(|p| {
+        let mut j = p.to_json();
+        j["uptime_30d"] = json!(st.uptime.overall(&p.def.id, today, false));
+        j["days"] = json!(st.uptime.series(&p.def.id, today, false));
+        j["interval_s"] = json!(p.def.interval_s);
+        j
+    }).collect()
 }
 
 #[cfg(test)]

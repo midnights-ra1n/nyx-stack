@@ -1,4 +1,4 @@
-import { ArrowTopRightOnSquareIcon, Cog6ToothIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowDownIcon, ArrowTopRightOnSquareIcon, ArrowUpIcon, Cog6ToothIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Status, Table, Tabs, Td, TextArea, ask } from "../../ui/components"
 import { api, useApi, useMedia } from "../../ui/lib"
@@ -37,7 +37,7 @@ function NewPage({ onDone }: { onDone: () => void }) {
         <Select label="Type" value={f.kind} options={KINDS} onChange={(e) => setF({ ...f, kind: e.target.value })} />
         <Select label="Start from" value={f.start} options={STARTS} onChange={(e) => setF({ ...f, start: e.target.value })} />
         <Input label="Address" required value={slug} className="font-mono" onChange={(e) => setF({ ...f, slug: e.target.value })} hint={`${location.origin}/${f.kind}/${slug}`} />
-        <p className="text-fg2">{f.kind === "wall" ? "Fills the screen without scrolling. Opens with a private link, no sign-in needed." : "Anyone with the address can read it once published. It shows only what you pick."}</p>
+        <p className="text-fg2">{f.kind === "wall" ? "Fills the screen, or scrolls if you choose so in Appearance. Opens with a private link, no sign-in needed." : "Anyone with the address can read it once published. It shows only what you pick."}</p>
         <ErrorNote>{error}</ErrorNote>
         <div><Button variant="primary" type="submit">Create</Button></div>
       </form>
@@ -172,7 +172,7 @@ function EditGrid({ page, panels, onChange, onEdit }: { page: any; panels: Panel
   )
 }
 
-function Appearance({ c, set }: { c: PageConfig; set: (o: Partial<PageConfig>) => void }) {
+function Appearance({ c, set, wall }: { c: PageConfig; set: (o: Partial<PageConfig>) => void; wall: boolean }) {
   const [error, setError] = useState("")
   const upload = (file?: File) => {
     if (!file) return
@@ -192,6 +192,7 @@ function Appearance({ c, set }: { c: PageConfig; set: (o: Partial<PageConfig>) =
           {c.accent && <Button variant="ghost" onClick={() => set({ accent: "" })}>Use theme colour</Button>}
         </div>
         <Input label="Refresh every (seconds)" type="number" min={5} max={3600} value={c.refresh_s} onChange={(e) => set({ refresh_s: Number(e.target.value) })} />
+        {wall && <div className="col-span-full"><Check label="Scroll instead of fitting the screen" hint="Panels keep the size set in the layout and long lists show in full. Scroll with the mouse, touch or arrow keys of a remote." checked={!!c.scroll} onChange={(e) => set({ scroll: e.target.checked })} /></div>}
         <Input label="Zoom on large screens" type="number" min={0.5} max={4} step={0.25} value={c.zoom} onChange={(e) => set({ zoom: Number(e.target.value) })} hint="Set 2 for a 4K wall display." />
         <div className="flex items-end gap-3">
           <Input label="Logo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => upload(e.target.files?.[0])} hint="Stored in the page, so visitors never call a third party." />
@@ -206,18 +207,52 @@ function Appearance({ c, set }: { c: PageConfig; set: (o: Partial<PageConfig>) =
   )
 }
 
-function Rotation({ c, set, others }: { c: PageConfig; set: (o: Partial<PageConfig>) => void; others: any[] }) {
-  const picked = c.rotate ?? []
+/** A Grafana-style playlist: this wall, then the ticked pages in the order set here. */
+function Rotation({ c, set, others, onCreated }: { c: PageConfig; set: (o: Partial<PageConfig>) => void; others: any[]; onCreated: () => void }) {
+  const picked = (c.rotate ?? []).filter((id) => others.some((p) => p.id === id))
+  const [name, setName] = useState("")
+  const [error, setError] = useState("")
+  const move = (i: number, by: number) => { const r = [...picked]; [r[i], r[i + by]] = [r[i + by], r[i]]; set({ rotate: r }) }
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const page = await api("/api/pages", { body: { name, kind: "wall", slug: slugify(name), config: template("wall", name) } })
+      // Published at once: a draft is skipped by the rotation. Its own link stays private.
+      await api(`/api/pages/${page.id}`, { method: "PATCH", body: { published: true } })
+      set({ rotate: [...picked, page.id] }); setName(""); setError(""); onCreated()
+    } catch (err) { setError((err as Error).message) }
+  }
+  const unpicked = others.filter((p) => !picked.includes(p.id))
   return (
-    <Panel title="Page rotation">
+    <Panel title="Pages">
       <div className="flex flex-col gap-4">
-        <p className="text-fg2">This wall shows itself, then each page ticked here, then starts over. Its private link is enough for all of them.</p>
-        {others.length === 0 ? <Empty>No other pages yet.</Empty> : (
-          <ul className="flex flex-col gap-1">
-            {others.map((p) => <li key={p.id}><Check label={p.name} hint={p.published ? (p.kind === "wall" ? "Wall display" : "Status page") : "Draft: skipped until it is published."} checked={picked.includes(p.id)} onChange={(e) => set({ rotate: e.target.checked ? [...picked, p.id] : picked.filter((id) => id !== p.id) })} /></li>)}
-          </ul>
+        <p className="text-fg2">The screen shows this wall, then each page below in this order, then starts over. Arrows and dots at the top of the screen jump between pages, as do the arrow keys. Its private link is enough for all of them.</p>
+        {picked.length > 0 && (
+          <ol className="flex flex-col divide-y divide-line">
+            {picked.map((id, i) => {
+              const p = others.find((x) => x.id === id)
+              return (
+                <li key={id} className="flex min-h-11 items-center gap-2">
+                  <span className="w-6 text-fg3">{i + 2}</span>
+                  <span className="min-w-0 flex-1 truncate"><Link className="text-accent" to={`/pages/${id}`}>{p.name}</Link>{!p.published && <span className="ml-2 text-xs text-warn">Draft: skipped until published</span>}</span>
+                  <IconButton label={`Move ${p.name} up`} icon={ArrowUpIcon} disabled={i === 0} onClick={() => move(i, -1)} />
+                  <IconButton label={`Move ${p.name} down`} icon={ArrowDownIcon} disabled={i === picked.length - 1} onClick={() => move(i, 1)} />
+                  <IconButton label={`Remove ${p.name} from the rotation`} icon={TrashIcon} onClick={() => set({ rotate: picked.filter((x) => x !== id) })} />
+                </li>
+              )
+            })}
+          </ol>
+        )}
+        <form className="flex flex-wrap items-end gap-3" onSubmit={create}>
+          <div className="w-64 max-sm:w-full"><Input label="New page" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Storage, Network…" /></div>
+          <Button type="submit"><PlusIcon className="size-5" aria-hidden />Add a page</Button>
+        </form>
+        {unpicked.length > 0 && (
+          <Select label="Or add an existing page" value="" onChange={(e) => e.target.value && set({ rotate: [...picked, e.target.value] })}
+            options={[{ value: "", label: "Choose a page…" }, ...unpicked.map((p) => ({ value: p.id, label: `${p.name} (${p.kind === "wall" ? "wall" : "status page"})` }))]} />
         )}
         <div className="w-48"><Input label="Seconds on each page" type="number" min={5} max={3600} value={c.rotate_s || 30} onChange={(e) => set({ rotate_s: Number(e.target.value) })} /></div>
+        <ErrorNote>{error}</ErrorNote>
       </div>
     </Panel>
   )
@@ -253,7 +288,7 @@ function Sharing({ page, onChange, c, set }: { page: any; onChange: (p: any) => 
 const TABS = [{ id: "layout", label: "Layout" }, { id: "appearance", label: "Appearance" }, { id: "sharing", label: "Sharing" }]
 
 export function PageEditor({ id }: { id: string }) {
-  const { data: pages, error: loadError } = useApi<any[]>("/api/pages", { poll: false })
+  const { data: pages, error: loadError, reload: reloadPages } = useApi<any[]>("/api/pages", { poll: false })
   const [page, setPage] = useState<any>()
   const [cfg, setCfg] = useState<PageConfig>()
   const [dirty, setDirty] = useState(false)
@@ -293,22 +328,22 @@ export function PageEditor({ id }: { id: string }) {
   return (
     <>
       <PageHeader title={page.name} crumbs={[{ label: "Status pages", to: "/pages" }, { label: page.name }]} subtitle={note || (dirty ? "Unsaved changes." : page.published ? "Published." : "Draft: not visible yet.")}
-        variables={<Tabs tabs={page.kind === "wall" ? [...TABS, { id: "rotation", label: "Rotation" }] : TABS} value={tab} onChange={setTab} />}
+        variables={<Tabs tabs={page.kind === "wall" ? [...TABS, { id: "rotation", label: "Pages" }] : TABS} value={tab} onChange={setTab} />}
         actions={<>
           {page.published && <a href={pageUrl(page)} target="_blank" rel="noreferrer"><Button><ArrowTopRightOnSquareIcon className="size-5" aria-hidden />Open</Button></a>}
           <Button onClick={() => publish(!page.published)}>{page.published ? "Unpublish" : "Publish"}</Button>
           <Button variant="primary" onClick={save} disabled={!dirty}>Save</Button>
         </>} />
       <Section>
-        {tab === "appearance" && <Appearance c={cfg} set={set} />}
+        {tab === "appearance" && <Appearance c={cfg} set={set} wall={page.kind === "wall"} />}
         {tab === "sharing" && <Sharing page={page} onChange={setPage} c={cfg} set={set} />}
-        {tab === "rotation" && <Rotation c={cfg} set={set} others={(pages ?? []).filter((p) => p.id !== id)} />}
+        {tab === "rotation" && <Rotation c={cfg} set={set} others={(pages ?? []).filter((p) => p.id !== id)} onCreated={reloadPages} />}
         {tab === "layout" && <>
           <Select label="Add a panel" value="" onChange={(e) => e.target.value && set({ panels: addPanel(cfg.panels, e.target.value as any) })} options={[{ value: "", label: "Choose a type…" }, ...PANEL_TYPES.filter((t) => page.kind === "wall" || t.type !== "alerts").map((t) => ({ value: t.type, label: t.label }))]} />
           <div className="rounded-panel bg-bg p-2" style={themeVars(cfg.preset, cfg.accent)}>
             {cfg.panels.length ? <EditGrid page={preview} panels={cfg.panels} onChange={(panels) => set({ panels })} onEdit={setEditing} /> : <Empty>Add a panel to start.</Empty>}
           </div>
-          {page.kind === "wall" && <p className="text-[13px] text-fg3">On the screen, rows stretch to fill the height exactly. A panel with more than it can hold shows it one page at a time.</p>}
+          {page.kind === "wall" && <p className="text-[13px] text-fg3">{cfg.scroll ? "On the screen, panels keep this size and the page scrolls." : "On the screen, rows stretch to fill the height exactly. A panel with more than it can hold shows it one page at a time. Tick scrolling in Appearance to keep panel sizes instead."}</p>}
         </>}
       </Section>
       {editing && <PanelForm panel={editing} wall={page.kind === "wall"} onClose={() => setEditing(undefined)} onSave={(p) => { set({ panels: place(cfg.panels.map((x) => (x.id === p.id ? p : x)), p.id, p) }); setEditing(undefined) }} />}

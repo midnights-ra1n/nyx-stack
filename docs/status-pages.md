@@ -8,7 +8,7 @@ Both use the same panels on a 24-column grid, in the style of Grafana.
 | Made for | Your users, on any device | A large screen in a room |
 | Address | `/status/<address>` | `/wall/<address>#key=<key>` |
 | Who can open it | Anyone, once published | Anyone with the private link |
-| Layout | Scrolls like a normal page | Always fills the screen exactly. A panel that overflows shows one page at a time |
+| Layout | Scrolls like a normal page | Fills the screen exactly, a panel that overflows showing one page at a time; or scrolls, if you choose |
 | Other sites can frame it | Only if you allow it | Never |
 | Default theme | Nyx dark | Graphite |
 | Default refresh | 60 s | 15 s |
@@ -113,15 +113,24 @@ it stays out of proxy and access logs. The page passes it in a request header in
 **Replace the private link** in the **Sharing** tab if it leaks. Screens using the old
 link stop updating at once.
 
-**Long lists on a wall.** Nobody can scroll a wall, so a panel holding more than fits
+**Scrolling a wall.** Tick **Scroll instead of fitting the screen** in **Appearance**
+when a wall holds more than one screen, or sits on a monitor you use with a mouse or a
+touch screen. Panels then keep the size set in **Layout**, long lists show in full, and
+the page scrolls. Each page of a rotation starts at the top.
+
+**Long lists on a wall.** On a wall that fits the screen, nobody can scroll, so a panel holding more than fits
 jumps to the next page every 8 seconds and shows, for example, *Page 2 of 3*. It jumps
 rather than slides, because moving text is hard to read from across a room, and it
 starts each page on a whole item.
 
-**Several pages on one wall.** The **Rotation** tab of a wall lists your other pages.
-Tick the ones to show, in the order you want them, and set **Seconds on each page**,
-from 5 to 3600. The wall shows itself, then each ticked page, then starts over, and its
-header reads *Page 2 of 4*. All pages share that one delay. Each page keeps its own
+**Several pages on one wall.** A wall works like a Grafana playlist. In its **Pages**
+tab, **Add a page** creates a new wall page, already published and placed last, and
+**Or add an existing page** adds one of your other pages. Arrows reorder them, the bin
+takes one out without deleting it, and **Seconds on each page**, from 5 to 3600, sets
+the pace. The wall shows itself, then each page in that order, then starts over. On the
+screen, the header has previous and next buttons and a dot per page; the left and right
+arrow keys do the same. A page picked by hand gets its full time before the next one.
+All pages share that one delay. Each page keeps its own
 theme and refresh, a status page fills the screen like a wall while it is shown, and a
 draft is skipped until it is published. The screen only needs
 the first wall's link: its key opens the pages of its rotation, so ticking another wall

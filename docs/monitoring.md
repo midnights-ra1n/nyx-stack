@@ -86,8 +86,15 @@ networking mode, common in unprivileged containers, has no interface and is not 
 
 ## Probes
 
-Add them in **Network**. A website probe on an `https://` address also follows its
-certificate: the **Certificate** column of the table shows the days left, and it alerts
+Add them in **Network**. The page works like Uptime Kuma: on the left, every probe with
+its uptime over the recent checks and a bar per check, down ones first; on the right,
+the selected probe with its last 60 checks, current and average response time, uptime
+over the recent checks and over 30 days, one bar per day, the response time chart and
+its SNMP readings. **Pause** stops a probe without deleting it. Search and the **Show**
+filter narrow the list.
+
+A website probe on an `https://` address also follows its
+certificate: the probe's **Certificate** figure shows the days left, and it alerts
 like a certificate probe, without a second probe for the same site. Choose how many days
 ahead to warn in the probe's settings. Its check always reads the certificate, even one
 Nyx would not trust. A site whose certificate has expired is reported as down, because

@@ -132,6 +132,13 @@ configs:
             credentials: "${NYX_METRICS_TOKEN:-}"
           static_configs:
             - targets: ["${NYX_METRICS_HOST:-monitor:8081}"]
+        # Agents serving their own /metrics (NYX_METRICS_LISTEN). Empty list: nothing scraped.
+        - job_name: nyx-agents
+          scrape_interval: 60s
+          authorization:
+            credentials: "${NYX_AGENT_METRICS_TOKEN:-}"
+          static_configs:
+            - targets: [${NYX_AGENT_METRICS_TARGETS:-}]
   grafana-datasource:
     content: |
       apiVersion: 1

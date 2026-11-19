@@ -7,6 +7,7 @@ mod config;
 mod dns;
 mod exec;
 mod firewall;
+mod metrics;
 mod node;
 mod packages;
 mod proxmox;
@@ -67,6 +68,11 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
         }
     });
 
+    let scrape = match cfg.metrics_listen {
+        Some(addr) => Some(metrics::serve(addr, cfg.metrics_token.clone()).map_err(|e| anyhow::anyhow!("cannot serve metrics on {addr}: {e}"))?),
+        None => None,
+    };
+
     let mut interval = 15;
     let mut restart = false;
     loop {
@@ -84,6 +90,9 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
             }
         }
         let report = collector.report(&cfg);
+        if let Some(latest) = &scrape {
+            *latest.lock().unwrap_or_else(|e| e.into_inner()) = collector.metrics(&report);
+        }
         let mut tail = false;
         match transport::post_report(&http, &cfg, &report) {
             Ok(reply) => {

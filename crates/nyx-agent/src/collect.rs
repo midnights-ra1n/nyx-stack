@@ -109,6 +109,12 @@ impl Collector {
         self.firewall_every.reset();
     }
 
+    /// Prometheus text for the optional local endpoint: this report plus the slow
+    /// readings it may not carry, as last measured.
+    pub fn metrics(&self, r: &Report) -> String {
+        crate::metrics::render(r, self.containers.as_deref().unwrap_or_default(), self.smart.as_deref().unwrap_or_default())
+    }
+
     pub fn repos_changed(&mut self) {
         self.repos_every.reset();
     }

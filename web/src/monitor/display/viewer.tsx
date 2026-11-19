@@ -1,4 +1,4 @@
-import { ArrowsPointingOutIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline"
+import { ArrowsPointingOutIcon, ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/outline"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { IconButton, Status } from "../../ui/components"
 import { api, type Level, levelSoft, levelText, useMedia } from "../../ui/lib"
@@ -41,7 +41,22 @@ function usePage(path: string, key: string | null, seconds: number, paused: bool
   return { page, status, updated }
 }
 
-function Header({ page, updated, compact, step, paused, onPause }: { page: any; updated?: Date; compact?: boolean; step: number; paused: boolean; onPause?: () => void }) {
+/** Grafana playlist controls: previous, a dot per page, next. Arrow keys do the same. */
+function Pages({ rotation, step, go }: { rotation: { count: number; titles?: string[] }; step: number; go: (s: number) => void }) {
+  const at = (s: number) => (s + rotation.count) % rotation.count
+  return (
+    <nav aria-label="Pages" className="flex items-center gap-1">
+      <IconButton label="Previous page" icon={ChevronLeftIcon} onClick={() => go(at(step - 1))} />
+      {Array.from({ length: rotation.count }, (_, i) => {
+        const title = rotation.titles?.[i] || `Page ${i + 1}`
+        return <button key={i} aria-label={title} title={title} aria-current={i === step ? "page" : undefined} onClick={() => go(i)} className="flex size-6 items-center justify-center"><span className={`block rounded-full ${i === step ? "size-2.5 bg-accent" : "size-2 bg-line2 hover:bg-fg3"}`} /></button>
+      })}
+      <IconButton label="Next page" icon={ChevronRightIcon} onClick={() => go(at(step + 1))} />
+    </nav>
+  )
+}
+
+function Header({ page, updated, compact, step, paused, onPause, go }: { page: any; updated?: Date; compact?: boolean; step: number; paused: boolean; onPause?: () => void; go: (s: number) => void }) {
   return (
     <header className={`flex items-center gap-3 ${compact ? "h-12 shrink-0 px-1" : "flex-wrap pb-5"}`}>
       {page.logo && <img src={page.logo} alt="" className={compact ? "h-8" : "h-10"} />}
@@ -50,7 +65,7 @@ function Header({ page, updated, compact, step, paused, onPause }: { page: any; 
         {page.description && !compact && <p className="text-fg2">{page.description}</p>}
       </div>
       {compact && <Status level={page.overall} />}
-      {page.rotation && <span className="text-xs text-fg2">Page {step + 1} of {page.rotation.count}</span>}
+      {page.rotation && <Pages rotation={page.rotation} step={step} go={go} />}
       {updated && <span className="text-xs text-fg3">{paused ? "Paused at" : "Updated"} {updated.toLocaleTimeString()}</span>}
       {onPause && <IconButton label={paused ? "Resume" : "Pause"} icon={paused ? PlayIcon : PauseIcon} onClick={onPause} />}
       {compact && document.fullscreenEnabled && <IconButton label="Full screen" icon={ArrowsPointingOutIcon} onClick={() => document.documentElement.requestFullscreen()} />}
@@ -92,11 +107,21 @@ export function DisplayPage({ slug }: { slug: string }) {
   const phone = useMedia("(max-width: 639px)")
   const wall = page?.kind === "wall" || !!page?.rotation // A status page in a rotation is on the same screen.
   useWakeLock(wall)
+  // Restarts on every page change, so a page picked by hand gets its full time.
   useEffect(() => {
     if (!count || paused) return
-    const id = setInterval(() => setStep((s) => (s + 1) % count), delay * 1000)
-    return () => clearInterval(id)
-  }, [count, delay, paused])
+    const id = setTimeout(() => setStep((s) => (s + 1) % count), delay * 1000)
+    return () => clearTimeout(id)
+  }, [count, delay, paused, step])
+  useEffect(() => {
+    if (!count) return
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") setStep((s) => (s + 1) % count)
+      if (e.key === "ArrowLeft") setStep((s) => (s - 1 + count) % count)
+    }
+    addEventListener("keydown", key)
+    return () => removeEventListener("keydown", key)
+  }, [count])
   useEffect(() => {
     if (!page) return
     setSeconds(page.refresh_s)
@@ -115,17 +140,19 @@ export function DisplayPage({ slug }: { slug: string }) {
     const z = page.zoom || 1
     return (
       <main className="flex flex-col overflow-hidden bg-bg p-2" style={{ zoom: z, height: `calc(100dvh / ${z})` }}>
-        <Header page={page} updated={updated} compact step={step} paused={paused} onPause={wall ? () => setPaused(!paused) : undefined} />
+        <Header page={page} updated={updated} compact step={step} paused={paused} onPause={wall ? () => setPaused(!paused) : undefined} go={setStep} />
         {status === "stale" && <Lost updated={updated} />}
         <Notice page={page} />
-        <div className="min-h-0 flex-1"><Grid page={page} fit paused={paused} /></div>
+        {page.scroll
+          ? <div key={step} className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><Grid page={page} paused={paused} /></div>
+          : <div className="min-h-0 flex-1"><Grid page={page} fit paused={paused} /></div>}
       </main>
     )
   }
   return (
     <main className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-[1400px] p-4 sm:p-6">
-        <Header page={page} updated={updated} step={step} paused={paused} onPause={wall ? () => setPaused(!paused) : undefined} />
+        <Header page={page} updated={updated} step={step} paused={paused} onPause={wall ? () => setPaused(!paused) : undefined} go={setStep} />
         {status === "stale" && <Lost updated={updated} />}
         <Notice page={page} />
         <Grid page={page} />

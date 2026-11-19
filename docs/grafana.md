@@ -10,6 +10,35 @@ Nyx monitor  ──/metrics──▶  VictoriaMetrics  ──▶  Grafana
  (RAM only)    every 60 s    (stores history)     (dashboard, port 3000)
 ```
 
+## How the metrics travel
+
+The agents measure, the monitor gathers, Grafana draws. There are two ways to connect
+them, and they can run side by side:
+
+| | Through the monitor (recommended) | Straight from the agents |
+| --- | --- | --- |
+| Scraped | One address: the monitor's `/metrics` | Every host, on the port you choose |
+| Holds | Hosts, disks, SMART, containers, Proxmox guests, VPN, probes, pipelines, alerts, Meross, Tempo | That host's CPU, memory, swap, network, temperature, disks, SMART and containers |
+| Needs on the hosts | Nothing more | One open port per host, and its firewall rule |
+| Works without the monitor | No | Yes |
+| Set up in | Monitor settings | `/etc/nyx/agent.conf` or Ansible |
+
+```
+                         ┌───────────── report every 15-60 s ─────────────┐
+agent (each host) ───────┤                                                ▼
+   │                     │                                   Nyx monitor ──/metrics──┐
+   └── :9101/metrics ────┼── optional, direct ──┐                                    │
+                         │                      ▼                                    ▼
+                         │              VictoriaMetrics or Prometheus  ◀─────────────┘
+                         │                      │
+                         │                      ▼
+                         └──────────────────  Grafana
+```
+
+Through the monitor is the usual way: nothing changes on the hosts and the dashboard gets
+everything. Scrape the agents directly when you already run Prometheus and want host
+figures even with no Nyx monitor, or at the pace of your own scrape.
+
 Grafana does not store metrics itself, so something has to sit in between. The
 profile uses [VictoriaMetrics](https://victoriametrics.com): a single small binary
 that speaks the Prometheus language and needs a fraction of Prometheus' memory and
@@ -71,6 +100,8 @@ docker compose --profile grafana up -d
 | `NYX_METRICS_RETENTION` | `90d` | How long metrics are kept: `30d`, `1y`... |
 | `NYX_METRICS_HOST` | `monitor:8081`, the monitor of the same compose | Address of the monitor with its port if any, without `https://` |
 | `NYX_METRICS_SCHEME` | `http` | `https` for a monitor behind TLS |
+| `NYX_AGENT_METRICS_TARGETS` | empty | Agents to scrape directly, as `'"host:port", "host:port"'`. See [Scraping the agents directly](#scraping-the-agents-directly) |
+| `NYX_AGENT_METRICS_TOKEN` | | Their `NYX_METRICS_TOKEN` |
 
 After editing `.env`, run the `up -d` command again.
 
@@ -98,6 +129,90 @@ Then, in Grafana, **Dashboards → New → Import** and upload
 [`nyx-dashboard.json`](../packaging/docker/nyx-dashboard.json), choosing your
 Prometheus data source.
 
+## Scraping the agents directly
+
+Each agent can serve its own `/metrics`. It is off until you give it an address. The
+figures are those of its last report, kept in memory: a scrape measures nothing, reads
+no file and writes nothing. Metric names and the `host` label match the monitor's, so
+the host panels of the Nyx dashboard read both; fleet totals, probes and alerts stay
+empty without the monitor. Here `host` is the machine's host name, which can differ from
+the name given in Nyx, and there is no `host_id`.
+
+### 1. Turn it on
+
+In `/etc/nyx/agent.conf` on the host:
+
+```sh
+NYX_METRICS_LISTEN=0.0.0.0:9101
+NYX_METRICS_TOKEN=a-random-string-of-16-characters-or-more
+```
+
+Make a token with `openssl rand -hex 24`. Then `sudo systemctl restart nyx-agent`. The
+agent refuses to start with a non-loopback address and no token, or a shorter one, rather
+than serve the host's figures to anyone. With `127.0.0.1:9101`, for a collector on the
+same host, the token is optional.
+
+With Ansible, set the same two values for every host at once, the token in Ansible Vault:
+
+```yaml
+nyx_agent_metrics_listen: "0.0.0.0:9101"
+nyx_agent_metrics_token: "{{ vault_nyx_metrics_token }}"
+```
+
+Open the port to your Prometheus only. From the host page, **Firewall → Add a rule**:
+allow, TCP, port `9101`, from the Prometheus address.
+
+### 2. Check it
+
+```sh
+curl -H "Authorization: Bearer TOKEN" http://HOST:9101/metrics
+```
+
+Values appear after the agent's first report, 15 seconds at most. SMART and container
+figures come with the next reading of each, up to 30 minutes for SMART.
+
+### 3. Scrape it
+
+```yaml
+scrape_configs:
+  - job_name: nyx-agents
+    scrape_interval: 60s
+    authorization:
+      credentials: TOKEN
+    static_configs:
+      - targets: ["pve-01.lan:9101", "web-01.lan:9101", "nas.lan:9101"]
+```
+
+The same token on every host keeps this to one job.
+
+With the `grafana` Docker profile, the job is already there. List the agents in `.env`,
+each in double quotes, the whole list in single quotes, then run
+`docker compose --profile grafana up -d`:
+
+```sh
+NYX_AGENT_METRICS_TARGETS='"pve-01.lan:9101", "web-01.lan:9101", "nas.lan:9101"'
+NYX_AGENT_METRICS_TOKEN=the-agents-token
+```
+
+When the monitor is scraped too, every host appears twice, once per job. In Grafana,
+pick one with `{job="nyx"}` or `{job="nyx-agents"}`.
+
+### What the agent serves
+
+`nyx_host_info`, `nyx_host_up`, `nyx_host_uptime_seconds`, `nyx_host_cpu_usage_percent`,
+`nyx_host_memory_used_bytes`, `nyx_host_memory_total_bytes`, `nyx_host_swap_used_bytes`,
+`nyx_host_swap_total_bytes`, `nyx_host_network_receive_bytes_per_second`,
+`nyx_host_network_transmit_bytes_per_second`, `nyx_host_temperature_celsius`,
+`nyx_host_reboot_required`, `nyx_disk_used_bytes`, `nyx_disk_total_bytes`,
+`nyx_smart_health`, `nyx_smart_life_left_percent`, `nyx_smart_temperature_celsius`,
+`nyx_smart_power_on_hours`, `nyx_smart_bad_sectors`, `nyx_container_running`,
+`nyx_container_cpu_usage_percent` and `nyx_container_memory_used_bytes`, with the labels
+of the [table below](#metrics). Probes, pipelines, alerts and integrations live in the
+monitor only.
+
+When the agent stops, its endpoint goes with it: alert on `up{job="nyx-agents"} == 0` in
+Prometheus.
+
 ## Good to know
 
 - **Scrape interval:** while nobody has the monitor's web UI open, agents report
@@ -120,6 +235,9 @@ Prometheus data source.
 | `404` in the logs | Metrics are turned off in the monitor: create a token |
 | `connection refused` or timeout | `NYX_METRICS_HOST` is wrong or the machine cannot reach the monitor |
 | Certificate error | The monitor's certificate is not trusted: use a trusted one, or `http` on the LAN |
+| Agent: `connection refused` on 9101 | `NYX_METRICS_LISTEN` is unset or `127.0.0.1`, or the agent was not restarted. `journalctl -u nyx-agent` shows `cannot serve metrics` if the port is taken |
+| Agent: timeout on 9101 | The host's firewall drops it: add the rule above |
+| Agent does not start after the change | Its log says the token is missing or too short |
 
 ## Metrics
 

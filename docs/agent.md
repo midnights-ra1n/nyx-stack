@@ -180,6 +180,10 @@ two missed reports at its pace, plus 30 seconds: 1 minute at full pace, 2.5 minu
 
 Package managers supported for updates are apt and dnf.
 
+The agent can also serve these figures to Prometheus itself, on a port of your choice,
+for Grafana without the monitor. It is off by default. See
+[Grafana](grafana.md#scraping-the-agents-directly).
+
 ## Firewall
 
 The **Firewall** block of a host page shows the tool that filters incoming traffic, what

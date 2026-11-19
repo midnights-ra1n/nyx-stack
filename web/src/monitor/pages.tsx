@@ -1,9 +1,10 @@
-import { ArrowPathIcon, DocumentTextIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, DocumentTextIcon, PauseIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable, ask } from "../ui/components"
 import { api, fmt, type Level, levelSoft, levelText, useApi } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
+import { uptimeBar } from "./display/model"
 import { PRESETS } from "./snmp-presets"
 import { VpnTable } from "./vpn"
 
@@ -177,33 +178,84 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
   )
 }
 
-/** Days left on a certificate. The 7 is the critical limit of the alerts, see `CERT_CRIT_DAYS`. */
-function CertDays({ probe: p }: { probe?: any }) {
-  if (p?.cert_days == null) return <Td className="text-fg2">—</Td>
-  const level: Level = p.cert_days <= 7 ? "crit" : p.cert_days <= p.warn_days ? "warn" : "ok"
-  return <Td className={`whitespace-nowrap ${level === "ok" ? "text-fg2" : `font-medium ${levelText[level]}`}`}>{p.cert_days < 0 ? "Expired" : `${p.cert_days} days`}</Td>
+/** Down first, then warnings, as on Uptime Kuma: what needs a look sits on top. */
+const RANK: Record<Level, number> = { crit: 0, warn: 1, info: 2, ok: 3, off: 4 }
+const TYPE_LABEL: Record<string, string> = { ping: "Ping", http: "HTTP", dns: "DNS", cert: "Certificate", snmp: "SNMP" }
+
+export function probeLevel(p: any, enabled = true): Level {
+  if (!enabled || p?.up == null) return "off"
+  if (!p.up || p.readings.some((r: any) => r.level === "crit")) return "crit"
+  return p.readings.some((r: any) => r.level === "warn") || (p.cert_days != null && p.cert_days <= p.warn_days) ? "warn" : "ok"
 }
 
-function History({ values }: { values: boolean[] }) {
+/** Share of the recent checks that passed, `null` before the first one. */
+export const recentUptime = (history: boolean[] = []) => (history.length ? (history.filter(Boolean).length * 100) / history.length : null)
+
+const pct = (v: number | null | undefined) => (v == null ? "—" : `${v >= 99.995 ? 100 : +v.toFixed(2)} %`)
+const uptimeLevel = (v: number | null | undefined): Level => (v == null ? "off" : v >= 99.9 ? "ok" : v >= 95 ? "warn" : "crit")
+
+/** One bar per check, newest on the right; empty slots on the left until there are enough. */
+function Heartbeats({ values = [], count = 40, tall }: { values?: boolean[]; count?: number; tall?: boolean }) {
+  const last = values.slice(-count)
+  const slots = [...Array(count - last.length).fill(null), ...last]
   return (
-    <span className="flex h-5 items-stretch gap-px" role="img" aria-label={`${values.filter(Boolean).length} of ${values.length} checks up`}>
-      {values.slice(-40).map((v, i, all) => <span key={i} title={`${all.length - i === 1 ? "Latest check" : `${all.length - 1 - i} checks ago`}: ${v ? "up" : "down"}`} className={`w-1 rounded-full ${v ? "bg-ok" : "bg-crit"}`} />)}
+    <span className={`flex ${tall ? "h-8" : "h-5"} w-full items-stretch gap-[2px]`} role="img" aria-label={`${last.filter(Boolean).length} of ${last.length} recent checks up`}>
+      {slots.map((v, i) => <span key={i} title={v == null ? undefined : `${count - 1 - i === 0 ? "Latest check" : `${count - 1 - i} checks ago`}: ${v ? "up" : "down"}`} className={`min-w-0 flex-1 rounded-full ${v == null ? "bg-raised" : v ? "bg-ok" : "bg-crit"}`} />)}
     </span>
   )
 }
 
-/** Latest readings and the history of one value. */
-function ProbeDetail({ probe, onClose }: { probe: any; onClose: () => void }) {
-  const numeric = probe.readings.filter((r: any) => r.value != null)
+function UptimePill({ value, level }: { value: number | null; level: Level }) {
+  return <span className={`inline-flex w-[4.5rem] shrink-0 justify-center rounded-full px-2 py-0.5 text-[13px] font-medium ${levelSoft[level]} ${levelText[level]}`}>{value == null ? "—" : `${value >= 99.995 ? 100 : value.toFixed(value >= 99 ? 1 : 0)} %`}</span>
+}
+
+/** The selected probe, Uptime Kuma style: state, recent beats, figures and the response chart. */
+function ProbeView({ def, probe, onEdit, onToggle, onDelete }: { def: any; probe?: any; onEdit: () => void; onToggle: () => void; onDelete: () => void }) {
+  const numeric = probe?.readings.filter((r: any) => r.value != null) ?? []
   const [metric, setMetric] = useState("")
   const [range, setRange] = useState("24h")
-  const { data } = useApi<any[]>(`/api/probes/${probe.id}/series?range=${range}&metric=${encodeURIComponent(metric)}`)
+  const { data } = useApi<any[]>(probe ? `/api/probes/${probe.id}/series?range=${range}&metric=${encodeURIComponent(metric)}` : null)
   const unit = metric ? numeric.find((r: any) => r.label === metric)?.unit ?? "" : "ms"
   const values = (data ?? []).map((p) => ({ t: p.t, v: p.v }))
   const top = Math.max(1, ...values.map((p) => p.v)) * 1.1
+  const avg = !metric && values.length ? values.reduce((t, p) => t + p.v, 0) / values.length : null
+  const level = probeLevel(probe, def.enabled)
+  const recent = recentUptime(probe?.history)
+  const days: (number | null)[] = probe?.days ?? []
   return (
-    <Modal title={probe.name} onClose={onClose}>
-      {probe.readings.length > 0 && (
+    <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-xl font-medium">{def.name}</h2>
+          <p className="truncate text-fg2"><span className="mr-2 rounded-full bg-raised px-2 py-0.5 text-xs text-fg2">{TYPE_LABEL[def.type] ?? def.type}</span>{def.type === "http" ? <a className="font-mono text-accent" href={def.target} target="_blank" rel="noreferrer">{def.target}</a> : <Mono>{def.target}</Mono>}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Status level={level} label={!def.enabled ? "Paused" : probe?.up == null ? "Pending" : probe.up ? "Up" : "Down"} />
+          <IconButton label={def.enabled ? "Pause" : "Resume"} icon={def.enabled ? PauseIcon : PlayIcon} onClick={onToggle} />
+          <IconButton label="Edit" icon={PencilSquareIcon} onClick={onEdit} />
+          <IconButton label="Delete" icon={TrashIcon} onClick={onDelete} />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Heartbeats values={probe?.history} count={60} tall />
+        <div className="flex justify-between text-xs text-fg3"><span>{probe?.interval_s ? `Every ${probe.interval_s} s` : ""}</span><span>{def.enabled && probe?.message}</span></div>
+      </div>
+      <div className="grid grid-cols-5 gap-4 max-lg:grid-cols-3 max-sm:grid-cols-2">
+        <Stat label="Response" value={probe?.up ? `${probe.latency_ms.toFixed(0)} ms` : "—"} sub="Current" />
+        <Stat label="Average response" value={avg == null ? "—" : `${avg.toFixed(0)} ms`} sub={range} />
+        <Stat label="Uptime" value={pct(recent)} level={recent == null ? undefined : uptimeLevel(recent)} sub={`Last ${probe?.history.length ?? 0} checks`} />
+        <Stat label="Uptime" value={pct(probe?.uptime_30d)} level={probe?.uptime_30d == null ? undefined : uptimeLevel(probe.uptime_30d)} sub="30 days" />
+        {probe?.cert_days != null && <Stat label="Certificate" value={probe.cert_days < 0 ? "Expired" : `${probe.cert_days} d`} level={probe.cert_days <= 7 ? "crit" : probe.cert_days <= probe.warn_days ? "warn" : "ok"} sub="Until it expires" />}
+      </div>
+      {days.some((d) => d != null) && (
+        <div className="flex flex-col gap-1">
+          <span className="flex h-8 items-stretch gap-[2px]" role="img" aria-label="Uptime of each of the last 30 days">
+            {days.map((d, i) => <span key={i} title={`${days.length - 1 - i === 0 ? "Today" : `${days.length - 1 - i} days ago`}: ${d == null ? "no data" : `${d} %`}`} className={`min-w-0 flex-1 rounded-sm ${uptimeBar(d)}`} />)}
+          </span>
+          <div className="flex justify-between text-xs text-fg3"><span>30 days ago</span><span>Today</span></div>
+        </div>
+      )}
+      {probe?.readings.length > 0 && (
         <ul className="divide-y divide-line">
           {probe.readings.map((r: any) => (
             <li key={r.label} className="flex min-h-9 max-sm:min-h-11 items-center justify-between gap-3">
@@ -213,14 +265,18 @@ function ProbeDetail({ probe, onClose }: { probe: any; onClose: () => void }) {
           ))}
         </ul>
       )}
-      <div className="flex flex-wrap gap-3">
-        <RangeSelect value={range} onChange={setRange} />
-        {numeric.length > 0 && <Variable label="Value" value={metric} onChange={setMetric} options={[{ value: "", label: "Latency" }, ...numeric.map((r: any) => ({ value: r.label, label: r.label }))]} />}
-      </div>
-      <TimeSeries series={[{ name: metric || "Latency", color: "var(--color-s1)", values }]} max={+top.toPrecision(2)} unit={` ${unit}`} />
-    </Modal>
+      {probe && <>
+        <div className="flex flex-wrap gap-3">
+          <RangeSelect value={range} onChange={setRange} />
+          {numeric.length > 0 && <Variable label="Value" value={metric} onChange={setMetric} options={[{ value: "", label: "Response time" }, ...numeric.map((r: any) => ({ value: r.label, label: r.label }))]} />}
+        </div>
+        <TimeSeries series={[{ name: metric || "Response time", color: "var(--color-s1)", values }]} max={+top.toPrecision(2)} unit={` ${unit}`} />
+      </>}
+    </div>
   )
 }
+
+const SHOW = [{ value: "", label: "All" }, { value: "crit", label: "Down" }, { value: "warn", label: "Warning" }, { value: "ok", label: "Up" }, { value: "off", label: "Paused or pending" }]
 
 export function Network() {
   const live = useApi<any[]>("/api/probes")
@@ -228,22 +284,62 @@ export function Network() {
   const hosts = useApi<any[]>("/api/hosts")
   const tunnels = hosts.data?.flatMap((host) => (host.vpn ?? []).map((v: any) => ({ ...v, host }))) ?? []
   const [edit, setEdit] = useState<any | null | undefined>()
-  const [detail, setDetail] = useState<string>()
+  const [picked, setPicked] = useState<string>()
+  const [q, setQ] = useState("")
+  const [show, setShow] = useState("")
   const done = async () => { setEdit(undefined); await api("/api/probes/reload", { method: "POST" }); defs.reload(); live.reload() }
   const state = (id: string) => live.data?.find((p) => p.id === id)
-  const level = (p: any): Level => (p?.up == null ? "off" : !p.up ? "crit" : p.readings.some((r: any) => r.level === "crit") ? "crit" : p.readings.some((r: any) => r.level === "warn") || (p.cert_days != null && p.cert_days <= p.warn_days) ? "warn" : "ok")
-  const open = detail ? state(detail) : undefined
-  const up = live.data?.filter((p) => p.up).length ?? 0
+  const rows = (defs.data?.items ?? []).map((d: any) => ({ d, p: state(d.id), level: probeLevel(state(d.id), d.enabled) }))
+    .sort((a: any, b: any) => RANK[a.level as Level] - RANK[b.level as Level] || a.d.name.localeCompare(b.d.name))
+  const shown = rows.filter((r: any) => (!show || r.level === show) && `${r.d.name} ${r.d.target}`.toLowerCase().includes(q.toLowerCase()))
+  const current = rows.find((r: any) => r.d.id === picked) ?? shown[0]
+  const count = (l: Level) => rows.filter((r: any) => r.level === l).length
+  const paused = rows.filter((r: any) => !r.d.enabled).length
   const latencies = live.data?.filter((p) => p.up).map((p) => p.latency_ms) ?? []
   const certs = live.data?.filter((p) => p.cert_days != null).sort((a, b) => a.cert_days - b.cert_days) ?? []
+  const toggle = async (d: any) => { await api(`/api/c/probes/${d.id}`, { method: "PATCH", body: { enabled: !d.enabled } }); done() }
+  const remove = async (d: any) => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/probes/${d.id}`, { method: "DELETE" }); setPicked(undefined); done() } }
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title="Summary" edit={edit}>
-        <div className="grid grid-cols-3 gap-4">
-          <Stat label="Up" value={`${up} / ${live.data?.length ?? 0}`} level={up === live.data?.length ? "ok" : "warn"} />
-          <Stat label="Average latency" value={latencies.length ? `${(latencies.reduce((a, b) => a + b) / latencies.length).toFixed(0)} ms` : "—"} />
-          <Stat label="Next certificate" value={certs.length ? `${certs[0].cert_days} d` : "—"} level={certs[0]?.cert_days <= certs[0]?.warn_days ? "warn" : undefined} sub={certs[0]?.name} />
+        <div className="grid grid-cols-5 gap-4 max-md:grid-cols-3 max-sm:grid-cols-2">
+          <Stat label="Up" value={count("ok")} level="ok" />
+          <Stat label="Down" value={count("crit")} level={count("crit") ? "crit" : undefined} />
+          <Stat label="Warning" value={count("warn")} level={count("warn") ? "warn" : undefined} />
+          <Stat label="Paused" value={paused} sub={count("off") > paused ? `${count("off") - paused} pending` : undefined} />
+          <Stat label="Average response" value={latencies.length ? `${(latencies.reduce((a, b) => a + b) / latencies.length).toFixed(0)} ms` : "—"} sub={certs[0] ? `Next certificate: ${certs[0].name}, ${certs[0].cert_days} d` : undefined} />
         </div>
+      </Panel>
+    ) },
+    { id: "probes", title: "Probes", render: (edit: any) => (
+      <Panel title="Probes" flush edit={edit}>
+        {rows.length === 0 ? <div className="px-4 pb-4"><Empty>No probes yet. Add one to watch a host, a website, a DNS server or a certificate.</Empty></div> : (
+          <div className="grid grid-cols-[minmax(18rem,2fr)_3fr] max-lg:grid-cols-1">
+            <div className="flex min-w-0 flex-col border-r border-line max-lg:border-r-0 max-lg:border-b">
+              <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
+                <div className="min-w-40 flex-1"><Input label="Search" type="search" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+                <Variable label="Show" value={show} onChange={setShow} options={SHOW} />
+              </div>
+              {shown.length === 0 ? <div className="px-4 pb-4"><Empty>No probe matches.</Empty></div> : (
+                <ul className="max-h-[70vh] overflow-y-auto max-lg:max-h-[40vh]">
+                  {shown.map(({ d, p, level }: any) => (
+                    <li key={d.id}>
+                      <button aria-current={current?.d.id === d.id} onClick={() => setPicked(d.id)} className={`flex w-full min-w-0 items-center gap-3 border-l-2 px-4 py-2 text-left hover:bg-raised ${current?.d.id === d.id ? "border-accent bg-raised" : "border-transparent"}`}>
+                        <UptimePill value={d.enabled ? recentUptime(p?.history) : null} level={level} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{d.name}</span>
+                          <span className="block truncate font-mono text-xs text-fg3">{d.target}</span>
+                        </span>
+                        <span className="w-28 shrink-0 max-sm:w-20"><Heartbeats values={p?.history} count={20} /></span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="min-w-0 p-4">{current && <ProbeView key={current.d.id} def={current.d} probe={current.p} onEdit={() => setEdit(current.d)} onToggle={() => toggle(current.d)} onDelete={() => remove(current.d)} />}</div>
+          </div>
+        )}
       </Panel>
     ) },
     { id: "vpn", title: "VPN links", absent: !tunnels.length, render: (edit: any) => (
@@ -254,40 +350,12 @@ export function Network() {
         {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>No HTTPS certificates followed.</Empty>}
       </Panel>
     ) },
-    { id: "probes", title: "Probes", render: (edit: any) => (
-      <Panel title="Probes" flush edit={edit}>
-        {defs.data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No probes yet.</Empty></div> : (
-          <Table head={["Name", "Type", "Target", "Latency", "Certificate", "Result", "History", "State", ""]}>
-            {defs.data?.items.map((d: any) => {
-              const p = state(d.id)
-              return (
-                <tr key={d.id}>
-                  <Td className="font-medium">{p ? <button className="min-h-9 max-sm:min-h-11 text-left hover:text-accent" onClick={() => setDetail(d.id)}>{d.name}</button> : d.name}</Td>
-                  <Td className="text-fg2">{d.type}</Td>
-                  <Td mono>{d.target}</Td>
-                  <Td className="text-fg2">{p?.up ? `${p.latency_ms.toFixed(0)} ms` : "—"}</Td>
-                  <CertDays probe={p} />
-                  <Td className="max-w-64 truncate text-fg2 max-sm:max-w-none max-sm:whitespace-normal">{d.enabled ? p?.message : "Disabled"}</Td>
-                  <Td>{p && <History values={p.history} />}</Td>
-                  <StateCell level={d.enabled ? level(p) : "off"} label={!d.enabled ? "Disabled" : p?.up == null ? "Pending" : p.up ? undefined : "Down"} />
-                  <Td className="whitespace-nowrap">
-                    <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setEdit(d)} />
-                    <IconButton label="Delete" icon={TrashIcon} onClick={async () => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/probes/${d.id}`, { method: "DELETE" }); done() } }} />
-                  </Td>
-                </tr>
-              )
-            })}
-          </Table>
-        )}
-      </Panel>
-    ) },
   ]
   return (
     <>
       <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
       <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} />
       {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
-      {open && <ProbeDetail probe={open} onClose={() => setDetail(undefined)} />}
     </>
   )
 }

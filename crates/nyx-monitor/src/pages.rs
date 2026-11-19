@@ -104,13 +104,13 @@ impl Uptime {
     }
 
     /// One percentage per day, oldest first. `None` where nothing was measured.
-    fn series(&self, id: &str, today: NaiveDate, host: bool) -> Vec<Option<f64>> {
+    pub(crate) fn series(&self, id: &str, today: NaiveDate, host: bool) -> Vec<Option<f64>> {
         (0..DAYS as i64).rev().map(|back| {
             self.day(id, today - Duration::days(back), host).map(|(u, t)| round2(u as f64 * 100.0 / t as f64))
         }).collect()
     }
 
-    fn overall(&self, id: &str, today: NaiveDate, host: bool) -> Option<f64> {
+    pub(crate) fn overall(&self, id: &str, today: NaiveDate, host: bool) -> Option<f64> {
         let (up, total) = (0..DAYS as i64)
             .filter_map(|back| self.day(id, today - Duration::days(back), host))
             .fold((0u64, 0u64), |a, d| (a.0 + d.0 as u64, a.1 + d.1 as u64));
@@ -176,6 +176,8 @@ pub struct Config {
     pub rotate: Vec<String>,
     /// Seconds on each page of the rotation.
     pub rotate_s: u32,
+    /// On a wall: scroll through panels at their size instead of squeezing them into the screen.
+    pub scroll: bool,
 }
 
 /// Trust boundary of page editing: everything stored or shown later passes here.
@@ -661,7 +663,7 @@ pub fn build(st: &Fleet, kind: &str, cfg: &Config, now: DateTime<Local>) -> Valu
     json!({
         "kind": kind, "title": cfg.title, "description": cfg.description, "footer": cfg.footer, "notice": cfg.notice,
         "notice_level": cfg.notice_level, "logo": cfg.logo, "preset": cfg.preset, "accent": cfg.accent,
-        "refresh_s": cfg.refresh_s, "zoom": cfg.zoom, "overall": overall, "generated": c.now, "panels": panels,
+        "refresh_s": cfg.refresh_s, "zoom": cfg.zoom, "scroll": cfg.scroll, "overall": overall, "generated": c.now, "panels": panels,
     })
 }
 
@@ -689,18 +691,19 @@ fn serve(app: &App, slug: &str, step: usize, headers: &HeaderMap) -> ApiResult<R
     let key = headers.get(KEY_HEADER).and_then(|k| k.to_str().ok());
     let reply = |body: Bytes| ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-cache")], body).into_response();
     let cached = format!("{slug}/{step}");
-    let (page, count, seconds) = {
+    let (page, titles, seconds) = {
         let pages = app.pages.lock().unwrap();
         let root = pages.list.iter().find(|p| p.slug == slug && p.readable(key)).ok_or_else(ApiError::not_found)?;
         if let Some((_, body)) = pages.cache.get(&cached).filter(|(at, _)| at.elapsed().as_secs() < CACHE_S) {
             return Ok(reply(body.clone()));
         }
         let chain = pages.rotation(root);
-        ((*chain.get(step).ok_or_else(ApiError::not_found)?).clone(), chain.len(), root.config.rotate_s)
+        let titles: Vec<String> = chain.iter().map(|p| if p.config.title.is_empty() { p.name.clone() } else { p.config.title.clone() }).collect();
+        ((*chain.get(step).ok_or_else(ApiError::not_found)?).clone(), titles, root.config.rotate_s)
     };
     let mut body = build(&app.lock(), &page.kind, &page.config, Local::now());
-    if count > 1 {
-        body["rotation"] = json!({"count": count, "seconds": seconds});
+    if titles.len() > 1 {
+        body["rotation"] = json!({"count": titles.len(), "seconds": seconds, "titles": titles});
     }
     let body = Bytes::from(body.to_string());
     app.pages.lock().unwrap().cache.insert(cached, (Instant::now(), body.clone()));

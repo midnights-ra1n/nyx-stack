@@ -11,6 +11,8 @@ playbook, or set `roles_path`, and start from `playbook.example.yml`.
 | `nyx_agent_kind` | No, `vm` | `vm`, `lxc`, `physical`, `proxmox` or `vps` |
 | `nyx_agent_ct_autoinstall` | No, `false` | On `proxmox`, install the agent in its LXC containers from the host |
 | `nyx_agent_dns` | No, `[]` | DNS servers the agent resolves the monitor with, such as `["1.1.1.1", "1.0.0.1"]`. Empty uses the system's |
+| `nyx_agent_metrics_listen` | No, `""` | Address of the agent's own Prometheus endpoint, such as `0.0.0.0:9101`. Empty: off |
+| `nyx_agent_metrics_token` | With a non-loopback address | Bearer token for that endpoint, 16 characters or more. Keep it in Ansible Vault |
 
 Run the role on the Proxmox host only: nothing goes in its containers, which then appear
 in the monitor by themselves. See [Proxmox containers](../../docs/agent.md#proxmox-containers).

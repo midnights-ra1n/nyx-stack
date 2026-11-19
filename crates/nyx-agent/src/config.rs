@@ -3,7 +3,11 @@
 
 use anyhow::{bail, Context};
 use nyx_proto::HostKind;
-use std::{fs, net::IpAddr, os::unix::fs::OpenOptionsExt};
+use std::{
+    fs,
+    net::{IpAddr, SocketAddr},
+    os::unix::fs::OpenOptionsExt,
+};
 
 pub const DEFAULT_PATH: &str = "/etc/nyx/agent.conf";
 
@@ -17,6 +21,10 @@ pub struct Config {
     pub ct_autoinstall: bool,
     /// Servers that resolve the monitor's name; empty means the system's.
     pub dns: Vec<IpAddr>,
+    /// Where to serve Prometheus metrics, off when unset.
+    pub metrics_listen: Option<SocketAddr>,
+    /// Bearer token asked of scrapers. Required off loopback.
+    pub metrics_token: String,
 }
 
 impl Config {
@@ -37,8 +45,13 @@ impl Config {
             kind: parse_kind(&get("NYX_KIND").unwrap_or_else(|| "vm".into()))?,
             ct_autoinstall: get("NYX_CT_AUTOINSTALL").is_some_and(|v| v == "1" || v == "true"),
             dns: parse_dns(&get("NYX_DNS").unwrap_or_default())?,
+            metrics_listen: get("NYX_METRICS_LISTEN").filter(|v| !v.is_empty()).map(|v| v.parse().with_context(|| format!("NYX_METRICS_LISTEN {v:?} is not an address:port"))).transpose()?,
+            metrics_token: get("NYX_METRICS_TOKEN").unwrap_or_default(),
             path: path.clone(),
         };
+        if cfg.metrics_listen.is_some_and(|a| !a.ip().is_loopback()) && cfg.metrics_token.len() < 16 {
+            bail!("NYX_METRICS_TOKEN of 16 characters or more is required when NYX_METRICS_LISTEN is not a loopback address");
+        }
         Ok(cfg)
     }
 
@@ -51,6 +64,8 @@ impl Config {
             kind: parse_kind(&need("--kind")?)?,
             ct_autoinstall,
             dns: parse_dns(&flag("--dns").unwrap_or_default())?,
+            metrics_listen: None,
+            metrics_token: String::new(),
             path,
         })
     }
@@ -66,6 +81,11 @@ impl Config {
             self.url, self.token, self.key, self.kind.as_str(), self.ct_autoinstall as u8,
             self.dns.iter().map(IpAddr::to_string).collect::<Vec<_>>().join(",")
         );
+        // Only when set, so a file without them stays as the user wrote it.
+        let body = match self.metrics_listen {
+            Some(a) => format!("{body}NYX_METRICS_LISTEN={a}\nNYX_METRICS_TOKEN={}\n", self.metrics_token),
+            None => body,
+        };
         let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
         std::io::Write::write_all(&mut f, body.as_bytes())?;
         fs::rename(&tmp, &self.path)?;
@@ -100,6 +120,12 @@ mod tests {
         let c = Config::parse("p".into(), &format!("{file}NYX_DNS=1.1.1.1, 2606:4700:4700::1111\n"), |_| None).unwrap();
         assert_eq!(c.dns, vec!["1.1.1.1".parse::<IpAddr>().unwrap(), "2606:4700:4700::1111".parse().unwrap()]);
         assert!(Config::parse("p".into(), &format!("{file}NYX_DNS=cloudflare\n"), |_| None).is_err());
+        assert_eq!(c.metrics_listen, None);
+        let local = Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=127.0.0.1:9101\n"), |_| None).unwrap();
+        assert_eq!(local.metrics_listen, Some("127.0.0.1:9101".parse().unwrap()));
+        assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=0.0.0.0:9101\n"), |_| None).is_err(), "open without a token");
+        assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=0.0.0.0:9101\nNYX_METRICS_TOKEN=0123456789abcdef\n"), |_| None).is_ok());
+        assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=9101\n"), |_| None).is_err());
     }
 
     #[test]
@@ -112,7 +138,7 @@ mod tests {
     fn save_round_trips_with_private_mode() {
         let dir = std::env::temp_dir().join(format!("nyx-agent-test-{}", std::process::id()));
         let path = dir.join("agent.conf").to_string_lossy().to_string();
-        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true, dns: parse_dns("9.9.9.9,1.1.1.1").unwrap() };
+        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true, dns: parse_dns("9.9.9.9,1.1.1.1").unwrap(), metrics_listen: Some("[::]:9101".parse().unwrap()), metrics_token: "0123456789abcdef".into() };
         c.save().unwrap();
         assert_eq!(Config::parse(path.clone(), &fs::read_to_string(&path).unwrap(), |_| None).unwrap(), c);
         use std::os::unix::fs::PermissionsExt;
