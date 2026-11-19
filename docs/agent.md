@@ -35,6 +35,10 @@ monitor answers through them, then restarts. The first server that answers is us
 the next ones are fallbacks. The agent asks over plain UDP port 53; TLS still checks
 that it reaches the real monitor.
 
+To change many agents at once, **Change DNS** on the **Hosts** page sends the same servers
+to the online agents you tick. Each row then shows, live, whether its agent took them or
+why it kept its previous servers.
+
 ### Ansible
 
 The role in `packaging/ansible/roles/nyx_agent` takes the same four values:

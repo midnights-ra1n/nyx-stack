@@ -60,6 +60,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | PATCH | `/api/hosts/{id}` | Session | `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
+| GET | `/api/results` | Session | The latest 200 command results of every host |
 | GET | `/api/hosts/{id}/logs/live` | Session | Live log lines after `?after=<seq>`, with the new `seq` and whether the agent is `connected`. Each request keeps the live view running for 15 seconds |
 | GET | `/api/series` | Session | CPU and memory history, of a host with `?host=`, else the fleet average. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
 | GET | `/api/map` | Session | Nodes of the [map](monitoring.md#map): name, state, type, parent, saved place, details and link. Places are the `map_layout` setting |

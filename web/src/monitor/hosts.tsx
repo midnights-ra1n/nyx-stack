@@ -1,4 +1,4 @@
-import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, GlobeAltIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { ProxmoxIcon } from "../ui/brand-icons"
@@ -248,6 +248,7 @@ export function Hosts() {
   const th = useApi("/api/settings/thresholds", { poll: false }).data ?? {}
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [updateError, setUpdateError] = useState("")
+  const [bulkDns, setBulkDns] = useState(false)
   const [q, setQ] = useState("")
   const [type, setType] = useState("")
   const [state, setState] = useState("")
@@ -328,11 +329,83 @@ export function Hosts() {
   ]
   return (
     <>
-      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<><CustomizeButton /><Button disabled={updating || !updatable} onClick={updateAll}><ArrowPathIcon className="size-5" aria-hidden />Update all</Button><Button variant="primary" onClick={() => navigate("/hosts/new")}><PlusIcon className="size-5" aria-hidden />Add host</Button></>} />
+      <PageHeader title="Hosts" subtitle={`${list.length} hosts`} onRefresh={hosts.reload} actions={<><CustomizeButton /><Button disabled={!updatable} onClick={() => setBulkDns(true)}><GlobeAltIcon className="size-5" aria-hidden />Change DNS</Button><Button disabled={updating || !updatable} onClick={updateAll}><ArrowPathIcon className="size-5" aria-hidden />Update all</Button><Button variant="primary" onClick={() => navigate("/hosts/new")}><PlusIcon className="size-5" aria-hidden />Add host</Button></>} />
       <ErrorNote>{updateError}</ErrorNote>
       <FleetUpdates hosts={list} />
+      {bulkDns && <BulkDns hosts={list.filter((h) => h.status !== "off" && h.agent_version)} onClose={() => { setBulkDns(false); hosts.reload() }} />}
       <Board id="hosts" panels={panels} desktop={{ cols: [["summary", "fleet"]], hidden: [] }} phone={{ cols: [["summary", "fleet"]], hidden: [] }} />
     </>
+  )
+}
+
+export type DnsRun = { host: string; name: string; id?: string; ok?: boolean; output: string }
+
+/** Where each host of a bulk DNS change stands, from the results the agents sent back. */
+export function dnsRunState(runs: DnsRun[], results: any[]): DnsRun[] {
+  return runs.map((r) => {
+    const res = r.id && r.ok === undefined ? results.find((x) => x.id === r.id) : undefined
+    return res ? { ...r, ok: res.ok, output: res.output } : r
+  })
+}
+
+/** Sends the same DNS servers to many agents at once and shows, live, which ones took them. */
+function BulkDns({ hosts, onClose }: { hosts: any[]; onClose: () => void }) {
+  const [picked, setPicked] = useState(() => new Set(hosts.map((h) => h.id)))
+  const [dns, setDns] = useState("")
+  const [runs, setRuns] = useState<DnsRun[]>([])
+  const pending = runs.some((r) => r.id && r.ok === undefined)
+  useEffect(() => {
+    if (!pending) return
+    const id = setInterval(async () => {
+      try { const results = await api<any[]>("/api/results"); setRuns((rs) => dnsRunState(rs, results)) } catch { /* next tick */ }
+    }, 2000)
+    return () => clearInterval(id)
+  }, [pending])
+  const toggle = (id: string) => { const s = new Set(picked); s.has(id) ? s.delete(id) : s.add(id); setPicked(s) }
+  const apply = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const servers = dns.split(/[\s,]+/).filter(Boolean)
+    const chosen = hosts.filter((h) => picked.has(h.id))
+    setRuns(chosen.map((h) => ({ host: h.id, name: h.name, output: "Sending…" })))
+    const sent = await Promise.all(chosen.map(async (h): Promise<DnsRun> => {
+      try {
+        const { id } = await api<{ id: string }>(`/api/hosts/${h.id}/command`, { method: "POST", body: { action: "set_dns", dns: servers } })
+        return { host: h.id, name: h.name, id, output: "Waiting for the agent…" }
+      } catch (err) { return { host: h.id, name: h.name, ok: false, output: (err as Error).message } }
+    }))
+    setRuns(sent)
+  }
+  const done = runs.filter((r) => r.ok !== undefined).length
+  return (
+    <Modal title="Change DNS servers" onClose={onClose} wide>
+      <form className="flex flex-col gap-4" onSubmit={apply}>
+        <Input label="DNS servers" value={dns} onChange={(e) => setDns(e.target.value)} placeholder="The system's resolver" hint="Used by the agents to reach the monitor, for example 1.1.1.1, 1.0.0.1. Each agent keeps them only if the monitor answers through them. Empty goes back to the system's." />
+        <fieldset className="flex flex-col gap-1">
+          <legend className="mb-1 text-[13px] text-fg2">Hosts · {picked.size} of {hosts.length}</legend>
+          <div className="flex gap-3 text-[13px]">
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set(hosts.map((h) => h.id)))}>All</button>
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set())}>None</button>
+          </div>
+          <div className="grid max-h-56 grid-cols-2 overflow-y-auto max-sm:grid-cols-1">
+            {hosts.map((h) => <Check key={h.id} label={h.name} hint={h.dns?.length ? h.dns.join(", ") : "System resolver"} checked={picked.has(h.id)} onChange={() => toggle(h.id)} />)}
+          </div>
+        </fieldset>
+        <div><Button variant="primary" type="submit" disabled={!picked.size || pending}>Apply to {picked.size} hosts</Button></div>
+      </form>
+      {runs.length > 0 && (
+        <div className="mt-4" role="status" aria-live="polite">
+          <p className="mb-2 text-[13px] text-fg2">{done} of {runs.length} answered</p>
+          <ul className="flex flex-col divide-y divide-line">
+            {runs.map((r) => (
+              <li key={r.host} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2">
+                <span className="flex min-w-0 flex-col"><span className="truncate">{r.name}</span><span className={`font-mono text-xs ${r.ok === false ? "text-crit" : "text-fg3"}`}>{r.output}</span></span>
+                <Status cell level={r.ok === undefined ? "info" : r.ok ? "ok" : "crit"} label={r.ok === undefined ? "Pending" : r.ok ? "Changed" : "Failed"} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Modal>
   )
 }
 

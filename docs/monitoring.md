@@ -95,7 +95,7 @@ the website check itself fails.
 
 | Type | Checks |
 | --- | --- |
-| Ping | ICMP reachability and latency |
+| Ping | ICMP reachability and latency; the host name can resolve through a chosen server, so pings stay out of a local NextDNS or Pi-hole log |
 | Website | HTTP status and response time |
 | DNS | That a name resolves, through a chosen server |
 | Certificate | Days until an HTTPS certificate expires |

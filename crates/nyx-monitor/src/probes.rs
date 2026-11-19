@@ -261,7 +261,7 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
     let ms = || started.elapsed().as_secs_f64() * 1000.0;
     match def.kind.as_str() {
         "ping" => {
-            let ip = resolve(&def.target).await?;
+            let ip = resolve(&def.target, &def.dns_server).await?;
             let client = if ip.is_ipv4() { &app.probes.icmp4 } else { &app.probes.icmp6 };
             let client = client.as_ref().context("ICMP socket unavailable, see the deployment docs")?;
             let id = surge_ping::PingIdentifier(started.elapsed().subsec_nanos() as u16);
@@ -301,14 +301,22 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
     }
 }
 
-async fn resolve(target: &str) -> anyhow::Result<IpAddr> {
+/// Through `server` when set, so a local resolver such as NextDNS does not log every ping.
+async fn resolve(target: &str, server: &str) -> anyhow::Result<IpAddr> {
     if let Ok(ip) = target.parse() {
         return Ok(ip);
+    }
+    if !server.is_empty() {
+        return lookup(target, server).await;
     }
     tokio::net::lookup_host((target, 0)).await.context("cannot resolve")?.next().map(|a| a.ip()).context("no address")
 }
 
 async fn dns_lookup(name: &str, server: &str) -> anyhow::Result<String> {
+    Ok(lookup(name, server).await?.to_string())
+}
+
+async fn lookup(name: &str, server: &str) -> anyhow::Result<IpAddr> {
     let provider = TokioRuntimeProvider::default();
     let builder = if server.is_empty() {
         Resolver::builder(provider)?
@@ -317,8 +325,7 @@ async fn dns_lookup(name: &str, server: &str) -> anyhow::Result<String> {
         Resolver::builder_with_config(ResolverConfig::from_parts(None, vec![], vec![NameServerConfig::udp_and_tcp(ip)]), provider)
     };
     let ips = builder.build()?.lookup_ip(name).await.context("DNS lookup failed")?;
-    let first = ips.iter().next().context("empty answer")?;
-    Ok(first.to_string())
+    ips.iter().next().context("empty answer")
 }
 
 /// `target` is a host, `host:port`, or URL. Connects without validating so an

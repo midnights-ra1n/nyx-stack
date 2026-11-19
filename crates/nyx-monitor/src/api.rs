@@ -272,6 +272,11 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
     Ok(Json(json!({"id": cmd})))
 }
 
+/// The latest command results of every host, to follow a change sent to many at once.
+async fn results(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
+    Json(json!(app.lock().results))
+}
+
 async fn update_all(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
     Json(json!({"started": app.lock().update_all(Utc::now().timestamp())}))
 }
@@ -470,6 +475,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/hosts/{id}", get(host).patch(patch_host).delete(delete_host))
         .route("/api/hosts/{id}/install", get(install_line))
         .route("/api/hosts/{id}/command", post(command))
+        .route("/api/results", get(results))
         .route("/api/hosts/{id}/logs/live", get(live_logs))
         .route("/api/series", get(series))
         .route("/api/containers", get(containers))
