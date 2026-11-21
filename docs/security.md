@@ -20,6 +20,14 @@ as that site's user.
 - **Use HTTPS.** Signing protects integrity, but over plain HTTP metrics and the
   install line's token and key can be read on the network.
 
+## Cloudflare relay
+
+With the [relay](cloudflare.md), every request between agents or browsers and the server
+is sealed with AES-256-GCM under a key Cloudflare never receives. Replays and swapped
+answers are refused. Cloudflare still sees metadata, serves the public code and runs the
+edge probes. The full list of what it can and cannot see, and the limits, are in
+[cloudflare.md](cloudflare.md#what-cloudflare-can-and-cannot-see).
+
 ## Sessions and passwords
 
 - Accounts are PocketBase users, with hashed passwords and login rate limiting.

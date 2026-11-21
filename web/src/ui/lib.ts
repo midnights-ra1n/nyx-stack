@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { relayFetch, relayKey } from "./relay"
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
+/** `fetch`, or the sealed one when this page came through the Cloudflare relay. */
+const send = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => (relayKey() ? relayFetch : fetch)(path, init)
+
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
-  const res = await fetch(path, {
+  const res = await send(path, {
     method: opts.method ?? (opts.body === undefined ? "GET" : "POST"),
     headers: opts.body === undefined ? opts.headers : { "content-type": "application/json", ...opts.headers },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -14,6 +18,18 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const data = text ? JSON.parse(text) : null
   if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText)
   return data
+}
+
+/** Saves what `path` answers as a file. A plain link cannot go through the relay. */
+export async function download(path: string) {
+  const res = await send(path)
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.error ?? res.statusText)
+  const name = res.headers.get("content-disposition")?.match(/filename="?([^";]+)/)?.[1] ?? path.split(/[/?]/).filter(Boolean).pop() ?? "download"
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(await res.blob())
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
 /** The logo of this app: each page names its own in index.html. */

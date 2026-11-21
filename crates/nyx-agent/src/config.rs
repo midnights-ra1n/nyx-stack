@@ -25,6 +25,8 @@ pub struct Config {
     pub metrics_listen: Option<SocketAddr>,
     /// Bearer token asked of scrapers. Required off loopback.
     pub metrics_token: String,
+    /// Seals every call for a monitor behind the Cloudflare relay; empty when direct.
+    pub relay_key: String,
 }
 
 impl Config {
@@ -47,8 +49,10 @@ impl Config {
             dns: parse_dns(&get("NYX_DNS").unwrap_or_default())?,
             metrics_listen: get("NYX_METRICS_LISTEN").filter(|v| !v.is_empty()).map(|v| v.parse().with_context(|| format!("NYX_METRICS_LISTEN {v:?} is not an address:port"))).transpose()?,
             metrics_token: get("NYX_METRICS_TOKEN").unwrap_or_default(),
+            relay_key: get("NYX_RELAY_KEY").unwrap_or_default(),
             path: path.clone(),
         };
+        check_relay_key(&cfg.relay_key)?;
         if cfg.metrics_listen.is_some_and(|a| !a.ip().is_loopback()) && cfg.metrics_token.len() < 16 {
             bail!("NYX_METRICS_TOKEN of 16 characters or more is required when NYX_METRICS_LISTEN is not a loopback address");
         }
@@ -66,6 +70,7 @@ impl Config {
             dns: parse_dns(&flag("--dns").unwrap_or_default())?,
             metrics_listen: None,
             metrics_token: String::new(),
+            relay_key: check_relay_key(&flag("--relay-key").unwrap_or_default())?,
             path,
         })
     }
@@ -82,6 +87,7 @@ impl Config {
             self.dns.iter().map(IpAddr::to_string).collect::<Vec<_>>().join(",")
         );
         // Only when set, so a file without them stays as the user wrote it.
+        let body = if self.relay_key.is_empty() { body } else { format!("{body}NYX_RELAY_KEY={}\n", self.relay_key) };
         let body = match self.metrics_listen {
             Some(a) => format!("{body}NYX_METRICS_LISTEN={a}\nNYX_METRICS_TOKEN={}\n", self.metrics_token),
             None => body,
@@ -91,6 +97,13 @@ impl Config {
         fs::rename(&tmp, &self.path)?;
         Ok(())
     }
+}
+
+fn check_relay_key(k: &str) -> anyhow::Result<String> {
+    if !k.is_empty() && nyx_proto::relay::Key::parse(k).is_none() {
+        bail!("the relay key must be 64 hexadecimal characters");
+    }
+    Ok(k.to_string())
 }
 
 fn parse_kind(s: &str) -> anyhow::Result<HostKind> {
@@ -126,6 +139,7 @@ mod tests {
         assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=0.0.0.0:9101\n"), |_| None).is_err(), "open without a token");
         assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=0.0.0.0:9101\nNYX_METRICS_TOKEN=0123456789abcdef\n"), |_| None).is_ok());
         assert!(Config::parse("p".into(), &format!("{file}NYX_METRICS_LISTEN=9101\n"), |_| None).is_err());
+        assert!(Config::parse("p".into(), &format!("{file}NYX_RELAY_KEY=abc\n"), |_| None).is_err(), "malformed relay key");
     }
 
     #[test]
@@ -138,7 +152,7 @@ mod tests {
     fn save_round_trips_with_private_mode() {
         let dir = std::env::temp_dir().join(format!("nyx-agent-test-{}", std::process::id()));
         let path = dir.join("agent.conf").to_string_lossy().to_string();
-        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true, dns: parse_dns("9.9.9.9,1.1.1.1").unwrap(), metrics_listen: Some("[::]:9101".parse().unwrap()), metrics_token: "0123456789abcdef".into() };
+        let c = Config { path: path.clone(), url: "u".into(), token: "t".into(), key: "k".into(), kind: HostKind::Proxmox, ct_autoinstall: true, dns: parse_dns("9.9.9.9,1.1.1.1").unwrap(), metrics_listen: Some("[::]:9101".parse().unwrap()), metrics_token: "0123456789abcdef".into(), relay_key: "ab".repeat(32) };
         c.save().unwrap();
         assert_eq!(Config::parse(path.clone(), &fs::read_to_string(&path).unwrap(), |_| None).unwrap(), c);
         use std::os::unix::fs::PermissionsExt;

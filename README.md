@@ -143,6 +143,7 @@ Each step, packages for Debian and RHEL, HTTPS, backups, updates and removal are
 - [Getting started](docs/getting-started.md): from nothing to your first alert
 - [Architecture](docs/architecture.md): how the parts fit, and why it stays light
 - [Deployment](docs/deployment.md): Docker, packages, HTTPS, linking, upgrades
+- [Cloudflare relay](docs/cloudflare.md): reach Nyx from anywhere through a Worker that only sees ciphertext, with uptime checks from the edge
 - [Configuration](docs/configuration.md): every environment variable
 - [Agent](docs/agent.md): install methods, host types, Ansible, what is collected
 - [Monitoring](docs/monitoring.md): probes, SNMP, alerts

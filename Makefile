@@ -13,6 +13,7 @@ test:
 	cargo test --workspace
 	cd notifier && go test ./...
 	cd web && pnpm test
+	cd relay && pnpm install --frozen-lockfile && pnpm test && pnpm run check
 	sh packaging/next-version.test.sh
 
 web:

@@ -118,6 +118,12 @@ async fn status(State(core): State<Arc<Core>>, headers: HeaderMap) -> ApiResult<
         "public_url": core.env.public_url,
         "shared_database": core.shared,
         "email": email,
+        // The link carries the key in its fragment, which browsers never send anywhere.
+        "relay": core.env.relay_url.as_ref().map(|url| json!({
+            "url": url,
+            "connected": crate::relay::connected(),
+            "link": uid.as_ref().and(core.env.relay_key.as_ref()).map(|k| format!("{url}/#relay={k}")),
+        })),
     })))
 }
 

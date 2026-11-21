@@ -172,6 +172,9 @@ mod tests {
             tls_cert: None,
             tls_key: None,
             notifier_bin: String::new(),
+            relay_url: None,
+            relay_secret: None,
+            relay_key: None,
         }
     }
 

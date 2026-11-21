@@ -8,3 +8,5 @@ pb_data/
 .env
 notifier/nyx-notify
 notifier/notifier
+.dev.vars
+.wrangler/

@@ -3,10 +3,10 @@
 # in the UI generates the full command line.
 #
 #   curl -fsSL https://monitor/install.sh | sudo sh -s -- \
-#     --url https://monitor --token TOKEN --key KEY --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall] [--dns 1.1.1.1,1.0.0.1]
+#     --url https://monitor --token TOKEN --key KEY --kind vm|lxc|physical|proxmox|vps [--ct-autoinstall] [--dns 1.1.1.1,1.0.0.1] [--relay-key HEX]
 set -eu
 
-URL="" TOKEN="" KEY="" KIND="" CT="" BIN="" DNS=""
+URL="" TOKEN="" KEY="" KIND="" CT="" BIN="" DNS="" RELAY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -16,6 +16,7 @@ while [ $# -gt 0 ]; do
     --binary) BIN="$2"; shift 2 ;; # already downloaded (a container without curl)
     --ct-autoinstall) CT="--ct-autoinstall"; shift ;;
     --dns) DNS="$2"; shift 2 ;; # resolve the monitor through these servers, not the system's
+    --relay-key) RELAY="$2"; shift 2 ;; # the monitor sits behind the Cloudflare relay
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -48,7 +49,7 @@ trap 'rm -f "$TMP"' EXIT
 if [ -n "$BIN" ]; then cp "$BIN" "$TMP"; else curl -fsSL "$URL/agent/v1/binary/nyx-agent-linux-$ARCH" -o "$TMP"; fi
 install -m 0755 "$TMP" /usr/local/bin/nyx-agent
 
-/usr/local/bin/nyx-agent configure --url "$URL" --token "$TOKEN" --key "$KEY" --kind "$KIND" $CT ${DNS:+--dns "$DNS"}
+/usr/local/bin/nyx-agent configure --url "$URL" --token "$TOKEN" --key "$KEY" --kind "$KIND" $CT ${DNS:+--dns "$DNS"} ${RELAY:+--relay-key "$RELAY"}
 
 cat > /etc/systemd/system/nyx-agent.service <<'UNIT'
 [Unit]

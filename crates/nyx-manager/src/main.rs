@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(mcp::router(core.clone(), api::mcp_tools(app.clone())))
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
+    nyx_srv::relay::spawn(router.clone(), &core.env);
     let served = web::serve(router, &core).await;
     core.stop_db().await;
     served

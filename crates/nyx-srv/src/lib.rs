@@ -11,6 +11,7 @@ pub mod nextdns;
 pub mod notify;
 pub mod pb;
 pub mod proxmox;
+pub mod relay;
 pub mod system;
 pub mod web;
 
@@ -31,11 +32,22 @@ pub struct Env {
     pub tls_cert: Option<String>,
     pub tls_key: Option<String>,
     pub notifier_bin: String,
+    /// The Cloudflare relay: its address, the secret it admits this server with, and
+    /// the key agents and browsers seal requests with. See `relay.rs`.
+    pub relay_url: Option<String>,
+    pub relay_secret: Option<String>,
+    pub relay_key: Option<String>,
 }
 
 impl Env {
     pub fn load(default_bind: &str) -> anyhow::Result<Self> {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let relay_url = var("NYX_RELAY_URL").map(|u| u.trim_end_matches('/').to_string());
+        let (relay_secret, relay_key) = (var("NYX_RELAY_SECRET"), var("NYX_RELAY_KEY"));
+        if relay_url.is_some() {
+            anyhow::ensure!(relay_secret.as_ref().is_some_and(|s| s.len() >= 32), "NYX_RELAY_SECRET of 32 characters or more is required with NYX_RELAY_URL");
+            anyhow::ensure!(relay_key.as_deref().is_some_and(|k| nyx_proto::relay::Key::parse(k).is_some()), "NYX_RELAY_KEY must be 64 hexadecimal characters (openssl rand -hex 32)");
+        }
         Ok(Self {
             bind: var("NYX_BIND").unwrap_or_else(|| default_bind.into()),
             pb_url: var("NYX_PB_URL").map(|u| u.trim_end_matches('/').into()),
@@ -46,6 +58,9 @@ impl Env {
             tls_cert: var("NYX_TLS_CERT"),
             tls_key: var("NYX_TLS_KEY"),
             notifier_bin: var("NYX_NOTIFIER_BIN").unwrap_or_else(|| "nyx-notify".into()),
+            relay_url,
+            relay_secret,
+            relay_key,
         })
     }
 }

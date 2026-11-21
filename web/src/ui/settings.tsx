@@ -1,7 +1,7 @@
 import { PlusIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useState } from "react"
 import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Modal, Mono, Panel, Progress, Select, Status, Table, Td, TextArea, ask } from "./components"
-import { api, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
+import { api, download, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
 import { MessagePreview } from "./preview"
 import { PageHeader } from "./shell"
 
@@ -338,12 +338,19 @@ export function AboutPanel() {
     ["Public URL", <Mono key="url">{status?.public_url ?? "—"}</Mono>],
     ["HTTPS", status?.https ? "On: passkeys and MCP are available" : "Off: passkeys and MCP need an https:// NYX_PUBLIC_URL"],
     ["Database", status?.shared_database ? "Shared nyx-db" : "Local to this server"],
+    ["Cloudflare relay", status?.relay ? <span key="relay"><Status level={status.relay.connected ? "ok" : "crit"} label={status.relay.connected ? "Linked" : "Not linked"} /> <Mono>{status.relay.url}</Mono></span> : "Off"],
   ]
+  const link = status?.relay?.link
   return (
     <Panel title="This server">
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2">
         {rows.map(([k, v]) => <div key={k} className="contents"><dt className="text-fg2">{k}</dt><dd className="break-words">{v}</dd></div>)}
       </dl>
+      {link && <div className="mt-4 flex flex-col gap-2">
+        <p className="text-fg2">Open this link once on each device that should reach this server through Cloudflare. The relay key is in the part after #, which the browser keeps to itself: Cloudflare only ever sees encrypted traffic.</p>
+        <Copy text={link} />
+        <p className="text-warn">Anyone with this link can reach the sign-in page. Share it like a password.</p>
+      </div>}
     </Panel>
   )
 }
@@ -396,6 +403,7 @@ export function AccountSettings() {
 /** Restoring happens on a new install, while creating its first account. */
 export function BackupSettings() {
   const [history, setHistory] = useState(true)
+  const [error, setError] = useState("")
   return (
     <Panel title="Backup">
       <div className="flex flex-col gap-3">
@@ -403,7 +411,8 @@ export function BackupSettings() {
         <p className="text-fg2">To restore, install a new server with the same public URL and pick the file when creating the account. Agents reconnect on their own.</p>
         <p className="text-warn">The file holds secrets such as agent keys, SSH keys and integration passwords. Keep it somewhere safe.</p>
         <Check label="Include metrics history" hint="Charts, uptime and past events. Makes the file much larger." checked={history} onChange={(e) => setHistory(e.target.checked)} />
-        <div><Button variant="primary" onClick={() => { location.href = `/api/backup?history=${history}` }}>Download backup</Button></div>
+        <div><Button variant="primary" onClick={() => { setError(""); download(`/api/backup?history=${history}`).catch((e) => setError(e.message)) }}>Download backup</Button></div>
+        <ErrorNote>{error}</ErrorNote>
       </div>
     </Panel>
   )

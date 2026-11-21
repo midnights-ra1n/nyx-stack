@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
 
+    nyx_srv::relay::spawn(router.clone(), &core.env);
     web::serve(router, &core).await?;
     let flushed = app.flush().await; // keep the last partial rollup across restarts
     core.stop_db().await;

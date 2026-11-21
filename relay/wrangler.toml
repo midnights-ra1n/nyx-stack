@@ -1,0 +1,40 @@
+# Nyx relay. One deployment per Nyx server: `pnpm run deploy` for the monitor,
+# `pnpm run deploy:manager` for the manager. See docs/cloudflare.md.
+name = "nyx-relay"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+workers_dev = true
+# Privacy first: no usage data from wrangler to Cloudflare.
+send_metrics = false
+
+# The web interface is public code: Cloudflare serves it. Only the paths below run the
+# Worker; everything the API carries goes through /_relay, sealed.
+[assets]
+directory = "../web/dist/monitor"
+not_found_handling = "single-page-application"
+run_worker_first = ["/_relay*", "/_status*", "/install.sh", "/agent/*", "/api/*", "/mcp*"]
+
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "Relay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Relay"]
+
+[vars]
+NAME = "Nyx monitor"
+# "off" hides /_status and /_status.json.
+STATUS_PAGE = "on"
+# Failed checks in a row before something counts as down.
+DOWN_AFTER = "2"
+# Edge probes, checked every minute from Cloudflare. Cloudflare sees these addresses.
+# PROBES = '[{"name": "Blog", "url": "https://blog.example.org"}, {"name": "SSH", "url": "tcp://ssh.example.org:22"}]'
+PROBES = "[]"
+# Secrets: `wrangler secret put RELAY_SECRET` (required) and `ALERT_WEBHOOK` (optional).
+
+[env.manager]
+name = "nyx-manager-relay"
+assets = { directory = "../web/dist/manager", not_found_handling = "single-page-application", run_worker_first = ["/_relay*", "/_status*", "/install.sh", "/agent/*", "/api/*", "/mcp*"] }
+durable_objects.bindings = [{ name = "RELAY", class_name = "Relay" }]
+vars = { NAME = "Nyx manager", STATUS_PAGE = "on", DOWN_AFTER = "2", PROBES = "[]" }

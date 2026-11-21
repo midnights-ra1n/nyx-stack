@@ -4,7 +4,7 @@ import { Board, CustomizeButton } from "../ui/board"
 import { Button, Empty, IconButton, Panel, Select, Table, Td, Tabs, Input, ask } from "../ui/components"
 import { GroupedView, MAP_VIEWS, TreeView, type ViewNode } from "../ui/mapviews"
 import { type Col, Editor, EditorGroup, RecordForm } from "../ui/crud"
-import { api, useApi } from "../ui/lib"
+import { api, download, useApi } from "../ui/lib"
 import { ProxmoxIcon } from "../ui/brand-icons"
 import { PageHeader } from "../ui/shell"
 import { arrange, curve, frame, H, parents, treePath, W } from "./map-layout"
@@ -189,7 +189,7 @@ export function NetworkMap() {
         { id: "export", title: "Export", render: (edit: any) => (
         <Panel title="Export" edit={edit}>
           <div className="flex flex-wrap gap-2">
-            {FORMATS.map(([f, label]) => <a key={f} href={`/api/map/export/${f}`} download><Button><ArrowDownTrayIcon className="size-5" aria-hidden />{label}</Button></a>)}
+            {FORMATS.map(([f, label]) => <Button key={f} onClick={() => download(`/api/map/export/${f}`)}><ArrowDownTrayIcon className="size-5" aria-hidden />{label}</Button>)}
           </div>
         </Panel>
         ) },

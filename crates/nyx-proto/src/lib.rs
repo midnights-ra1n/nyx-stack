@@ -4,6 +4,8 @@
 //! any queued [`Command`]s. The agent never opens a listening port. Optional
 //! fields are `None` when the agent has nothing new, which keeps reports small.
 
+pub mod relay;
+
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

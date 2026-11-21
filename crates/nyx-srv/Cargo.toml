@@ -24,3 +24,6 @@ webauthn-rs = "0.5"
 openssl = { version = "0.10", features = ["vendored"] }
 mime_guess = "2"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+tower = { version = "0.5", features = ["util"] }

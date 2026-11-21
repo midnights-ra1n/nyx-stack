@@ -146,7 +146,11 @@ fn install_in_ct(cfg: &Config, http: &ureq::Agent, vmid: u32, token: &str, key: 
     let run = || -> anyhow::Result<String> {
         sh(cmd("pct", ["push", &id, &script.to_string_lossy(), "/tmp/nyx-install.sh", "--perms", "0755"]))?;
         sh(cmd("pct", ["push", &id, &bin.to_string_lossy(), "/tmp/nyx-agent.bin", "--perms", "0755"]))?;
-        sh(cmd("pct", ["exec", &id, "--", "sh", "/tmp/nyx-install.sh", "--url", &cfg.url, "--token", token, "--key", key, "--kind", "lxc", "--binary", "/tmp/nyx-agent.bin"]))
+        let mut install = cmd("pct", ["exec", &id, "--", "sh", "/tmp/nyx-install.sh", "--url", &cfg.url, "--token", token, "--key", key, "--kind", "lxc", "--binary", "/tmp/nyx-agent.bin"]);
+        if !cfg.relay_key.is_empty() {
+            install.args(["--relay-key", &cfg.relay_key]);
+        }
+        sh(install)
     };
     let done = run();
     let _ = sh(cmd("pct", ["exec", &id, "--", "rm", "-f", "/tmp/nyx-install.sh", "/tmp/nyx-agent.bin"]));

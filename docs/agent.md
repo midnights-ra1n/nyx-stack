@@ -39,6 +39,17 @@ To change many agents at once, **Change DNS** on the **Hosts** page sends the sa
 to the online agents you tick. Each row then shows, live, whether its agent took them or
 why it kept its previous servers.
 
+### Through the Cloudflare relay
+
+When the monitor is reached through the [Cloudflare relay](cloudflare.md), the agent seals
+every call with the relay key, so Cloudflare forwards reports it cannot read. Nothing
+else changes: the agent still only connects outwards, and still signs each report with
+its own key. **Add host** adds `--relay-key` to the install line, and
+`nyx_agent_relay_key` to the Ansible variables, when the monitor URL you type is the
+relay's address. By hand, add `NYX_RELAY_KEY=` to `/etc/nyx/agent.conf` and restart the
+agent. Without the key, the same agent talks to the monitor directly, so a host on the
+LAN can keep the monitor's local address.
+
 ### Ansible
 
 The role in `packaging/ansible/roles/nyx_agent` takes the same four values:

@@ -4,6 +4,9 @@ NYX_KEY={{ nyx_agent_key }}
 NYX_KIND={{ nyx_agent_kind }}
 NYX_CT_AUTOINSTALL={{ '1' if nyx_agent_ct_autoinstall else '0' }}
 NYX_DNS={{ nyx_agent_dns | join(',') }}
+{% if nyx_agent_relay_key %}
+NYX_RELAY_KEY={{ nyx_agent_relay_key }}
+{% endif %}
 {% if nyx_agent_metrics_listen %}
 NYX_METRICS_LISTEN={{ nyx_agent_metrics_listen }}
 NYX_METRICS_TOKEN={{ nyx_agent_metrics_token }}

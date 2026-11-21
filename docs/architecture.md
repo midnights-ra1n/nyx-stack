@@ -29,6 +29,7 @@
 | `notifier` | Go | `nyx-notify`, a small wrapper around Shoutrrr |
 | `pb/pb_migrations` | JS | PocketBase schema, embedded in both servers |
 | `web` | React, Tailwind | One codebase, built once per server and embedded in its binary |
+| `relay` | TypeScript | Optional [Cloudflare Worker](cloudflare.md) that forwards sealed traffic to a server |
 
 PocketBase is a Go program, so it cannot be linked into a Rust binary as a library. The
 `nyx-db` crate carries the unmodified executable and the schema instead. It unpacks them
@@ -140,6 +141,14 @@ of accounts, and only one thing changes: both run the notification loop, so each
 is claimed first by creating a row under a unique key built from the rule and its last
 send. One server wins and the other skips it. A failed send gives the claim back, and a
 claim left by a crash expires. Local databases skip this, and its writes with it.
+
+## Cloudflare relay
+
+Optional. A server can keep one outbound WebSocket to a Cloudflare Worker, which then
+forwards requests that agents and browsers sealed with a key it does not have. The
+server opens each one and runs it through its own router, as if it had come in on its
+port, so nothing else in the server knows about the relay. Workers are JavaScript-native,
+so this one piece is TypeScript, as the notifier is Go. See [cloudflare.md](cloudflare.md).
 
 ## Role separation
 

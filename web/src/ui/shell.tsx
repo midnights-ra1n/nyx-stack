@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client"
 import { type ReactNode, createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
 import { Button, Dialogs, ErrorNote, type Icon, Input, Tabs } from "./components"
 import { api, AUTH_LOST, markUrl, REFRESH, setRefresh, useApi, useOnline, useRefresh } from "./lib"
+import { isKey } from "./envelope"
+import { setRelayKey } from "./relay"
 
 // Router: the app has few, flat routes; history API is all it needs.
 const subscribe = (l: () => void) => { addEventListener("popstate", l); return () => removeEventListener("popstate", l) }
@@ -205,6 +207,21 @@ function Gate({ setup, passkeys, onDone, name }: { setup: boolean; passkeys: boo
   )
 }
 
+/** Reached through the Cloudflare relay without its key, or with a wrong one. */
+function RelayKeyForm({ name, onDone }: { name: string; onDone: () => void }) {
+  const [hex, setHex] = useState("")
+  return (
+    <main className="flex min-h-full items-center justify-center p-5">
+      <form className="flex w-full max-w-sm flex-col gap-4 rounded-panel border border-line bg-surface p-6" onSubmit={(e) => { e.preventDefault(); setRelayKey(hex); onDone() }}>
+        <div className="flex items-center gap-3"><Logo /><h1 className="text-lg font-medium">{name}</h1></div>
+        <p className="text-fg2">This server is reached through an encrypted Cloudflare relay. Open the link from Settings, This server, or paste its relay key.</p>
+        <Input label="Relay key" className="font-mono" autoComplete="off" spellCheck={false} required value={hex} onChange={(e) => setHex(e.target.value)} hint="64 hexadecimal characters. Kept on this device only." />
+        <Button variant="primary" type="submit" disabled={!isKey(hex)}>Continue</Button>
+      </form>
+    </main>
+  )
+}
+
 /** First start: where this server keeps its data. It restarts on the chosen database. */
 function DatabaseChoice({ name, embedded, onDone }: { name: string; embedded: boolean; onDone: () => void }) {
   const [mode, setMode] = useState(embedded ? "local" : "remote")
@@ -281,6 +298,7 @@ export function App({ name, useNav, route, customizable }: { name: string; useNa
     addEventListener(AUTH_LOST, reload)
     return () => removeEventListener(AUTH_LOST, reload)
   }, [name, reload])
+  if (!status && error && /relay key/i.test(error)) return <RelayKeyForm name={name} onDone={reload} />
   if (!status) return error ? <main className="flex min-h-full items-center justify-center p-5"><div className="flex flex-col items-center gap-4 text-fg2"><Logo /><p>Cannot reach {name}.</p><Button onClick={reload}>Try again</Button></div></main> : null
   if (status.database_setup) return <DatabaseChoice name={name} embedded={status.embedded} onDone={reload} />
   if (!status.authenticated) return <Gate setup={status.needs_setup} passkeys={status.passkeys} onDone={reload} name={name} />

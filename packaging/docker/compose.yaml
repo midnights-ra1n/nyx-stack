@@ -21,6 +21,10 @@ services:
       <<: *pb
       NYX_BIND: 0.0.0.0:8081
       NYX_PUBLIC_URL: ${NYX_MONITOR_URL:?set it in .env}
+      # Optional Cloudflare relay: see docs/cloudflare.md.
+      NYX_RELAY_URL: ${NYX_MONITOR_RELAY_URL:-}
+      NYX_RELAY_SECRET: ${NYX_MONITOR_RELAY_SECRET:-}
+      NYX_RELAY_KEY: ${NYX_MONITOR_RELAY_KEY:-}
     ports:
       - 8081:8081
     volumes:
@@ -37,6 +41,9 @@ services:
       <<: *pb
       NYX_BIND: 0.0.0.0:8082
       NYX_PUBLIC_URL: ${NYX_MANAGER_URL:?set it in .env}
+      NYX_RELAY_URL: ${NYX_MANAGER_RELAY_URL:-}
+      NYX_RELAY_SECRET: ${NYX_MANAGER_RELAY_SECRET:-}
+      NYX_RELAY_KEY: ${NYX_MANAGER_RELAY_KEY:-}
     ports:
       - 8082:8082
     volumes:
@@ -73,6 +80,7 @@ services:
       NYX_TOKEN: ${NYX_AGENT_TOKEN:-}
       NYX_KEY: ${NYX_AGENT_KEY:-}
       NYX_KIND: ${NYX_AGENT_KIND:-vm}
+      NYX_RELAY_KEY: ${NYX_AGENT_RELAY_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /run/log/journal:/run/log/journal:ro

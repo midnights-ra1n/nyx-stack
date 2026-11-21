@@ -17,6 +17,9 @@ Servers read environment variables. With packages, put them in
 | `NYX_NOTIFIER_BIN` | `nyx-notify` | Path to the notifier |
 | `NYX_AGENT_DIR` | `/usr/share/nyx/agents` | Monitor only. Agent binaries served to hosts |
 | `NYX_UPDATE_DIR` | unset | Enables package self-update. Set by the systemd units |
+| `NYX_RELAY_URL` | unset | Address of the [Cloudflare relay](cloudflare.md), such as `https://nyx-relay.you.workers.dev`. The server links to it on its own, with no open port |
+| `NYX_RELAY_SECRET` | unset | The Worker's `RELAY_SECRET`, 32 characters or more. Required with `NYX_RELAY_URL` |
+| `NYX_RELAY_KEY` | unset | The relay key, 64 hex characters from `openssl rand -hex 32`. Cloudflare never gets it. Required with `NYX_RELAY_URL` |
 
 ## Shared database
 
@@ -39,3 +42,4 @@ variables of the same name win, which is how the Docker image is configured.
 | `NYX_DNS` | DNS servers that resolve the monitor's name, such as `1.1.1.1,1.0.0.1`. Empty uses the system's resolver |
 | `NYX_METRICS_LISTEN` | Address and port of the agent's own Prometheus endpoint, such as `127.0.0.1:9101`. Unset: off. See [Grafana](grafana.md#scraping-the-agents-directly) |
 | `NYX_METRICS_TOKEN` | Bearer token for that endpoint, 16 characters or more. Required unless it listens on loopback |
+| `NYX_RELAY_KEY` | Relay key, 64 hex characters, when `NYX_URL` is the [Cloudflare relay](cloudflare.md). Every call is then sealed with it |

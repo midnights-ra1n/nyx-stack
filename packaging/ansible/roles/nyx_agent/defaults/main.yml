@@ -6,3 +6,5 @@ nyx_agent_dns: []
 nyx_agent_metrics_listen: ""
 # Bearer token for it, 16 characters or more; required off loopback.
 nyx_agent_metrics_token: ""
+# 64 hex characters when the monitor is reached through the Cloudflare relay. Empty: direct.
+nyx_agent_relay_key: ""

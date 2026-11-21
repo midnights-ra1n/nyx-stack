@@ -127,12 +127,22 @@ struct NewHost {
     ct_autoinstall: bool,
 }
 
-fn install_info(public_url: &str, token: &str, key: &str, kind: &str, ct: bool) -> Value {
+/// `relay` is the relay key, given only when `public_url` is the Cloudflare relay.
+fn install_info(public_url: &str, token: &str, key: &str, kind: &str, ct: bool, relay: Option<&str>) -> Value {
     let flag = if ct { " --ct-autoinstall" } else { "" };
-    json!({
-        "curl": format!("curl -fsSL {public_url}/install.sh | sudo sh -s -- --url {public_url} --token {token} --key {key} --kind {kind}{flag}"),
+    let relay_flag = relay.map(|k| format!(" --relay-key {k}")).unwrap_or_default();
+    let mut info = json!({
+        "curl": format!("curl -fsSL {public_url}/install.sh | sudo sh -s -- --url {public_url} --token {token} --key {key} --kind {kind}{flag}{relay_flag}"),
         "ansible": {"nyx_agent_url": public_url, "nyx_agent_token": token, "nyx_agent_key": key, "nyx_agent_kind": kind, "nyx_agent_ct_autoinstall": ct},
-    })
+    });
+    if let Some(k) = relay {
+        info["ansible"]["nyx_agent_relay_key"] = k.into();
+    }
+    info
+}
+
+fn relay_key<'a>(env: &'a nyx_srv::Env, url: &str) -> Option<&'a str> {
+    env.relay_key.as_deref().filter(|_| env.relay_url.as_deref() == Some(url))
 }
 
 async fn add_host(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewHost>) -> ApiResult<Json<Value>> {
@@ -148,7 +158,8 @@ async fn add_host(_: Session, State(app): State<Arc<App>>, Json(b): Json<NewHost
         return Err(ApiError::bad_request("a host can only run on a physical server"));
     }
     let (token, key, id) = ingest::create_host(&app, b.name.trim(), kind.as_str(), &b.parent, 0, ct, "").await?;
-    let mut info = install_info(&app.core.env.public_url, &token, &key, kind.as_str(), ct);
+    let env = &app.core.env;
+    let mut info = install_info(&env.public_url, &token, &key, kind.as_str(), ct, relay_key(env, &env.public_url));
     info["id"] = id.into();
     Ok(Json(info))
 }
@@ -173,7 +184,7 @@ async fn install_line(_: Session, State(app): State<Arc<App>>, Path(id): Path<St
     let url = agent_url(q.url.as_deref(), &app.core.env.public_url)?;
     let st = app.lock();
     let h = st.hosts.get(&id).ok_or_else(ApiError::not_found)?;
-    Ok(Json(install_info(&url, &h.token, &h.key, &h.kind, h.ct_autoinstall)))
+    Ok(Json(install_info(&url, &h.token, &h.key, &h.kind, h.ct_autoinstall, relay_key(&app.core.env, &url))))
 }
 
 async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
