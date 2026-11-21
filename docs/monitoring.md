@@ -108,7 +108,9 @@ the website check itself fails.
 | Certificate | Days until an HTTPS certificate expires |
 | SNMP | Any OID, on any device that speaks SNMP |
 
-**DNS for probes** (Settings → Monitoring) sets the DNS servers every probe resolves names through, for example `1.1.1.1, 9.9.9.9` when this server's own resolver fails or logs every check. A ping or DNS probe's own server still wins. Empty uses the system resolver.
+**DNS for probes** (Settings → Monitoring) sets the DNS servers every probe resolves names through, for example `1.1.1.1, 9.9.9.9` when this server's own resolver fails or logs every check. A probe's own server still wins. Empty uses the system resolver.
+
+**Probe DNS** at the top of the Network page shows the DNS server of every ping and website probe and changes it for one probe or for all the ticked ones at once. Empty goes back to the DNS for probes.
 
 An alert opens after two failures in a row, so a single lost packet stays quiet.
 

@@ -14,3 +14,11 @@ describe("dnsRunState", () => {
     expect(out[2].output).toBe("not found")
   })
 })
+
+describe("looksLikeIp", () => {
+  it("takes one IPv4 or IPv6 address and nothing else", async () => {
+    const { looksLikeIp } = await import("./pages")
+    expect(["1.1.1.1", "2606:4700:4700::1111", "::1"].every(looksLikeIp)).toBe(true)
+    expect(["dns.google", "1.1.1.1, 9.9.9.9", "1.1.1"].some(looksLikeIp)).toBe(false)
+  })
+})

@@ -45,6 +45,8 @@ pub struct Shared {
     cert_http: reqwest::Client,
     /// The `probe_dns` setting: servers every probe resolves names through, empty for the system's.
     pub dns: Arc<RwLock<Vec<IpAddr>>>,
+    /// Website clients for probes with their own DNS server, one per server, built on first use.
+    http_by_dns: std::sync::Mutex<HashMap<IpAddr, reqwest::Client>>,
 }
 
 /// Lets website and certificate probes resolve through [`Shared::dns`].
@@ -77,7 +79,20 @@ impl Shared {
             http: reqwest::Client::builder().timeout(CHECK_TIMEOUT).dns_resolver(ProbeResolver(dns.clone())).build()?,
             cert_http: reqwest::Client::builder().dns_resolver(ProbeResolver(dns.clone())).tls_danger_accept_invalid_certs(true).tls_info(true).timeout(CHECK_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build()?,
             dns,
+            http_by_dns: Default::default(),
         })
+    }
+
+    /// The website client resolving through the probe's own server, else through [`Shared::dns`].
+    fn http_via(&self, own: Option<IpAddr>) -> anyhow::Result<reqwest::Client> {
+        let Some(ip) = own else { return Ok(self.http.clone()) };
+        let mut cache = self.http_by_dns.lock().unwrap();
+        if let Some(c) = cache.get(&ip) {
+            return Ok(c.clone());
+        }
+        let c = reqwest::Client::builder().timeout(CHECK_TIMEOUT).dns_resolver(ProbeResolver(Arc::new(RwLock::new(vec![ip])))).build()?;
+        cache.insert(ip, c.clone());
+        Ok(c)
     }
 }
 
@@ -303,7 +318,7 @@ async fn check(app: &App, def: &ProbeDef, started: Instant) -> anyhow::Result<Ou
             Ok(Outcome { latency_ms: rtt.as_secs_f64() * 1000.0, message: format!("reply from {ip}"), ..Outcome::default() })
         }
         "http" => {
-            let res = app.probes.http.get(&def.target).send().await.context("request failed")?;
+            let res = app.probes.http_via(def.dns_server.parse().ok())?.get(&def.target).send().await.context("request failed")?;
             let code = res.status().as_u16();
             let ok = if def.expect_status > 0 { code == def.expect_status } else { res.status().is_success() || res.status().is_redirection() };
             if !ok {

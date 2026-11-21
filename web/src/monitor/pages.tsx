@@ -1,4 +1,4 @@
-import { ArrowPathIcon, DocumentTextIcon, PauseIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, DocumentTextIcon, GlobeAltIcon, PauseIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable, ask } from "../ui/components"
@@ -155,7 +155,7 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Input label="Target" required value={f.target} hint={TARGET_HINT[f.type]} onChange={(e) => set("target", e.target.value)} />
         <Input label="Interval (seconds)" type="number" min={10} value={f.interval_s} onChange={(e) => set("interval_s", Number(e.target.value))} />
         {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the DNS for probes from Settings, or the system's resolver." onChange={(e) => set("dns_server", e.target.value)} />}
-        {f.type === "ping" && <Input label="DNS server" value={f.dns_server} placeholder="The DNS for probes from Settings" hint="IP that resolves the host name, for example 1.1.1.1 so the pings stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
+        {(f.type === "ping" || f.type === "http") && <Input label="DNS server" value={f.dns_server} placeholder="The DNS for probes from Settings" hint="IP that resolves the host name, for example 1.1.1.1 so the checks stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
         {f.type === "http" && <Input label="Expected status" type="number" value={f.expect_status || ""} hint="Empty accepts any 2xx or 3xx." onChange={(e) => set("expect_status", Number(e.target.value))} />}
         {(f.type === "cert" || (f.type === "http" && f.target.startsWith("https://"))) && <Input label="Warn this many days before the certificate expires" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
         {f.type === "snmp" && <>
@@ -173,6 +173,51 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Check label="Enabled" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
         <ErrorNote>{error}</ErrorNote>
         <div><Button variant="primary" type="submit">Save</Button></div>
+      </form>
+    </Modal>
+  )
+}
+
+const DNS_TYPES = ["ping", "http"]
+/** Loose check, the monitor rejects the rest when it resolves. */
+export const looksLikeIp = (s: string) => /^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]*:[0-9a-f:]*$/i.test(s)
+
+/** Sets the DNS server of one or many ping and website probes at once. */
+function ProbeDns({ defs, onDone }: { defs: any[]; onDone: () => void }) {
+  const probes = defs.filter((d) => DNS_TYPES.includes(d.type))
+  const fallback = useApi("/api/settings/probe_dns", { poll: false }).data?.servers || "the system's resolver"
+  const [dns, setDns] = useState("")
+  const [picked, setPicked] = useState(new Set<string>())
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const toggle = (id: string) => { const s = new Set(picked); s.has(id) ? s.delete(id) : s.add(id); setPicked(s) }
+  const apply = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const server = dns.trim()
+    if (server && !looksLikeIp(server)) return setError("The DNS server must be one IP address.")
+    setBusy(true)
+    try { await Promise.all([...picked].map((id) => api(`/api/c/probes/${id}`, { method: "PATCH", body: { dns_server: server } }))); onDone() }
+    catch (err) { setError((err as Error).message); setBusy(false) }
+  }
+  return (
+    <Modal title="Probe DNS" onClose={onDone} wide>
+      <form className="flex flex-col gap-4" onSubmit={apply}>
+        <Input label="DNS server" value={dns} onChange={(e) => setDns(e.target.value)} placeholder={`DNS for probes: ${fallback}`} hint="One IP, for example 1.1.1.1. Empty goes back to the DNS for probes from Settings." />
+        <fieldset className="flex flex-col gap-1">
+          <legend className="mb-1 text-[13px] text-fg2">Ping and website probes · {picked.size} of {probes.length}</legend>
+          <div className="flex gap-3 text-[13px]">
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set(probes.map((d) => d.id)))}>All</button>
+            {DNS_TYPES.map((t) => <button key={t} type="button" className="text-accent" onClick={() => setPicked(new Set(probes.filter((d) => d.type === t).map((d) => d.id)))}>{TYPE_LABEL[t]} only</button>)}
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set())}>None</button>
+          </div>
+          {probes.length === 0 ? <Empty>No ping or website probe yet.</Empty> : (
+            <div className="grid max-h-72 grid-cols-2 overflow-y-auto max-sm:grid-cols-1">
+              {probes.map((d) => <Check key={d.id} label={`${d.name} · ${TYPE_LABEL[d.type]}`} hint={d.dns_server || `DNS for probes (${fallback})`} checked={picked.has(d.id)} onChange={() => toggle(d.id)} />)}
+            </div>
+          )}
+        </fieldset>
+        <ErrorNote>{error}</ErrorNote>
+        <div><Button variant="primary" type="submit" disabled={!picked.size || busy}>Apply to {picked.size} probes</Button></div>
       </form>
     </Modal>
   )
@@ -287,7 +332,8 @@ export function Network() {
   const [picked, setPicked] = useState<string>()
   const [q, setQ] = useState("")
   const [show, setShow] = useState("")
-  const done = async () => { setEdit(undefined); await api("/api/probes/reload", { method: "POST" }); defs.reload(); live.reload() }
+  const [dnsOpen, setDnsOpen] = useState(false)
+  const done = async () => { setEdit(undefined); setDnsOpen(false); await api("/api/probes/reload", { method: "POST" }); defs.reload(); live.reload() }
   const state = (id: string) => live.data?.find((p) => p.id === id)
   const rows = (defs.data?.items ?? []).map((d: any) => ({ d, p: state(d.id), level: probeLevel(state(d.id), d.enabled) }))
     .sort((a: any, b: any) => RANK[a.level as Level] - RANK[b.level as Level] || a.d.name.localeCompare(b.d.name))
@@ -353,9 +399,10 @@ export function Network() {
   ]
   return (
     <>
-      <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
+      <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button onClick={() => setDnsOpen(true)}><GlobeAltIcon className="size-5" aria-hidden />Probe DNS</Button><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
       <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} />
       {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
+      {dnsOpen && <ProbeDns defs={defs.data?.items ?? []} onDone={done} />}
     </>
   )
 }
