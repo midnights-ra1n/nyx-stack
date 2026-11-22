@@ -27,7 +27,7 @@ export function unpack<T>(buf: Bytes): { head: T; body: Bytes } | undefined {
 }
 
 /** Files fetched without the key, such as by `curl … | sh`. */
-export const isPublic = (path: string) => path === "/install.sh" || path === "/api/health" || /^\/agent\/v1\/binary\/[^/]+$/.test(path)
+export const isPublic = (path: string) => path === "/install.sh" || path === "/api/health" || path.startsWith("/api/public/") || /^\/agent\/v1\/binary\/[^/]+$/.test(path)
 
 export const isKey = (hex: string) => /^[0-9a-f]{64}$/i.test(hex.trim())
 

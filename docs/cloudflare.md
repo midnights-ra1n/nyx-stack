@@ -10,9 +10,9 @@ a webhook, and it serves a public uptime page that stays up even when your home
 connection is down. It can probe your public sites from Cloudflare's network too.
 
 ```
- agents ─┐   sealed with the relay key            ┌──────────────────────────┐
-         ├──── HTTPS POST /_relay ───────────────►│ Cloudflare Worker        │
-browsers ┘   (Cloudflare sees ciphertext)         │  Durable Object "Relay"  │
+ agents   ─┐                                       ┌──────────────────────────┐
+ browsers ─┼── one WebSocket each, /_relay/ws ───►│ Cloudflare Worker        │
+ nyx-mcp  ─┘   sealed with the relay key          │  Durable Object "Relay"  │
                                                   │  · forwards sealed bytes │
   visitors ──── GET /_status ────────────────────►│  · uptime checks, alerts │
                                                   └────────────▲─────────────┘
@@ -43,10 +43,12 @@ moving bytes it cannot read.
 | --- | --- |
 | Metrics, logs, inventories, IPAM, settings, alerts | No. They are sealed with AES-256-GCM |
 | Passwords, session cookies, agent tokens and signatures | No. They travel inside the sealed envelope |
-| Which page you open, which API call is made | No. The path is inside the envelope; every call is `POST /_relay` |
+| Which page you open, which API call is made | No. The path is inside the envelope; every call is a frame on `/_relay/ws` or a `POST /_relay` |
+| What an AI client asks over MCP, and the answers | No, through [`nyx-mcp`](integrations.md#through-the-cloudflare-relay), which seals them on your computer |
 | The relay key | No. It sits in the `#` fragment of the link, which browsers never send, and in the agent's config |
 | That a request happened, its size and time, the client's IP | Yes. That is metadata and cannot be hidden from the network that carries it |
 | The web interface's code, `install.sh`, agent binaries | Yes. They are public, open-source files, served in clear |
+| Public status pages | Yes. Anyone may read them, so they go in clear. Wall displays do not: they are sealed |
 | The edge probes' addresses and results, the uptime page, the alert texts | Yes. Probing a site from Cloudflare means Cloudflare knows the site |
 | The Worker's secrets (`RELAY_SECRET`, `ALERT_WEBHOOK`) | Yes. The relay secret only lets a server attach to the relay. It cannot decrypt anything |
 
@@ -67,13 +69,18 @@ their host key, and browsers still need a session.
 - **Through the relay, the browser keeps the session itself**, in local storage next to
   the relay key, because the Worker's domain must never receive a cookie. Sign out on
   shared computers.
-- **MCP is not relayed.** MCP clients cannot seal requests, and their answers describe
-  your whole infrastructure, so `/mcp` is refused by the Worker. Use MCP on the server's
-  own HTTPS address.
-- **Public status pages and wall displays of the monitor** are not served through the
-  relay, for the same reason. The Worker has its own [uptime page](#uptime-page).
-- **Passkeys** are bound to one address. Set `NYX_PUBLIC_URL` to the Worker's address to
-  use them through the relay.
+- **MCP clients cannot seal**, so the Worker refuses `/mcp` from them. Run
+  [`nyx-mcp`](integrations.md#through-the-cloudflare-relay) on your computer: Claude
+  Desktop, Claude Code, Codex and other clients that start local MCP servers talk to it,
+  and it seals for them. Hosted connectors, such as those of claude.ai or ChatGPT on the
+  web, call a URL from their own servers and cannot run it. They need the server's own
+  HTTPS address.
+- **Wall display links carry the relay key** next to the wall's own key, so a screen
+  that has one can reach the sign-in page. Replace the wall's link if it leaks, and the
+  relay key if that matters to you.
+- **Passkeys** are bound to one domain. Give the Worker a domain of your own, set
+  `NYX_PUBLIC_URL` to it, and point the same name at the server on your LAN (split DNS):
+  one passkey then works both ways.
 
 ## Set it up
 
@@ -147,6 +154,21 @@ asks for the key.
 **Add host** gives install lines with `--relay-key` when the monitor URL is the Worker's
 address. Existing agents need `NYX_RELAY_KEY=<relay key>` added to `/etc/nyx/agent.conf`,
 and their `NYX_URL` changed to the Worker's address. See [agent.md](agent.md#through-the-cloudflare-relay).
+They keep [one WebSocket](agent.md#one-connection) to the Worker.
+
+### 6. The manager's link to the monitor
+
+When the monitor is only reachable through its Worker, give the manager that address in
+**Settings, Integrations, Nyx Monitor**, with the monitor's relay key in **Monitor's
+relay key**: the part after `#relay=` of the monitor's link. The manager then seals its
+calls like a browser. The manager can sit behind a relay of its own at the same time.
+
+### 7. Status pages, wall displays and MCP
+
+Public status pages work at `https://<worker>/status/<address>` with nothing to set up.
+A wall display's private link, copied while you use the interface through the relay,
+ends with `&relay=…`: open it once on the screen. For MCP, see
+[nyx-mcp](integrations.md#through-the-cloudflare-relay).
 
 ## Uptime
 
@@ -204,13 +226,28 @@ The Worker cannot use Shoutrrr, so these alerts are separate from the server's
 
 ## Costs
 
-Each agent report is one Worker request and one Durable Object request, so hosts set the
-volume. At the idle pace of one report a minute, a host makes 1,440 requests a day, and
-up to 5,760 while someone has the interface open (see [report pace](agent.md#report-pace)).
-The Workers free plan allows 100,000 requests a day, which is about 50 hosts with
-headroom for browsing. The paid plan includes 10 million requests a month. The link and
-the heartbeat use WebSocket hibernation, so an idle relay costs almost nothing. Check
-Cloudflare's current prices, as they change.
+Agents and browsers keep one WebSocket open to the Worker and send their calls over it.
+Opening it is one Worker request. After that, Cloudflare bills a message it receives as
+a twentieth of a Durable Object request and does not count it as a Worker request. A
+call is two received messages (the client's and the server's answer), so a tenth of a
+request:
+
+| | Worker requests a day | Durable Object requests a day |
+| --- | --- | --- |
+| A host at the idle pace of one report a minute (see [report pace](agent.md#report-pace)) | about 1 | 144 |
+| A host while someone has the interface open (every 15 s) | about 1 | 576 |
+| A visible browser tab, for each API call its page refreshes every 15 s | about 1 | 576 |
+| A visitor of a public status page, refreshing every 30 s | 2,880 | 2,880 |
+| The manager's link to a monitor behind its relay | about 300 | about 300 |
+| An MCP question through `nyx-mcp` | a few | a few |
+
+The free plan allows 100,000 of each a day. A hundred hosts and a wall display open all
+day take about 16,000 Durable Object requests and a handful of Worker requests. Public
+status pages are what can grow: each visitor's refresh is one request of each kind. The
+paid plan includes 10 million requests a month.
+
+The server's link, its heartbeat and idle sockets use WebSocket hibernation, so an idle
+relay costs almost nothing. Check Cloudflare's current prices, as they change.
 
 ## Troubleshooting
 
@@ -221,6 +258,9 @@ Cloudflare's current prices, as they change.
 | The browser asks for the relay key again | The key it holds is wrong, or local storage was cleared. Open the link from Settings |
 | `request replayed, or this device's clock is off` | The device's clock is more than 5 minutes off the server's |
 | Agent log: `relay answer does not open with the relay key` | The agent's `NYX_RELAY_KEY` differs from the server's |
+| Agent log: `websocket to … unavailable, using HTTPS for 10 minutes` | The Worker predates agent sockets: run `pnpm run deploy` again. Reports still arrive meanwhile, one request each |
+| Manager: `relay: 428` or `relay answer does not open` on the monitor link | The monitor's relay key is missing or wrong in the manager's settings |
+| A status page stays empty through the Worker | The Worker predates public pages: run `pnpm run deploy` again |
 | `/_status` shows nothing | No check has run yet. Checks start when the server first links |
 
 ## Develop

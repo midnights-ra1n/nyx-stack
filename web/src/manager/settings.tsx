@@ -76,7 +76,8 @@ export function Settings() {
       { id: "integrations", label: "Integrations", icon: PuzzlePieceIcon, description: "Optional links to the services around the manager.", body: <>
         <SettingForm title="Nyx Monitor" setting="link" needs={["url", "token"]} fields={[
           { key: "url", label: "Monitor URL", hint: "For example https://monitor.lan:8081." },
-          { key: "token", label: "Link token", type: "password", hint: "Create it in the monitor, under Settings, Integrations." }]}>
+          { key: "token", label: "Link token", type: "password", hint: "Create it in the monitor, under Settings, Integrations." },
+          { key: "relay_key", label: "Monitor's relay key", type: "password", hint: "Only when the URL above is the monitor's Cloudflare relay: the part after #relay= of the link in the monitor's Settings, This server. Calls are then sealed, so Cloudflare cannot read them." }]}>
           <p className="text-fg2">Fills the inventory and IPAM from agents, and deploys sites through them.</p>
         </SettingForm>
         <SettingForm title="Nextcloud tasks" setting="nextcloud" needs={["url", "user", "password", "calendar"]} fields={[

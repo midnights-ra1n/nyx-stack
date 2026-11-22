@@ -43,8 +43,8 @@ why it kept its previous servers.
 
 When the monitor is reached through the [Cloudflare relay](cloudflare.md), the agent seals
 every call with the relay key, so Cloudflare forwards reports it cannot read. Nothing
-else changes: the agent still only connects outwards, and still signs each report with
-its own key. **Add host** adds `--relay-key` to the install line, and
+else changes: the agent still only connects outwards, keeps [one socket](#one-connection),
+and still signs each report with its own key. **Add host** adds `--relay-key` to the install line, and
 `nyx_agent_relay_key` to the Ansible variables, when the monitor URL you type is the
 relay's address. By hand, add `NYX_RELAY_KEY=` to `/etc/nyx/agent.conf` and restart the
 agent. Without the key, the same agent talks to the monitor directly, so a host on the
@@ -161,7 +161,7 @@ has no journald, package manager or Docker.
 
 The monitor sets the pace in each answer:
 
-| When | Every | Requests per host per day |
+| When | Every | Reports per host per day |
 | --- | --- | --- |
 | Nobody used the monitor's web interface in the last 2 minutes | 60 s | 1,440 |
 | Someone uses it, or watches live logs | 15 s | 5,760 at most |
@@ -171,6 +171,32 @@ When you open the interface, each agent speeds up after its next report, so with
 minute. Commands such as a deploy or an update also start at that next report. Wall
 displays, status pages and MCP calls do not speed agents up. A host goes offline after
 two missed reports at its pace, plus 30 seconds: 1 minute at full pace, 2.5 minutes idle.
+
+### One connection
+
+The agent keeps one WebSocket open to the monitor (`/agent/v1/ws`) or to the
+[relay](cloudflare.md) (`/_relay/ws`), and sends its reports and live logs over it. The
+monitor's name is looked up once per connection, not once per report, so the agent does
+not fill the log of a DNS server such as Pi-hole or AdGuard Home, and through the relay a
+report costs no Cloudflare request. Each call is still signed with the host key.
+
+When the socket breaks, that one call goes over HTTPS and the next one opens a new
+socket. When it cannot be opened, because the monitor is older than the agent or a
+reverse proxy drops WebSockets, the agent logs
+`websocket to … unavailable, using HTTPS for 10 minutes` and sends each call as an HTTPS
+request until it tries again. Behind nginx, let `/agent/v1/ws` upgrade:
+
+```nginx
+location /agent/v1/ws {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 15m;
+}
+```
+
+Caddy and Traefik pass WebSockets on as they are. Agent binary downloads still use HTTPS.
 
 ## What is collected
 

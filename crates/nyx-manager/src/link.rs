@@ -1,22 +1,63 @@
 //! Optional link to nyx-monitor: discovered hosts feed the inventory and IPAM.
 
 use crate::App;
-use anyhow::Context;
-use nyx_proto::{is_vpn_ip, Deploy};
+use anyhow::{bail, Context};
+use nyx_proto::{is_vpn_ip, relay::Key, Deploy};
 use nyx_srv::pb_quote;
 use serde_json::{json, Value};
 
-pub async fn config(app: &App) -> anyhow::Result<Option<(String, String)>> {
+pub struct Link {
+    url: String,
+    token: String,
+    /// The monitor's relay key, when `url` is its Cloudflare relay: calls go sealed.
+    key: Option<Key>,
+}
+
+pub async fn config(app: &App) -> anyhow::Result<Option<Link>> {
     let Some(cfg) = app.core.pb.setting("link").await? else { return Ok(None) };
     let (url, token) = (cfg["url"].as_str().unwrap_or_default(), cfg["token"].as_str().unwrap_or_default());
-    Ok((!url.is_empty() && !token.is_empty()).then(|| (url.trim_end_matches('/').to_string(), token.to_string())))
+    if url.is_empty() || token.is_empty() {
+        return Ok(None);
+    }
+    let key = match cfg["relay_key"].as_str().map(str::trim).unwrap_or_default() {
+        "" => None,
+        k => Some(Key::parse(k).context("the monitor's relay key must be 64 hexadecimal characters")?),
+    };
+    Ok(Some(Link { url: url.trim_end_matches('/').to_string(), token: token.to_string(), key }))
+}
+
+/// One call to the linked monitor, direct or sealed through its relay. Returns the
+/// status and body.
+async fn call(app: &App, link: &Link, method: &str, path: &str, body: Option<&impl serde::Serialize>) -> anyhow::Result<(u16, Vec<u8>)> {
+    let body = body.map(serde_json::to_vec).transpose()?.unwrap_or_default();
+    let mut headers = vec![("authorization".to_string(), format!("Bearer {}", link.token))];
+    if !body.is_empty() {
+        headers.push(("content-type".into(), "application/json".into()));
+    }
+    if let Some(key) = &link.key {
+        return nyx_srv::relay::sealed_call(&app.http, &link.url, key, method, path, headers, body).await;
+    }
+    let mut req = app.http.request(method.parse()?, format!("{}{path}", link.url)).body(body);
+    for (k, v) in headers {
+        req = req.header(k, v);
+    }
+    let res = req.send().await?;
+    Ok((res.status().as_u16(), res.bytes().await?.to_vec()))
+}
+
+/// The body of a successful call, as JSON.
+fn ok<T: serde::de::DeserializeOwned>(path: &str, (status, body): (u16, Vec<u8>)) -> anyhow::Result<T> {
+    if status >= 400 {
+        bail!("monitor: {path}: http status {status}: {}", String::from_utf8_lossy(&body));
+    }
+    Ok(serde_json::from_slice(&body)?)
 }
 
 /// `GET /api/link/{path}` on the linked monitor, `None` without a link.
 pub async fn get<T: serde::de::DeserializeOwned>(app: &App, path: &str) -> anyhow::Result<Option<T>> {
-    let Some((url, token)) = config(app).await? else { return Ok(None) };
-    let res = app.http.get(format!("{url}/api/link/{path}")).bearer_auth(token).send().await?.error_for_status()?;
-    Ok(Some(res.json().await?))
+    let Some(link) = config(app).await? else { return Ok(None) };
+    let path = format!("/api/link/{path}");
+    Ok(Some(ok(&path, call(app, &link, "GET", &path, None::<&()>).await?)?))
 }
 
 pub async fn hosts(app: &App) -> anyhow::Result<Option<Vec<Value>>> {
@@ -32,26 +73,29 @@ fn drop_vpn_ip(h: &mut Value) {
     }
 }
 
-pub async fn deploy(app: &App, host: &str, d: &Deploy) -> anyhow::Result<String> {
-    let (url, token) = config(app).await?.context("no monitor linked: set it in Settings")?;
-    let res: Value = app.http.post(format!("{url}/api/link/hosts/{host}/deploy")).bearer_auth(token).json(d).send().await?.error_for_status()?.json().await?;
+/// Queues a command on the linked monitor. Returns its id.
+async fn command(app: &App, path: &str, body: &impl serde::Serialize) -> anyhow::Result<String> {
+    let link = config(app).await?.context("no monitor linked: set it in Settings")?;
+    let res: Value = ok(path, call(app, &link, "POST", path, Some(body)).await?)?;
     Ok(res["id"].as_str().context("no command id")?.to_string())
 }
 
+pub async fn deploy(app: &App, host: &str, d: &Deploy) -> anyhow::Result<String> {
+    command(app, &format!("/api/link/hosts/{host}/deploy"), d).await
+}
+
 pub async fn site_control(app: &App, host: &str, c: &nyx_proto::SiteControl) -> anyhow::Result<String> {
-    let (url, token) = config(app).await?.context("no monitor linked: set it in Settings")?;
-    let res: Value = app.http.post(format!("{url}/api/link/hosts/{host}/site")).bearer_auth(token).json(c).send().await?.error_for_status()?.json().await?;
-    Ok(res["id"].as_str().context("no command id")?.to_string())
+    command(app, &format!("/api/link/hosts/{host}/site"), c).await
 }
 
 /// `None` while the agent has not answered yet.
 pub async fn result(app: &App, id: &str) -> anyhow::Result<Option<Value>> {
-    let (url, token) = config(app).await?.context("no monitor linked")?;
-    let res = app.http.get(format!("{url}/api/link/results/{id}")).bearer_auth(token).send().await?;
-    if res.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
+    let link = config(app).await?.context("no monitor linked")?;
+    let path = format!("/api/link/results/{id}");
+    match call(app, &link, "GET", &path, None::<&()>).await? {
+        (404, _) => Ok(None),
+        res => Ok(Some(ok(&path, res)?)),
     }
-    Ok(Some(res.error_for_status()?.json().await?))
 }
 
 /// Desired inventory rows `(external_id, fields)` for one monitor host.

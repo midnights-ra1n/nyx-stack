@@ -20,17 +20,24 @@ impl Resolver for Servers {
             return DefaultResolver::default().resolve(uri, config, timeout);
         }
         let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("http") { 80 } else { 443 });
-        // The first server that answers wins; the next ones are fallbacks.
-        for &server in &self.0 {
-            let ips: Vec<IpAddr> = [A, AAAA].into_iter().filter_map(|t| query(server, host, t).ok()).flatten().collect();
-            if !ips.is_empty() {
-                let mut out = self.empty();
-                ips.into_iter().take(16).for_each(|ip| out.push(SocketAddr::new(ip, port)));
-                return Ok(out);
-            }
-        }
-        Err(ureq::Error::HostNotFound)
+        let mut out = self.empty();
+        lookup(&self.0, host).ok_or(ureq::Error::HostNotFound)?.into_iter().take(16).for_each(|ip| out.push(SocketAddr::new(ip, port)));
+        Ok(out)
     }
+}
+
+/// The first server that answers wins; the next ones are fallbacks.
+fn lookup(servers: &[IpAddr], host: &str) -> Option<Vec<IpAddr>> {
+    servers.iter().map(|&s| [A, AAAA].into_iter().filter_map(|t| query(s, host, t).ok()).flatten().collect::<Vec<_>>()).find(|ips| !ips.is_empty())
+}
+
+/// For the WebSocket, which does not go through ureq: `servers`, or the system's when empty.
+pub fn resolve(servers: &[IpAddr], host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+    if servers.is_empty() || host.parse::<IpAddr>().is_ok() {
+        return Ok(std::net::ToSocketAddrs::to_socket_addrs(&(host, port))?.collect());
+    }
+    let ips = lookup(servers, host).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("{host} not found")))?;
+    Ok(ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect())
 }
 
 fn query(server: IpAddr, host: &str, qtype: u16) -> std::io::Result<Vec<IpAddr>> {

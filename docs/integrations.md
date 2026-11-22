@@ -133,8 +133,9 @@ runs Grafana with a dashboard in one command. See the [Grafana guide](grafana.md
 
 Lets AI assistants read your infrastructure. All tools are read-only.
 
-Available only over HTTPS: plain HTTP gets a 403. Create a token in **Settings,
-Security**. It is shown once and only its hash is stored.
+Available only over HTTPS, or sealed through the [relay](#through-the-cloudflare-relay):
+plain HTTP gets a 403. Create a token in **Settings, Security**. It is shown once and
+only its hash is stored.
 
 The endpoint is `https://your-server/mcp`, using Streamable HTTP.
 
@@ -154,6 +155,58 @@ internet and may insist on OAuth, which Nyx does not implement.
 | Manager | `list_hardware`, `list_virtual`, `ipam_report`, `list_deployments`, `list_tasks`, `list_vpn_links`, `trace_route` |
 
 Example prompt: *"Give me the overall state of my infrastructure."*
+
+### Through the Cloudflare relay
+
+When a server is reached through the [Cloudflare relay](cloudflare.md), MCP clients
+cannot talk to it directly: the relay only carries sealed requests. `nyx-mcp` is a small
+program for your computer that clients start as a local MCP server. It seals each
+message with the relay key, so Cloudflare forwards your questions and the answers about
+your infrastructure without reading them. Read-only, like the server's tools.
+
+Download it from the [releases](https://github.com/midnights-ra1n/nyx-stack/releases):
+`nyx-mcp-macos-aarch64` (Apple silicon), `nyx-mcp-macos-x86_64`,
+`nyx-mcp-windows-x86_64.exe`, `nyx-mcp-linux-x86_64` or `nyx-mcp-linux-aarch64`. Rename
+it `nyx-mcp` and put it in your `PATH`. On macOS and Linux, `chmod +x` it, and on macOS
+run `xattr -d com.apple.quarantine nyx-mcp` once, as it is not notarized.
+
+Create a token in **Settings, Security**. With the relay linked, the panel then shows the
+two configurations below, filled in.
+
+Claude Code:
+
+```sh
+claude mcp add nyx -e NYX_URL=https://nyx-relay.you.workers.dev \
+  -e NYX_RELAY_KEY=<relay key> -e NYX_MCP_TOKEN=<token> -- nyx-mcp
+```
+
+Claude Desktop (`claude_desktop_config.json`) and most other clients:
+
+```json
+{
+  "mcpServers": {
+    "nyx": {
+      "command": "nyx-mcp",
+      "env": {
+        "NYX_URL": "https://nyx-relay.you.workers.dev",
+        "NYX_RELAY_KEY": "<relay key>",
+        "NYX_MCP_TOKEN": "<token>"
+      }
+    }
+  }
+}
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `NYX_URL` | The Worker's address, or the server's own `https://` address |
+| `NYX_RELAY_KEY` | The relay key, the part after `#relay=` of the link in **Settings, This server**. Without it, `nyx-mcp` calls `NYX_URL/mcp` directly, over HTTPS only |
+| `NYX_MCP_TOKEN` | The MCP token |
+
+Use one entry per server, `nyx-monitor` and `nyx-manager` for instance, each with its
+Worker and key. Errors show in the client's MCP log: `nyx-mcp` writes them to stderr.
+Hosted connectors, such as claude.ai's or ChatGPT's on the web, run on their provider's
+servers and cannot start `nyx-mcp`: they need the server's own HTTPS address.
 
 ## Passkeys
 

@@ -101,6 +101,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | POST | `/api/hosts/update-all` | Session | Upgrade every online host and its agent. Returns `{"started": n}` |
 | POST | `/agent/v1/report` | Agent | Metrics up, commands down |
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
+| GET | `/agent/v1/ws` | Agent | WebSocket carrying the two calls above, framed as `id (u32 BE) \|\| 1 \|\| u32 BE header length \|\| {"m","p","h"} JSON \|\| body` both ways (`{"s","h"}` in answers). Each call keeps its own signature headers |
 
 Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
 or `set_kind` with `kind` and `ct_autoinstall`, which installs the agent in LXC containers.

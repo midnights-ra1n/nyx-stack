@@ -13,9 +13,15 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const PATH: &str = "/_relay";
-/// Public files fetched without the key, such as by `curl … | sh`. GET only.
+/// Frames on the relay's WebSockets, and on the socket agents keep to a monitor:
+/// `id (u32 BE) || kind || payload`, the payload sealed or packed in clear.
+pub const SEALED: u8 = 0;
+pub const PLAIN: u8 = 1;
+/// Fetched without the key, so in clear: files for `curl … | sh`, and the public API of
+/// status pages, which anyone may read anyway. GET only, and without headers, so a wall
+/// display's key never travels this way.
 pub fn is_public(path: &str) -> bool {
-    path == "/install.sh" || path == "/api/health" || path.strip_prefix("/agent/v1/binary/").is_some_and(|n| !n.is_empty() && !n.contains('/'))
+    path == "/install.sh" || path == "/api/health" || path.starts_with("/api/public/") || path.strip_prefix("/agent/v1/binary/").is_some_and(|n| !n.is_empty() && !n.contains('/'))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -123,7 +129,7 @@ mod tests {
 
     #[test]
     fn public_paths() {
-        assert!(is_public("/install.sh") && is_public("/agent/v1/binary/nyx-agent-linux-x86_64"));
+        assert!(is_public("/install.sh") && is_public("/agent/v1/binary/nyx-agent-linux-x86_64") && is_public("/api/public/pages/home"));
         assert!(!is_public("/agent/v1/binary/") && !is_public("/agent/v1/binary/a/b") && !is_public("/agent/v1/report") && !is_public("/api/hosts"));
     }
 }

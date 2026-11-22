@@ -2,6 +2,7 @@ import { ArrowDownIcon, ArrowTopRightOnSquareIcon, ArrowUpIcon, Cog6ToothIcon, P
 import { useEffect, useRef, useState } from "react"
 import { Button, Check, Copy, Empty, ErrorNote, IconButton, Input, Modal, Panel, Select, Status, Table, Tabs, Td, TextArea, ask } from "../../ui/components"
 import { api, useApi, useMedia } from "../../ui/lib"
+import { relayKey } from "../../ui/relay"
 import { Link, navigate, PageHeader, Section } from "../../ui/shell"
 import { addPanel, type Box, type Item, type PageConfig, PANEL_TYPES, type PanelCfg, place, slugify, template, themeVars } from "./model"
 import { PIPELINE_VIEWS } from "../../ui/pipelines"
@@ -10,7 +11,9 @@ import { PERIODS as NEXTDNS_PERIODS } from "../../ui/nextdns"
 import { Grid } from "./viewer"
 
 const MAX_LOGO = 256 * 1024
-const pageUrl = (p: any) => `${location.origin}/${p.kind}/${p.slug}${p.kind === "wall" ? `#key=${p.access_key}` : ""}`
+// A wall reads sealed through the relay like the rest of the interface, so its link
+// carries the relay key when this page came that way. Status pages are public.
+const pageUrl = (p: any) => `${location.origin}/${p.kind}/${p.slug}${p.kind === "wall" ? `#key=${p.access_key}${relayKey() ? `&relay=${relayKey()}` : ""}` : ""}`
 const KINDS = [{ value: "status", label: "Public status page" }, { value: "wall", label: "Wall display" }]
 const STARTS = [{ value: "standard", label: "The usual panels" }, { value: "map", label: "A live map of the homelab" }]
 

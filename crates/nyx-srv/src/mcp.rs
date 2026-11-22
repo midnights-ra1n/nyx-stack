@@ -4,6 +4,7 @@
 use crate::{auth::Session, pb_date, pb_quote, random_hex, ApiError, ApiResult, Core};
 use axum::{
     extract::{Path, State},
+    Extension,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
@@ -67,10 +68,11 @@ pub async fn dispatch(tools: &Tools, msg: &Value) -> Option<Value> {
 }
 
 /// True only if the request truly arrived over TLS: natively, or through a proxy
-/// that says so while the public URL is https as well.
-fn request_is_https(core: &Core, headers: &HeaderMap) -> bool {
+/// that says so while the public URL is https as well. A request sealed through the
+/// Cloudflare relay, by `nyx-mcp`, was encrypted end to end and counts too.
+fn request_is_https(core: &Core, headers: &HeaderMap, sealed: bool) -> bool {
     let proxied = headers.get("x-forwarded-proto").is_some_and(|v| v == "https");
-    core.https_enabled() && (core.env.tls_cert.is_some() || proxied)
+    sealed || (core.https_enabled() && (core.env.tls_cert.is_some() || proxied))
 }
 
 async fn token_valid(core: &Core, token: &str) -> anyhow::Result<bool> {
@@ -81,8 +83,8 @@ async fn token_valid(core: &Core, token: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-async fn handle(m: &Mcp, headers: &HeaderMap, token: Option<&str>, msg: Value) -> Response {
-    if !request_is_https(&m.core, headers) {
+async fn handle(m: &Mcp, headers: &HeaderMap, sealed: bool, token: Option<&str>, msg: Value) -> Response {
+    if !request_is_https(&m.core, headers, sealed) {
         return (StatusCode::FORBIDDEN, Json(json!({"error": "MCP is only served over HTTPS"}))).into_response();
     }
     let bearer = headers.get("authorization").and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
@@ -96,13 +98,13 @@ async fn handle(m: &Mcp, headers: &HeaderMap, token: Option<&str>, msg: Value) -
     }
 }
 
-async fn with_header(State(m): State<Mcp>, headers: HeaderMap, Json(msg): Json<Value>) -> Response {
-    handle(&m, &headers, None, msg).await
+async fn with_header(State(m): State<Mcp>, sealed: Option<Extension<crate::relay::Sealed>>, headers: HeaderMap, Json(msg): Json<Value>) -> Response {
+    handle(&m, &headers, sealed.is_some(), None, msg).await
 }
 
 /// For clients that can only be given a URL.
-async fn with_path(State(m): State<Mcp>, Path(token): Path<String>, headers: HeaderMap, Json(msg): Json<Value>) -> Response {
-    handle(&m, &headers, Some(&token), msg).await
+async fn with_path(State(m): State<Mcp>, sealed: Option<Extension<crate::relay::Sealed>>, Path(token): Path<String>, headers: HeaderMap, Json(msg): Json<Value>) -> Response {
+    handle(&m, &headers, sealed.is_some(), Some(&token), msg).await
 }
 
 #[derive(Deserialize)]
@@ -111,8 +113,9 @@ struct NewToken {
 }
 
 async fn create_token(_: Session, State(core): State<Arc<Core>>, Json(b): Json<NewToken>) -> ApiResult<Json<Value>> {
-    if !core.https_enabled() {
-        return Err(ApiError::bad_request("MCP needs an https:// NYX_PUBLIC_URL"));
+    // Behind the relay, `nyx-mcp` seals the calls: no HTTPS address of its own needed.
+    if !core.https_enabled() && core.env.relay_url.is_none() {
+        return Err(ApiError::bad_request("MCP needs an https:// NYX_PUBLIC_URL or the Cloudflare relay"));
     }
     let token = random_hex(32);
     core.pb.create("mcp_tokens", &json!({"name": b.name, "token_hash": nyx_proto::sha256_hex(token.as_bytes())})).await?;

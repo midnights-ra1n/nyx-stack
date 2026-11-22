@@ -26,6 +26,7 @@
 | `crates/nyx-db` | Rust | PocketBase embedding, and the optional shared database program |
 | `crates/nyx-monitor` | Rust | Monitoring server |
 | `crates/nyx-manager` | Rust | Management server |
+| `crates/nyx-mcp` | Rust | Local MCP bridge that seals calls for the [Cloudflare relay](cloudflare.md). Builds on Linux, macOS and Windows |
 | `notifier` | Go | `nyx-notify`, a small wrapper around Shoutrrr |
 | `pb/pb_migrations` | JS | PocketBase schema, embedded in both servers |
 | `web` | React, Tailwind | One codebase, built once per server and embedded in its binary |
@@ -147,7 +148,13 @@ claim left by a crash expires. Local databases skip this, and its writes with it
 Optional. A server can keep one outbound WebSocket to a Cloudflare Worker, which then
 forwards requests that agents and browsers sealed with a key it does not have. The
 server opens each one and runs it through its own router, as if it had come in on its
-port, so nothing else in the server knows about the relay. Workers are JavaScript-native,
+port, so nothing else in the server knows about the relay. The one exception is MCP,
+which counts a sealed request as HTTPS.
+
+Agents and browsers keep one WebSocket to the Worker, in the same frames as the server's
+link, so a call costs no Worker request. Agents that reach a monitor directly keep one
+to it too, on `/agent/v1/ws`. Every role works the same direct or relayed: the Worker
+runs no Nyx logic, so there is no feature to port or to keep in step. Workers are JavaScript-native,
 so this one piece is TypeScript, as the notifier is Go. See [cloudflare.md](cloudflare.md).
 
 ## Role separation

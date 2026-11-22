@@ -403,6 +403,8 @@ monitor.example.com {
 
 1. In the monitor: **Settings, Integrations, Manager link, Create link token**.
 2. In the manager: **Settings, Integrations, Nyx Monitor**, enter the URL and token.
+   When that URL is the monitor's [Cloudflare relay](cloudflare.md#6-the-managers-link-to-the-monitor),
+   add the monitor's relay key too.
 
 Creating a new token replaces the old one.
 

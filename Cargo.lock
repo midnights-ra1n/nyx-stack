@@ -1700,9 +1700,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "nyx-proto",
+ "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sysinfo",
+ "tungstenite",
  "ureq",
 ]
 
@@ -1735,6 +1738,16 @@ dependencies = [
  "ssh-key",
  "surge-ping",
  "tokio",
+]
+
+[[package]]
+name = "nyx-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "nyx-proto",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
@@ -1780,6 +1793,8 @@ dependencies = [
  "chrono",
  "futures-util",
  "getrandom 0.3.4",
+ "hyper",
+ "hyper-util",
  "mime_guess",
  "minijinja",
  "nyx-db",

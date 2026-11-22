@@ -24,7 +24,7 @@ describe("relay envelope", () => {
   })
 
   it("lists only public files", () => {
-    expect(isPublic("/install.sh") && isPublic("/agent/v1/binary/nyx-agent-linux-x86_64")).toBe(true)
+    expect(isPublic("/install.sh") && isPublic("/agent/v1/binary/nyx-agent-linux-x86_64") && isPublic("/api/public/pages/home")).toBe(true)
     expect(isPublic("/agent/v1/report") || isPublic("/api/hosts") || isPublic("/agent/v1/binary/a/b")).toBe(false)
   })
 })

@@ -22,8 +22,9 @@ as that site's user.
 
 ## Cloudflare relay
 
-With the [relay](cloudflare.md), every request between agents or browsers and the server
-is sealed with AES-256-GCM under a key Cloudflare never receives. Replays and swapped
+With the [relay](cloudflare.md), every request between agents, browsers, `nyx-mcp` or
+the manager and the server is sealed with AES-256-GCM under a key Cloudflare never
+receives. Public status pages are the exception: they go in clear, being public. Replays and swapped
 answers are refused. Cloudflare still sees metadata, serves the public code and runs the
 edge probes. The full list of what it can and cannot see, and the limits, are in
 [cloudflare.md](cloudflare.md#what-cloudflare-can-and-cannot-see).

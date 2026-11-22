@@ -206,6 +206,8 @@ export function McpSettings() {
   const tokens = useApi("/api/c/mcp_tokens?sort=name", { poll: false })
   const [name, setName] = useState("")
   const [created, setCreated] = useState<{ token: string; url: string }>()
+  // The relay key is in the fragment of the link Settings gives to signed-in users.
+  const relay = status?.relay?.link ? { url: status.relay.url, key: status.relay.link.split("#relay=")[1] } : undefined
   const [error, setError] = useState("")
   const add = async () => {
     setError("")
@@ -213,9 +215,10 @@ export function McpSettings() {
   }
   return (
     <Panel title="MCP server">
-      {!status?.https ? <Empty>MCP is served over HTTPS only. Set an https:// NYX_PUBLIC_URL.</Empty> : (
+      {!status?.https && !relay ? <Empty>MCP is served over HTTPS only. Set an https:// NYX_PUBLIC_URL, or link the Cloudflare relay.</Empty> : (
         <div className="flex flex-col gap-4">
-          <p className="text-fg2">Connect Claude, ChatGPT, Codex or any MCP client to <Mono>{status.public_url}/mcp</Mono> with a bearer token. Tools are read-only.</p>
+          {status.https && <p className="text-fg2">Connect Claude, ChatGPT, Codex or any MCP client to <Mono>{status.public_url}/mcp</Mono> with a bearer token. Tools are read-only.</p>}
+          {relay && <p className="text-fg2">Through the Cloudflare relay, run <Mono>nyx-mcp</Mono> on your computer: it seals each call, so Cloudflare cannot read your infrastructure. It works with any client that starts local MCP servers, such as Claude Desktop, Claude Code or Codex.</p>}
           {tokens.data?.items.map((t: any) => (
             <div key={t.id} className="flex items-center justify-between">
               <span>{t.name} <span className="text-[13px] text-fg3">· used {fmt.ago(t.last_used)}</span></span>
@@ -230,7 +233,13 @@ export function McpSettings() {
             <div className="flex flex-col gap-2">
               <p className="text-fg2">Copy this token now, it will not be shown again.</p>
               <Copy text={created.token} />
-              <p className="text-[13px] text-fg3">For clients that only accept a URL: <Mono>{created.url}/{created.token}</Mono></p>
+              {status.https && <p className="text-[13px] text-fg3">For clients that only accept a URL: <Mono>{created.url}/{created.token}</Mono></p>}
+              {relay && <>
+                <p className="text-fg2">Claude Code, through the relay:</p>
+                <Copy text={`claude mcp add nyx -e NYX_URL=${relay.url} -e NYX_RELAY_KEY=${relay.key} -e NYX_MCP_TOKEN=${created.token} -- nyx-mcp`} />
+                <p className="text-fg2">Claude Desktop and other clients, in their MCP configuration:</p>
+                <Copy text={JSON.stringify({ mcpServers: { nyx: { command: "nyx-mcp", env: { NYX_URL: relay.url, NYX_RELAY_KEY: relay.key, NYX_MCP_TOKEN: created.token } } } }, null, 2)} />
+              </>}
             </div>
           )}
           <ErrorNote>{error}</ErrorNote>

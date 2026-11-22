@@ -21,9 +21,9 @@ web:
 
 # Run `make pocketbase` first: the servers and nyx-db embed it.
 bins:
-	NYX_PB_BIN="$(CURDIR)/dist/pb/$(ARCH)/pocketbase" cargo build --release -p nyx-agent -p nyx-monitor -p nyx-manager -p nyx-db
+	NYX_PB_BIN="$(CURDIR)/dist/pb/$(ARCH)/pocketbase" cargo build --release -p nyx-agent -p nyx-monitor -p nyx-manager -p nyx-db -p nyx-mcp
 	mkdir -p dist/linux-$(ARCH)
-	cp target/release/nyx-agent target/release/nyx-monitor target/release/nyx-manager target/release/nyx-db dist/linux-$(ARCH)/
+	cp target/release/nyx-agent target/release/nyx-monitor target/release/nyx-manager target/release/nyx-db target/release/nyx-mcp dist/linux-$(ARCH)/
 
 notifier:
 	cd notifier && CGO_ENABLED=0 GOARCH=$(ARCH) go build -trimpath -ldflags '-s -w' -o ../dist/linux-$(ARCH)/nyx-notify .

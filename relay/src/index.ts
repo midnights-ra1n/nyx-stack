@@ -4,7 +4,9 @@
  * The server keeps one outbound WebSocket here (`/_relay/up`), so it needs no open port
  * and its address stays private. Agents and browsers seal each request with the relay
  * key and POST it to `/_relay`; this Worker forwards the bytes and returns the sealed
- * answer. It never has the key. See docs/cloudflare.md.
+ * answer. It never has the key. Agents keep a WebSocket of their own (`/_relay/ws`) and
+ * send the same sealed requests over it, so a report costs no Worker request, only a
+ * twentieth of a Durable Object one. See docs/cloudflare.md.
  *
  * It also checks, every minute, that the server is linked and that the edge probes
  * answer, alerts a webhook on changes, and serves the result at `/_status`.
@@ -39,8 +41,9 @@ const json = (status: number, body: unknown) => Response.json(body, { status, he
 export default {
   async fetch(req, env) {
     const { pathname } = new URL(req.url)
-    // The API only goes through sealed: a plain call means a browser without the key.
-    if ((pathname.startsWith("/api/") && pathname !== "/api/health") || pathname.startsWith("/mcp")) return json(428, { error: KEY_NEEDED })
+    // The API only goes through sealed, but for status pages: a plain call means a browser
+    // without the key. MCP clients go through `nyx-mcp`, which seals.
+    if ((pathname.startsWith("/api/") && !isPublic(pathname)) || pathname.startsWith("/mcp")) return json(428, { error: KEY_NEEDED })
     return env.RELAY.get(env.RELAY.idFromName("main")).fetch(req)
   },
 } satisfies ExportedHandler<Env>
@@ -59,6 +62,7 @@ export class Relay extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const { pathname } = new URL(req.url)
     if (pathname === "/_relay/up") return this.upstream(req)
+    if (pathname === "/_relay/ws") return this.client(req)
     if (pathname === "/_status" || pathname === "/_status.json") {
       if (this.env.STATUS_PAGE === "off") return new Response("Not found", { status: 404 })
       await this.ensureAlarm()
@@ -81,6 +85,28 @@ export class Relay extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  /** An agent's socket. Hibernated between messages, like the server's link. */
+  private client(req: Request): Response {
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return json(426, { error: "WebSocket expected" })
+    const [client, server] = Object.values(new WebSocketPair())
+    this.ctx.acceptWebSocket(server, ["client"])
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  /** Same frame as the server's link: `id || kind || payload`. Only sealed requests pass. */
+  private async fromClient(ws: WebSocket, frame: Uint8Array) {
+    const res = frame[4] === SEALED ? await this.forward(SEALED, frame.slice(5)) : json(400, { error: "only sealed requests go through the relay" })
+    const sealed = res.headers.get("x-nyx-relay") === "sealed"
+    const body = new Uint8Array(await res.arrayBuffer())
+    const type = res.headers.get("content-type")
+    const payload = sealed ? body : pack({ s: res.status, h: type ? [["content-type", type]] : [] }, body)
+    const out = new Uint8Array(5 + payload.length)
+    out.set(frame.subarray(0, 4))
+    out[4] = sealed ? SEALED : PLAIN
+    out.set(payload, 5)
+    try { ws.send(out) } catch { /* the agent left */ }
+  }
+
   private forward(kind: number, payload: Uint8Array): Promise<Response> {
     const [up] = this.ctx.getWebSockets("up")
     if (!up) return Promise.resolve(json(503, { error: "the Nyx server is offline: it has no link to the relay" }))
@@ -98,9 +124,10 @@ export class Relay extends DurableObject<Env> {
     })
   }
 
-  async webSocketMessage(_ws: WebSocket, msg: ArrayBuffer | string) {
+  async webSocketMessage(ws: WebSocket, msg: ArrayBuffer | string) {
     if (typeof msg === "string" || msg.byteLength < 5) return
     const buf = new Uint8Array(msg)
+    if (this.ctx.getTags(ws).includes("client")) return this.fromClient(ws, buf)
     const done = this.pending.get(new DataView(msg).getUint32(0))?.done
     if (!done) return
     const payload = buf.subarray(5)

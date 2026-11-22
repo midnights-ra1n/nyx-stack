@@ -328,12 +328,14 @@ pub async fn refresh_beta_agents(app: &App) -> anyhow::Result<()> {
 }
 
 pub fn router(app: Arc<App>) -> Router {
+    let calls = Router::new().route("/agent/v1/report", post(report)).route("/agent/v1/logs", post(live_logs)).with_state(app.clone());
+    let socket = calls.clone();
     Router::new()
-        .route("/agent/v1/report", post(report))
-        .route("/agent/v1/logs", post(live_logs))
         .route("/agent/v1/binary/{name}", get(binary))
         .route("/install.sh", get(install_script))
         .with_state(app)
+        .route("/agent/v1/ws", get(move |req: axum::extract::Request| nyx_srv::relay::socket(req, socket.clone())))
+        .merge(calls)
 }
 
 #[cfg(test)]

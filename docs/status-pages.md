@@ -113,6 +113,12 @@ it stays out of proxy and access logs. The page passes it in a request header in
 **Replace the private link** in the **Sharing** tab if it leaks. Screens using the old
 link stop updating at once.
 
+**Through the Cloudflare relay.** Status pages work at the Worker's address as they
+are: they are public, so they travel in clear. A wall's private link, copied while you
+use the interface through the [relay](cloudflare.md), also carries the relay key
+(`#key=…&relay=…`), and the wall then reads its data sealed like the interface does.
+The screen keeps the relay key, so whoever has the link can reach the sign-in page.
+
 **Scrolling a wall.** Tick **Scroll instead of fitting the screen** in **Appearance**
 when a wall holds more than one screen, or sits on a monitor you use with a mouse or a
 touch screen. Panels then keep the size set in **Layout**, long lists show in full, and

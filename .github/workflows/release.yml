@@ -54,8 +54,36 @@ jobs:
           name: dist-${{ matrix.arch }}
           path: dist/linux-${{ matrix.arch }}
 
+  # nyx-mcp runs on the computer of whoever talks to the AI, so on macOS and Windows
+  # too. Linux builds come from `make bins` above.
+  mcp:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - { runner: macos-14, target: aarch64-apple-darwin, file: nyx-mcp-macos-aarch64 }
+          - { runner: macos-14, target: x86_64-apple-darwin, file: nyx-mcp-macos-x86_64 }
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, file: nyx-mcp-windows-x86_64.exe }
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      # Perl, not sed: the first `version =` only, on macOS and Windows alike.
+      - run: perl -0pi.bak -e 's/^version = ".*?"/version = "$ENV{VERSION}"/m' Cargo.toml
+      - run: cargo build --release -p nyx-mcp --target ${{ matrix.target }}
+      - run: mkdir -p dist/mcp && cp target/${{ matrix.target }}/release/nyx-mcp${{ contains(matrix.target, 'windows') && '.exe' || '' }} dist/mcp/${{ matrix.file }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-${{ matrix.target }}
+          path: dist/mcp
+
   publish:
-    needs: [version, build]
+    needs: [version, build, mcp]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -77,6 +105,10 @@ jobs:
       - run: |
           cp dist/linux-amd64/nyx-agent dist/packages/nyx-agent-linux-x86_64
           cp dist/linux-arm64/nyx-agent dist/packages/nyx-agent-linux-aarch64
+          cp dist/linux-amd64/nyx-mcp dist/packages/nyx-mcp-linux-x86_64
+          cp dist/linux-arm64/nyx-mcp dist/packages/nyx-mcp-linux-aarch64
+      - uses: actions/download-artifact@v4
+        with: { pattern: mcp-*, path: dist/packages, merge-multiple: true }
       - run: cd dist/packages && sha256sum * > SHA256SUMS
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
