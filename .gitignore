@@ -1,4 +1,5 @@
 .DS_Store
+homelab-management/
 target/
 node_modules/
 web/dist/
