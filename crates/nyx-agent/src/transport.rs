@@ -242,7 +242,9 @@ mod tests {
                 ws.send(Message::binary([&f[..4], &[PLAIN], &pack(&ResHead { s: 200, h: vec![] }, body.as_bytes())].concat())).unwrap();
             }
             let _ = ws.close(None);
-            let _ = ws.flush();
+            // Read until the agent hangs up: closing with its pong unread makes Linux send
+            // an RST, which can wipe the last answer before the agent reads it.
+            while ws.read().is_ok() {}
         });
         let flag = |f: &str| match f {
             "--url" => Some(format!("http://{addr}")),
@@ -255,8 +257,8 @@ mod tests {
         let call = |p: &str| over_socket(&cfg, p, &headers, b"{}").map(|r| String::from_utf8(r.unwrap()).unwrap());
         assert_eq!(call("/agent/v1/report").as_deref(), Some("\"/agent/v1/report\""));
         assert_eq!(call("/agent/v1/logs").as_deref(), Some("\"/agent/v1/logs\""));
-        server.join().unwrap();
         assert_eq!(call("/agent/v1/report"), None, "the socket closed: this call goes over HTTPS");
+        server.join().unwrap();
         assert_eq!(call("/agent/v1/report"), None, "nothing listens: HTTPS for a while");
         assert!(SOCKET.lock().unwrap().retry_at.is_some());
     }
