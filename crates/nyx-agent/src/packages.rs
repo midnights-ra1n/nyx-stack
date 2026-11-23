@@ -41,6 +41,18 @@ pub fn upgrade_command() -> Option<(&'static str, &'static [&'static str])> {
     }
 }
 
+/// Commands that remove unneeded packages, which frees `/boot` of old kernels, then the
+/// download cache. apt never removes the running kernel; dnf caps kernels with `installonly_limit`.
+pub fn clean_commands() -> Option<[(&'static str, &'static [&'static str]); 2]> {
+    if has("apt-get") {
+        Some([("apt-get", &["-y", "-o", "APT::Status-Fd=1", "autoremove", "--purge"]), ("apt-get", &["clean"])])
+    } else if has("dnf") {
+        Some([("dnf", &["-y", "autoremove"]), ("dnf", &["clean", "all"])])
+    } else {
+        None
+    }
+}
+
 /// A line of `APT::Status-Fd`, which the output of the command must not show.
 pub fn is_apt_status(line: &str) -> bool {
     line.starts_with("dlstatus:") || line.starts_with("pmstatus:")

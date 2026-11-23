@@ -25,6 +25,7 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
             None => Err(anyhow::anyhow!("no supported package manager")),
         },
         Action::UpdateSystem => upgrade(tx),
+        Action::CleanSystem => clean(tx),
         Action::UpdateAgent => update_agent(cfg, http).inspect(|_| restart = true),
         Action::Deploy(d) => deploy(&d),
         Action::Site(c) => site_control(&c),
@@ -116,6 +117,16 @@ fn upgrade(tx: &Sender<Msg>) -> anyhow::Result<String> {
         let _ = tx.send(Msg::Updates(list)); // Also after a failure: part of it may have gone through.
     }
     output
+}
+
+fn clean(tx: &Sender<Msg>) -> anyhow::Result<String> {
+    let [(program, args), cache] = packages::clean_commands().context("no supported package manager")?;
+    let _ = tx.send(Msg::Progress(Progress { pct: 0, step: "Removing unneeded packages".into() }));
+    let mut c = process::Command::new(program);
+    c.args(args).env("DEBIAN_FRONTEND", "noninteractive");
+    let mut output = stream(c, if program == "dnf" { packages::dnf_progress } else { packages::apt_progress }, tx)?;
+    output.push_str(&sh(cmd(cache.0, []).args(cache.1))?);
+    Ok(output)
 }
 
 fn update_agent(cfg: &Config, http: &ureq::Agent) -> anyhow::Result<String> {

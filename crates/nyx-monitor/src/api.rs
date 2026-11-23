@@ -243,6 +243,7 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
     let action = match b.action.as_str() {
         "check_updates" => Action::CheckUpdates,
         "update_system" => Action::UpdateSystem,
+        "clean_system" => Action::CleanSystem,
         "update_agent" => Action::UpdateAgent,
         "set_kind" => Action::SetKind {
             kind: b.kind.as_deref().and_then(HostKind::parse).ok_or_else(|| ApiError::bad_request("unknown deployment type"))?,
@@ -273,7 +274,7 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
         }
         _ => return Err(ApiError::bad_request("unknown action")),
     };
-    let cmd = if matches!(action, Action::UpdateSystem | Action::UpdateAgent) {
+    let cmd = if matches!(action, Action::UpdateSystem | Action::CleanSystem | Action::UpdateAgent) {
         let mut st = app.lock();
         let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
         h.start_update(vec![action], Utc::now().timestamp()).ok_or_else(|| ApiError::bad_request("an update is already running on this host"))?

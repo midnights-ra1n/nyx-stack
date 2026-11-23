@@ -523,6 +523,7 @@ export function HostDetail({ id }: { id: string }) {
         <div className="flex flex-wrap gap-3">
           <Button onClick={() => send({ action: "check_updates" }, "Check requested.")}>Check now</Button>
           <Button variant="primary" disabled={updating} onClick={async () => { if (await ask(`Upgrade all packages on ${h.name}?`, { action: "Update" })) send({ action: "update_system" }, "System update requested.") }}>Update system</Button>
+          <Button disabled={updating} onClick={async () => { if (await ask(`Remove packages nothing needs any more on ${h.name}, old kernels included, and empty the package cache?`, { action: "Clean up" })) send({ action: "clean_system" }, "Clean-up requested.") }}>Clean up</Button>
           <Button disabled={updating} onClick={() => send({ action: "update_agent" }, "Agent update requested.")}>Update agent</Button>
         </div>
       </Panel>

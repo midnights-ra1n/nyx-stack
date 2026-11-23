@@ -375,6 +375,13 @@ While it runs the agent reports its progress every 5 s. With apt the percentage 
 from apt itself, with dnf from its package counter. Only one update runs at a time on a
 host, and the agent replaces itself last, as that restarts it.
 
+**Clean up** removes the packages nothing depends on any more, then empties the download
+cache: `apt-get autoremove --purge` and `apt-get clean`, or `dnf autoremove` and `dnf clean
+all`. On Debian, Ubuntu and Proxmox that is how old kernels leave `/boot` before it fills up;
+apt always keeps the running kernel and the one before it. dnf already caps installed kernels
+with `installonly_limit` in `/etc/dnf/dnf.conf`. It counts as an update, so it waits for none
+to run on that host.
+
 Packages can restart services when they are replaced. Upgrading Docker restarts the
 containers of that host, including Nyx if it runs there. The run then disappears from
 the page, while the updates themselves go on.

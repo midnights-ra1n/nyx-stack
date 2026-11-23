@@ -483,6 +483,8 @@ pub enum Action {
     /// Refresh the package index and report available updates.
     CheckUpdates,
     UpdateSystem,
+    /// Remove packages nothing needs any more, old kernels included, and the download cache.
+    CleanSystem,
     /// Replace the agent binary with the one served by the monitor.
     UpdateAgent,
     /// Clone or pull a Node.js site, build it and restart its service.

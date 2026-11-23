@@ -103,13 +103,13 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 | GET | `/agent/v1/ws` | Agent | WebSocket carrying the two calls above, framed as `id (u32 BE) \|\| 1 \|\| u32 BE header length \|\| {"m","p","h"} JSON \|\| body` both ways (`{"s","h"}` in answers). Each call keeps its own signature headers |
 
-Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `update_agent`
+Commands take `{"action": ...}`, one of `check_updates`, `update_system`, `clean_system`, `update_agent`
 or `set_kind` with `kind` and `ct_autoinstall`, which installs the agent in LXC containers.
 `repos` takes `files`, a list of `{"path", "content"}` package source files to write, an
 empty `content` deleting the file. Paths are `/etc/apt/sources.list`, `.list` or `.sources`
 files in `/etc/apt/sources.list.d`, or `.repo` files in `/etc/yum.repos.d`.
 `set_dns` takes `dns`, a list of IP addresses the agent resolves the monitor with, empty for
-the system's resolver. `update_system` and `update_agent` are
+the system's resolver. `update_system`, `clean_system` and `update_agent` are
 refused while an update runs on that host.
 
 `firewall` takes `op` and `rule`. To add: `{"action": "firewall", "op": "add", "rule":
