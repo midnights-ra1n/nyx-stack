@@ -16,6 +16,16 @@ sign-in screen changes it. The choice is kept on this device.
 dates. The overview flags warranties ending within 60 days. The add form starts from
 the category, and offers the manufacturers, models and locations already in use.
 
+Hardware, virtual assets, tasks and deployments take **tags**: type one and press Enter,
+or a comma, and the tags already in use are offered. Lists show them as coloured chips,
+the same colour for the same tag everywhere, and a **Tag** filter appears once one is in
+use. The monitor has its own tags on hosts, see [tags](monitoring.md#tags).
+
+With a [linked monitor](deployment.md#linking-manager-and-monitor), the hardware and
+virtual lists gain a **Monitoring** column, and a record's page a **Monitoring** panel:
+state, CPU, memory, fullest disk, uptime, pending updates and the host's tags. A record
+matches the monitored host with the same name or hostname, or else the same address.
+
 The category decides which specifications the form asks for:
 
 | Category | Specifications |

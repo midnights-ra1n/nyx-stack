@@ -57,14 +57,15 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/overview` | Session | Fleet summary |
 | GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host, and a name can only be used once. Each host carries its `vpn` tunnels |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it. Its LXC containers go with it, other children stay at the top level |
-| PATCH | `/api/hosts/{id}` | Session | `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back |
+| PATCH | `/api/hosts/{id}` | Session | `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back. `{"tags": ["lab", "prod"]}` replaces its tags. Either field can be left out |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
-| POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent |
+| POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent. `{"action": "service", "op": "start\|stop\|restart\|logs\|status\|cat", "name": "nginx"}` acts on a systemd service; the agent refuses to stop itself |
 | GET | `/api/results` | Session | The latest 200 command results of every host |
 | GET | `/api/hosts/{id}/logs/live` | Session | Live log lines after `?after=<seq>`, with the new `seq` and whether the agent is `connected`. Each request keeps the live view running for 15 seconds |
-| GET | `/api/series` | Session | CPU and memory history, of a host with `?host=`, else the fleet average. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
+| GET | `/api/series` | Session | History of a host with `?host=`: `t`, `cpu`, `mem`, `disk` (fullest), `temp`, `rx`, `tx`. With `?hosts=a,b,c`, up to 24 hosts at once, keyed by id. Without either, the fleet average of CPU and memory. `?range=1h\|24h\|7d\|30d\|90d\|180d\|365d` |
 | GET | `/api/map` | Session | Nodes of the [map](monitoring.md#map): name, state, type, parent, saved place, details and link. Places are the `map_layout` setting |
 | GET | `/api/containers` | Session | Docker containers across hosts |
+| GET | `/api/services` | Session | systemd services across hosts, each with `host` and `host_id` |
 | GET | `/api/storage` | Session | Disks and SMART across hosts |
 | GET | `/api/logs` | Session | Recent log lines, `?host=&q=`. A line reads `<epoch> <<priority>> <service>: <message>` |
 | GET | `/api/probes` | Session | Probes and latest results |
@@ -98,7 +99,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/link/results/{id}` | Link | Result of a command |
 | GET | `/install.sh` | Public | Agent installer |
 | GET | `/agent/v1/binary/{name}` | Public | Agent binary. Signed for agents |
-| POST | `/api/hosts/update-all` | Session | Upgrade every online host and its agent. Returns `{"started": n}` |
+| POST | `/api/hosts/update-all` | Session | Upgrade every online host and its agent, or only `{"ids": [...]}`. Returns `{"started": n}` |
 | POST | `/agent/v1/report` | Agent | Metrics up, commands down |
 | POST | `/agent/v1/logs` | Agent | Live log lines, while the last report answer asked for them |
 | GET | `/agent/v1/ws` | Agent | WebSocket carrying the two calls above, framed as `id (u32 BE) \|\| 1 \|\| u32 BE header length \|\| {"m","p","h"} JSON \|\| body` both ways (`{"s","h"}` in answers). Each call keeps its own signature headers |

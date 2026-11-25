@@ -28,12 +28,17 @@ and report what breaks. You can also [build it from source](docs/development.md)
 ## Features
 
 - **Agent:** uptime, CPU, RAM, swap, network, disks, temperature, Docker containers,
+  systemd services (state, uptime, memory, CPU, restarts, logs and unit file),
   system updates (and applying them), and light log collection. SMART health with
   remaining life on physical hosts. 1.4 MB binary, about 13 MB of RAM.
 - **Host types:** VM, physical, Proxmox and VPS. Change the type live, without
   reinstalling. On Proxmox, the agent can install itself in new containers.
 - **Install anywhere:** a generated `curl` line, an Ansible role, `.deb` and `.rpm`
   packages, or Docker images, for x86_64 and arm64.
+- **Tags and updates:** tag hosts and inventory records, filter and chart by tag, and
+  update the packages of a whole tag from one page, security fixes first.
+- **Your own charts:** pick a measure, some hosts and a look; `$host` and `$tag`
+  variables at the top switch every chart at once.
 - **Probes:** ping, website, DNS, HTTPS certificate expiry, and SNMP v1, v2c and v3
   with presets for switches, servers, UPS, printers, Synology and MikroTik.
 - **Status pages:** as many public pages as you like, built from Grafana-style panels,

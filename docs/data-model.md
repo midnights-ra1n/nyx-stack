@@ -25,7 +25,7 @@ and are rebuilt from agents and rollups after a restart.
 
 | Collection | Purpose | Kept |
 | --- | --- | --- |
-| `hosts` | Enrolled hosts, with their token and key, and whether they are kept out of alerts (`muted`) | Until deleted |
+| `hosts` | Enrolled hosts, with their token and key, whether they are kept out of alerts (`muted`), and their `tags`, comma-separated | Until deleted |
 | `rollups` | Host averages, every five minutes then every hour | Chosen retention |
 | `alerts` | Open and resolved alerts | Chosen retention once resolved |
 | `probes` | Probe definitions, with SNMP items as JSON | Until deleted |
@@ -45,10 +45,10 @@ contains the texts, theme, panels and the `embed` option.
 
 | Collection | Purpose |
 | --- | --- |
-| `hardware` | Physical inventory, warranty dates, and specifications by category (`cpu`, `ram`, `storage`, `ports`, `wifi`, `power`, `battery_at`, `firmware`, `mgmt_ip`). Purchase details: `supplier`, `order_number`, `invoice_number`, `price`, `purchased_at`, `in_service_at`. Place in a rack: `rack` (its id), `rack_u` (lowest unit, 1 at the bottom), `rack_units` (height) |
+| `hardware` | Physical inventory, warranty dates, and specifications by category (`cpu`, `ram`, `storage`, `ports`, `wifi`, `power`, `battery_at`, `firmware`, `mgmt_ip`). Purchase details: `supplier`, `order_number`, `invoice_number`, `price`, `purchased_at`, `in_service_at`. Place in a rack: `rack` (its id), `rack_u` (lowest unit, 1 at the bottom), `rack_units` (height). `tags`, comma-separated |
 | `racks` | Racks: name, location, `units` (height in U), notes |
 | `ports` | Network ports of a hardware record (`device` holds its id): name, speed, MAC, VLAN, note. `peer` holds the id of the port at the other end of the cable, on one of the two ports only |
-| `virtual_assets` | VMs, containers and Docker services. `source = monitor` rows are synced |
+| `virtual_assets` | VMs, containers and Docker services. `source = monitor` rows are synced. `tags`, comma-separated |
 | `subnets` | CIDR, gateway, VLAN number, section, VRF name, location, usage threshold |
 | `ip_addresses` | Address, state, device, hostname, MAC, owner, last time a scan saw it |
 | `vlans` | Number, name, domain |

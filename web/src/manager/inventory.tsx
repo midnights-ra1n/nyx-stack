@@ -9,6 +9,8 @@ import { api, fmt, type Level, levelText, sortRows, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../ui/shell"
 import { deployLevel } from "./overview"
 import { parseTags, type WorkItem, WorkView } from "./work"
+import { splitTags, TagInput } from "../ui/tags"
+import { LiveCell, LivePanel, useLiveHosts } from "./live"
 
 const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
 const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, "Patch panel": Bars4Icon, PDU: PowerIcon, Printer: PrinterIcon, Other: CubeIcon }
@@ -45,6 +47,7 @@ const HARDWARE: Col[] = [
   ...SPECS,
   { key: "location", label: "Location", suggest: true, section: "Where it is" },
   { key: "status", label: "Status", type: "select", options: Object.keys(STATUS_LEVEL), render: (h) => h.status ? <Status cell level={STATUS_LEVEL[h.status] ?? "off"} label={h.status} /> : "—" },
+  { key: "tags", label: "Tags", type: "tags", hint: "Free labels such as lab, prod or rack-A, to group and filter." },
   { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
   // GLPI's financial information.
   { key: "supplier", label: "Supplier", suggest: true, formOnly: true, tab: "Management", section: "Purchase" },
@@ -70,8 +73,13 @@ function useHardwareCols() {
   return { cols, where }
 }
 
+/** The monitoring column, only with a linked monitor. */
+const withLive = (cols: Col[], live: any[] | null | undefined): Col[] =>
+  live ? [...cols, { key: "live", label: "Monitoring", listOnly: true, render: (r) => <LiveCell hosts={live} row={r} /> }] : cols
+
 export function Hardware() {
-  const { cols } = useHardwareCols()
+  const { cols: base } = useHardwareCols()
+  const cols = withLive(base, useLiveHosts())
   return <CrudPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
 }
 
@@ -204,7 +212,8 @@ export function HardwareRecord({ id }: { id: string }) {
     { id: "Links", label: "Links", render: (form: any) => <><LinkedAddresses device={form.name} /><RunsHere host={form.name} /></> },
   ]
   const { cols, where } = useHardwareCols()
-  return <RecordPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={(form) => HardwareAside(form, where(form))} tabs={tabs} history />
+  const live = useLiveHosts()
+  return <RecordPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={(form) => <>{HardwareAside(form, where(form))}<LivePanel hosts={live} row={form} /></>} tabs={tabs} history />
 }
 
 function consoleUrl(pve: string, a: any) {
@@ -227,18 +236,20 @@ const VIRTUAL: Col[] = [
   { key: "vmid", label: "Proxmox VMID", type: "number", formOnly: true, section: "Proxmox", when: { key: "type", in: ["vm", "container"] } },
   { key: "pve_node", label: "Proxmox node", formOnly: true, when: { key: "type", in: ["vm", "container"] } },
   { key: "source", label: "Source", listOnly: true },
+  { key: "tags", label: "Tags", type: "tags", hint: "Free labels such as lab, prod or rack-A, to group and filter." },
   { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
 ]
 
 export function Virtual() {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const cols: Col[] = [...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>{t("Console")}</a> : "—" } }]
+  const cols: Col[] = withLive([...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>{t("Console")}</a> : "—" } }], useLiveHosts())
   return <CrudPage title={t("Virtual")} singular="asset" collection="virtual_assets" cols={cols} path="/virtual" facet="type" defaults={{ type: "vm" }} />
 }
 
 export function VirtualRecord({ id }: { id: string }) {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
   const devices = useApi("/api/c/hardware?perPage=500", { poll: false })
+  const live = useLiveHosts()
   const aside = (form: any) => {
     const url = consoleUrl(proxmox.data?.url ?? "", form)
     const host = devices.data?.items.find((h: any) => same(h.name, form.parent))
@@ -252,6 +263,7 @@ export function VirtualRecord({ id }: { id: string }) {
         </dl>
         {url && <a href={url} target="_blank" rel="noreferrer" className="mt-4 inline-block"><Button><CommandLineIcon className="size-5" aria-hidden />{t("Console")}</Button></a>}
       </Panel>
+      <LivePanel hosts={live} row={form} />
     </>
   }
   const tabs = [{ id: "Links", label: "Links", render: (form: any) => <LinkedAddresses device={form.name} /> }]
@@ -266,7 +278,7 @@ const DEPLOYMENTS: Col[] = [
   { key: "scheduled_at", label: "Due date", type: "date" },
   { key: "done_at", label: "Done", type: "date" },
   { key: "owner", label: "Owner" },
-  { key: "tags", label: "Tags", hint: "Separated by commas." },
+  { key: "tags", label: "Tags", type: "tags" },
   { key: "notes", label: "Notes", type: "area" },
 ]
 const DEPLOY_STATES = [{ id: "planned", label: "Planned", level: "off" as const }, { id: "running", label: "Running", level: "info" as const }, { id: "ok", label: "Succeeded", level: "ok" as const }, { id: "failed", label: "Failed", level: "crit" as const }]
@@ -319,7 +331,7 @@ function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <div className="col-span-full"><Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
         <Select label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} options={TASK_STATES.map((s) => ({ value: s.id, label: s.label }))} />
         <Input label="Due date" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
-        <div className="col-span-full"><Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} hint="Separated by commas. They sync with Nextcloud as categories, and the progress is shown per tag." /></div>
+        <div className="col-span-full"><TagInput label="Tags" value={splitTags(f.tags)} onChange={(v) => setF({ ...f, tags: v.join(", ") })} hint="They sync with Nextcloud as categories, and the progress is shown per tag." /></div>
       </EditorGroup>
       <EditorGroup title={t("Checklist")}>
         <div className="col-span-full flex flex-col gap-2">

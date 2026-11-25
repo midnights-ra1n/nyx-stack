@@ -124,6 +124,7 @@ pub struct Live {
     pub vpn: Vec<VpnLink>,
     pub firewall: Option<nyx_proto::Firewall>,
     pub repos: Vec<nyx_proto::RepoFile>,
+    pub services: Vec<nyx_proto::Service>,
     pub logs: VecDeque<String>,
     pub series: VecDeque<Point>,
 }
@@ -174,6 +175,8 @@ pub struct Host {
     pub pve_node: String,
     /// Kept out of alerts and their notifications, still measured and shown.
     pub muted: bool,
+    /// Free labels to group, filter and chart hosts by.
+    pub tags: Vec<String>,
     pub last_seen: i64,
     pub live: Option<Live>,
     pub queue: Vec<Command>,
@@ -275,6 +278,7 @@ impl Host {
             agent_version: s("agent_version"),
             pve_node: s("pve_node"),
             muted: r["muted"].as_bool().unwrap_or(false),
+            tags: parse_tags(r["tags"].as_str().unwrap_or_default().split(',')),
             last_seen: chrono::DateTime::parse_from_rfc3339(&s("last_seen").replacen(' ', "T", 1)).map_or(0, |d| d.timestamp()),
             live: None,
             queue: vec![],
@@ -287,6 +291,18 @@ impl Host {
             ct_install_at: 0,
         }
     }
+}
+
+/// Trimmed, without duplicates or empty ones, and bounded: they come from the browser.
+pub fn parse_tags<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for t in tags.into_iter().map(str::trim).filter(|t| !t.is_empty()) {
+        let t: String = t.replace(',', " ").chars().take(32).collect();
+        if !out.contains(&t) && out.len() < 20 {
+            out.push(t);
+        }
+    }
+    out
 }
 
 pub fn pct(used: u64, total: u64) -> f32 {
@@ -336,6 +352,9 @@ pub fn host_issues(h: &Host, th: &Thresholds) -> Vec<(&'static str, String)> {
     for d in &live.smart {
         let l = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
         add(l, if d.reason.is_empty() { format!("SMART {}", d.device) } else { format!("SMART {}: {}", d.device, d.reason) });
+    }
+    for s in live.services.iter().filter(|s| s.active == "failed") {
+        add("warn", format!("Service {} failed", s.name));
     }
     out
 }
@@ -640,9 +659,10 @@ impl State {
 
     /// Upgrade every host in contact, then bring its agent to the wanted version: in
     /// that order, as replacing the agent restarts it and drops what it has queued.
-    pub fn update_all(&mut self, now: i64) -> usize {
+    /// `only` limits it to these hosts; empty, it is every host.
+    pub fn update_all(&mut self, now: i64, only: &[String]) -> usize {
         let target = self.agent_target();
-        let online = self.hosts.values_mut().filter(|h| h.online(now) && !h.agent_version.is_empty());
+        let online = self.hosts.values_mut().filter(|h| h.online(now) && !h.agent_version.is_empty() && (only.is_empty() || only.contains(&h.id)));
         online
             .filter_map(|h| {
                 let stale = h.agent_version != target;
@@ -695,6 +715,7 @@ impl State {
         if let Some(n) = r.node.take() { live.node = Some(n); }
         if let Some(f) = r.firewall.take() { live.firewall = Some(f); }
         if let Some(f) = r.repos.take() { live.repos = f; }
+        if let Some(s) = r.services.take() { live.services = s; }
         if let Some(mut g) = r.guests.take() {
             if !r.ct_autoinstall { g.retain(|g| g.kind != "lxc"); } // Older agents always list them.
             live.guests = g;
@@ -820,6 +841,9 @@ pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) ->
         let severity = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
         push(format!("smart:{}", d.device), "smart", severity, format!("{}: {} {}", h.name, d.device, d.reason));
     }
+    for s in live.services.iter().filter(|s| s.active == "failed") {
+        push(format!("svc:{}", s.name), "state", "warn", format!("{}: service {} failed ({})", h.name, s.name, s.result));
+    }
     out
 }
 
@@ -829,6 +853,16 @@ mod tests {
 
     fn host() -> Host {
         Host::from_record(&json!({"id": "h1", "name": "pve-01", "token": "t", "key": "k"}))
+    }
+
+    #[test]
+    fn tags_are_trimmed_unique_and_bounded() {
+        assert_eq!(parse_tags([" lab ", "prod", "lab", "", "a,b"]), ["lab", "prod", "a b"]);
+        assert_eq!(parse_tags(std::iter::repeat_n("x", 1).chain((0..40).map(|_| "y"))).len(), 2);
+        let long = "z".repeat(50);
+        assert_eq!(parse_tags([long.as_str()])[0].len(), 32);
+        let h = Host::from_record(&json!({"id": "h", "name": "h", "tags": "lab, prod ,lab"}));
+        assert_eq!(h.tags, ["lab", "prod"]);
     }
 
     fn report(cpu: f32, mem_pct: u64, disk_pct: u64) -> Report {
@@ -885,16 +919,16 @@ mod tests {
         add(&mut st, "old", 1000, "0.0.1");
         add(&mut st, "current", 1000, env!("CARGO_PKG_VERSION"));
         add(&mut st, "silent", 0, "0.0.1");
-        assert_eq!(st.update_all(1000), 2);
+        assert_eq!(st.update_all(1000, &[]), 2);
         assert_eq!((st.hosts["old"].queue.len(), st.hosts["current"].queue.len(), st.hosts["silent"].queue.len()), (2, 1, 0));
-        assert_eq!(st.update_all(1000), 0, "pressing twice changes nothing");
+        assert_eq!(st.update_all(1000, &[]), 0, "pressing twice changes nothing");
     }
 
     #[test]
     fn hosts_measured_by_their_node_have_no_agent_to_update() {
         let mut st = State::default();
         st.hosts.insert("ct".into(), Host { last_seen: 1000, ..Host::from_record(&json!({"id": "ct", "kind": "lxc"})) });
-        assert_eq!(st.update_all(1000), 0);
+        assert_eq!(st.update_all(1000, &[]), 0);
         assert!(st.hosts["ct"].queue.is_empty());
     }
 
@@ -906,8 +940,21 @@ mod tests {
         st.maintenance.agent_beta = true;
         assert_eq!(st.agent_target(), "9.9.9-beta.1");
         st.hosts.insert("h".into(), Host { last_seen: 1000, agent_version: env!("CARGO_PKG_VERSION").into(), ..Host::from_record(&json!({"id": "h"})) });
-        st.update_all(1000);
+        st.update_all(1000, &[]);
         assert_eq!(st.hosts["h"].queue.len(), 2, "an agent on the bundled version is behind");
+    }
+
+    #[test]
+    fn a_failed_service_warns_and_a_later_report_without_the_list_keeps_it() {
+        let mut st = state();
+        let svc = |name: &str, active: &str| nyx_proto::Service { name: name.into(), active: active.into(), result: "exit-code".into(), ..Default::default() };
+        st.apply("h1", Report { services: Some(vec![svc("ssh", "active"), svc("nginx", "failed")]), ..report(1.0, 1, 1) }, 1);
+        st.apply("h1", report(1.0, 1, 1), 2);
+        let h = &st.hosts["h1"];
+        assert_eq!(h.live.as_ref().unwrap().services.len(), 2);
+        assert_eq!(host_issues(h, &Thresholds::default()), [("warn", "Service nginx failed".to_string())]);
+        let wanted = evaluate(h, &Thresholds::default(), &HashMap::new());
+        assert!(wanted.iter().any(|w| w.key == "host:h1:svc:nginx" && w.severity == "warn"));
     }
 
     #[test]

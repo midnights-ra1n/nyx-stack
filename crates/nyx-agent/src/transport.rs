@@ -2,15 +2,17 @@
 //!
 //! Reports and live logs go over one WebSocket the agent keeps open, to the monitor or to
 //! the Cloudflare relay: no new connection, DNS lookup or Cloudflare request per report.
-//! When the socket cannot be opened (an older monitor or Worker, a proxy that drops
-//! WebSockets) the same calls go over HTTPS, and the socket is tried again 10 minutes later.
+//! The socket stays up between reports: pings every 25 s, and a new socket as soon as the
+//! old one dies, with a growing pause while the monitor is out of reach. Only when
+//! something refuses the WebSocket (an older monitor or Worker, a proxy that drops them)
+//! do the same calls go over HTTPS, and the socket is tried again 10 minutes later.
 
 use crate::config::Config;
 use anyhow::{anyhow, bail, Context};
 use nyx_proto::relay::{nonce, pack, unpack, Key, ReqHead, ResHead, PATH, PLAIN, SEALED};
 use nyx_proto::{sign, verify, LiveLogs, LiveReply, Report, Reply};
 use std::io::{Read, Write};
-use std::net::{IpAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tungstenite::{Message, WebSocket};
@@ -19,6 +21,8 @@ use ureq::unversioned::transport::DefaultConnector;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 const SOCKET_RETRY: Duration = Duration::from_secs(600);
+/// Below the idle timeouts of common reverse proxies: 60 s for nginx, 100 s for Cloudflare.
+const KEEPALIVE: Duration = Duration::from_secs(25);
 
 pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -133,46 +137,173 @@ fn relayed(http: &ureq::Agent, cfg: &Config, method: &str, path: &str, headers: 
     answer(Some(&key), &sealed, SEALED, &bytes).with_context(|| format!("{method} {path}"))
 }
 
-trait Io: Read + Write + Send {}
-impl<T: Read + Write + Send> Io for T {}
+/// A stream under the socket, plain or TLS, with its TCP socket at hand to change the read timeout.
+trait Io: Read + Write + Send {
+    fn tcp(&self) -> &TcpStream;
+}
+impl Io for TcpStream {
+    fn tcp(&self) -> &TcpStream {
+        self
+    }
+}
+impl Io for rustls::StreamOwned<rustls::ClientConnection, TcpStream> {
+    fn tcp(&self) -> &TcpStream {
+        &self.sock
+    }
+}
 
 struct Socket {
     ws: Option<WebSocket<Box<dyn Io>>>,
-    retry_at: Option<Instant>,
+    /// A proxy refused the upgrade: calls go over HTTPS until then.
+    https_until: Option<Instant>,
+    /// The monitor was out of reach: [`wait`] tries again from then on.
+    next_try: Option<Instant>,
+    backoff: Duration,
+    /// The last frame from the other end, a pong included.
+    heard: Option<Instant>,
     next: u32,
+    /// The monitor's addresses, looked up once per connection at most.
+    addrs: Vec<SocketAddr>,
+    resolved: Option<Instant>,
 }
 
-static SOCKET: Mutex<Socket> = Mutex::new(Socket { ws: None, retry_at: None, next: 0 });
+static SOCKET: Mutex<Socket> = Mutex::new(Socket { ws: None, https_until: None, next_try: None, backoff: FIRST_BACKOFF, heard: None, next: 0, addrs: Vec::new(), resolved: None });
 
-/// One POST over the kept-open WebSocket, in the relay's frames. `None` sends it over
-/// HTTPS instead: the socket cannot be opened, or it just broke and opens again next call.
-fn over_socket(cfg: &Config, path: &str, headers: &[(&str, String)], body: &[u8]) -> Option<anyhow::Result<Vec<u8>>> {
-    let mut s = SOCKET.lock().unwrap_or_else(|e| e.into_inner());
-    if s.ws.is_none() {
-        if s.retry_at.is_some_and(|t| Instant::now() < t) {
-            return None;
-        }
-        match open(cfg) {
-            Ok(ws) => s.ws = Some(ws),
-            Err(e) => {
-                eprintln!("websocket to {} unavailable, using HTTPS for 10 minutes: {e:#}", cfg.url);
-                s.retry_at = Some(Instant::now() + SOCKET_RETRY);
-                return None;
+const FIRST_BACKOFF: Duration = Duration::from_secs(5);
+const MAX_BACKOFF: Duration = Duration::from_secs(300);
+/// Nothing heard for this long, though both ends ping: the connection is dead.
+const DEAD_AFTER: Duration = Duration::from_secs(80);
+/// Addresses are looked up again before a new connection only once they are this old.
+const DNS_REUSE: Duration = Duration::from_secs(60);
+
+/// Why no socket could be opened.
+enum Failure {
+    /// No connection at all (no network, no address, nothing listening): HTTPS would fail
+    /// the same way, so the call fails and the socket is tried again soon.
+    Unreachable(anyhow::Error),
+    /// Something answered but did not take the WebSocket: a proxy that drops them, or a
+    /// monitor older than the agent. HTTPS for a while.
+    Refused(anyhow::Error),
+}
+
+impl Socket {
+    fn connect(&mut self, cfg: &Config) -> Result<(), Failure> {
+        self.ws = None;
+        let opened = open(cfg, &mut self.addrs, &mut self.resolved);
+        let now = Instant::now();
+        match opened {
+            Ok(ws) => {
+                (self.ws, self.heard, self.next_try, self.backoff) = (Some(ws), Some(now), None, FIRST_BACKOFF);
+                Ok(())
+            }
+            Err(Failure::Refused(e)) => {
+                eprintln!("websocket to {} refused, using HTTPS for 10 minutes: {e:#}", cfg.url);
+                self.https_until = Some(now + SOCKET_RETRY);
+                Err(Failure::Refused(e))
+            }
+            Err(Failure::Unreachable(e)) => {
+                eprintln!("{} out of reach, trying again in {} s: {e:#}", cfg.url, self.backoff.as_secs());
+                self.next_try = Some(now + self.backoff);
+                self.backoff = (self.backoff * 2).min(MAX_BACKOFF);
+                Err(Failure::Unreachable(e))
             }
         }
     }
-    s.next = s.next.wrapping_add(1);
-    let id = s.next;
-    // Sealed anew for each try: the monitor refuses a sealed request it has seen.
-    let (key, req) = frame(cfg, "POST", path, headers, body);
-    let res = exchange(s.ws.as_mut()?, id, if key.is_some() { SEALED } else { PLAIN }, &req);
-    match res {
-        Ok((kind, payload)) => Some(answer(key.as_ref(), &req, kind, &payload).map(|(_, b)| b).with_context(|| format!("POST {path}"))),
-        Err(e) => {
-            eprintln!("websocket: {e:#}, sending over HTTPS");
-            s.ws = None;
-            None
+
+    fn https_only(&self) -> bool {
+        self.https_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// Reads what came in while idle, pongs and pings, without waiting. False when the
+    /// connection is gone or has been silent for too long.
+    fn alive(&mut self) -> bool {
+        let Some(ws) = self.ws.as_mut() else { return false };
+        if ws.get_ref().tcp().set_read_timeout(Some(Duration::from_millis(1))).is_err() {
+            return false;
         }
+        let ok = loop {
+            match ws.read() {
+                Ok(_) => self.heard = Some(Instant::now()),
+                Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => break true,
+                Err(_) => break false,
+            }
+        };
+        ok && ws.get_ref().tcp().set_read_timeout(Some(TIMEOUT)).is_ok() && self.heard.is_some_and(|t| t.elapsed() < DEAD_AFTER)
+    }
+}
+
+/// One POST over the kept-open WebSocket, in the relay's frames. `None` sends it over
+/// HTTPS instead, which only happens when something refused the WebSocket.
+fn over_socket(cfg: &Config, path: &str, headers: &[(&str, String)], body: &[u8]) -> Option<anyhow::Result<Vec<u8>>> {
+    let mut s = SOCKET.lock().unwrap_or_else(|e| e.into_inner());
+    if s.https_only() {
+        return None;
+    }
+    // A socket a proxy closed while the agent slept only shows when used: one more try on
+    // a fresh one, else every report after a quiet spell would go over HTTPS.
+    for fresh in [s.ws.is_none(), true] {
+        if fresh {
+            match s.connect(cfg) {
+                Ok(()) => {}
+                Err(Failure::Refused(_)) => return None,
+                Err(Failure::Unreachable(e)) => return Some(Err(e)),
+            }
+        }
+        s.next = s.next.wrapping_add(1);
+        let id = s.next;
+        // Sealed anew for each try: the monitor refuses a sealed request it has seen.
+        let (key, req) = frame(cfg, "POST", path, headers, body);
+        match exchange(s.ws.as_mut()?, id, if key.is_some() { SEALED } else { PLAIN }, &req) {
+            Ok((kind, payload)) => {
+                s.heard = Some(Instant::now());
+                return Some(answer(key.as_ref(), &req, kind, &payload).map(|(_, b)| b).with_context(|| format!("POST {path}")));
+            }
+            Err(e) => {
+                s.ws = None;
+                if fresh {
+                    eprintln!("websocket: {e:#}, sending over HTTPS");
+                    return None;
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Sleeps until `until`, keeping the connection up meanwhile: every 25 s it reads what
+/// came in, pings so that no proxy closes the socket as idle, and opens a new socket
+/// when the old one died, with a growing pause while the monitor stays out of reach.
+pub fn wait(cfg: &Config, until: Instant) {
+    loop {
+        let now = Instant::now();
+        if now >= until {
+            return;
+        }
+        let retry = SOCKET.lock().unwrap_or_else(|e| e.into_inner()).next_try;
+        let wake = [Some(until), Some(now + KEEPALIVE), retry.filter(|t| *t > now)].into_iter().flatten().min().unwrap_or(until);
+        std::thread::sleep(wake - now);
+        if Instant::now() >= until {
+            return;
+        }
+        keep_up(cfg);
+    }
+}
+
+fn keep_up(cfg: &Config) {
+    let mut s = SOCKET.lock().unwrap_or_else(|e| e.into_inner());
+    if s.ws.is_some() && !s.alive() {
+        eprintln!("websocket to {}: connection lost, opening a new one", cfg.url);
+        s.ws = None;
+    }
+    if s.ws.is_none() {
+        if s.https_only() || s.next_try.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        let _ = s.connect(cfg);
+    }
+    // The pongs wait in the buffer, read with the next answer or the next check.
+    if s.ws.as_mut().is_some_and(|ws| ws.send(Message::Ping(Vec::new().into())).is_err()) {
+        s.ws = None;
     }
 }
 
@@ -189,28 +320,43 @@ fn exchange(ws: &mut WebSocket<Box<dyn Io>>, id: u32, kind: u8, payload: &[u8]) 
 }
 
 /// `wss://…/agent/v1/ws` on the monitor, or `/_relay/ws` on the relay. Same DNS servers
-/// and trust store as the HTTPS client.
-fn open(cfg: &Config) -> anyhow::Result<WebSocket<Box<dyn Io>>> {
-    let uri: ureq::http::Uri = cfg.url.parse()?;
+/// and trust store as the HTTPS client. The addresses found are kept in `addrs` and used
+/// again for a minute, so a flapping link does not flood the DNS server.
+fn open(cfg: &Config, addrs: &mut Vec<SocketAddr>, resolved: &mut Option<Instant>) -> Result<WebSocket<Box<dyn Io>>, Failure> {
+    let unreachable = |e: anyhow::Error| Failure::Unreachable(e);
+    let uri: ureq::http::Uri = cfg.url.parse().map_err(|e| unreachable(anyhow!("{e}")))?;
     let tls = uri.scheme_str() == Some("https");
-    let host = uri.host().context("no host in NYX_URL")?.trim_start_matches('[').trim_end_matches(']');
+    let host = uri.host().ok_or_else(|| unreachable(anyhow!("no host in NYX_URL")))?.trim_start_matches('[').trim_end_matches(']');
     let port = uri.port_u16().unwrap_or(if tls { 443 } else { 80 });
-    let addrs = crate::dns::resolve(&cfg.dns, host, port)?;
-    let tcp = addrs.iter().find_map(|a| TcpStream::connect_timeout(a, Duration::from_secs(10)).ok()).with_context(|| format!("cannot connect to {host}:{port}"))?;
-    tcp.set_read_timeout(Some(TIMEOUT))?;
-    tcp.set_write_timeout(Some(TIMEOUT))?;
+    if addrs.is_empty() || resolved.is_none_or(|t| t.elapsed() > DNS_REUSE) {
+        *addrs = crate::dns::resolve(&cfg.dns, host, port).map_err(|e| unreachable(e.into()))?;
+        *resolved = Some(Instant::now());
+    }
+    let tcp = addrs.iter().find_map(|a| TcpStream::connect_timeout(a, Duration::from_secs(10)).ok()).ok_or_else(|| unreachable(anyhow!("cannot connect to {host}:{port}")))?;
+    // From here something answers: a failure is a refusal, which HTTPS may get through.
+    let refused = |e: anyhow::Error| Failure::Refused(e);
+    tcp.set_read_timeout(Some(TIMEOUT)).map_err(|e| refused(e.into()))?;
+    tcp.set_write_timeout(Some(TIMEOUT)).map_err(|e| refused(e.into()))?;
+    let _ = tcp.set_nodelay(true);
     let stream: Box<dyn Io> = if tls {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = rustls_platform_verifier::Verifier::new(provider.clone())?;
-        let config = rustls::ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions()?.dangerous().with_custom_certificate_verifier(Arc::new(verifier)).with_no_client_auth();
-        let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
-        Box::new(rustls::StreamOwned::new(rustls::ClientConnection::new(Arc::new(config), name)?, tcp))
+        let tls = || -> anyhow::Result<Box<dyn Io>> {
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            let verifier = rustls_platform_verifier::Verifier::new(provider.clone())?;
+            let config = rustls::ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions()?.dangerous().with_custom_certificate_verifier(Arc::new(verifier)).with_no_client_auth();
+            let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
+            Ok(Box::new(rustls::StreamOwned::new(rustls::ClientConnection::new(Arc::new(config), name)?, tcp)))
+        };
+        tls().map_err(refused)?
     } else {
         Box::new(tcp)
     };
     let path = if cfg.relay_key.is_empty() { "/agent/v1/ws" } else { "/_relay/ws" };
     let url = format!("{}{path}", cfg.url.replacen("http", "ws", 1));
-    Ok(tungstenite::client(url.as_str(), stream).map_err(|e| anyhow!("{e}"))?.0)
+    tungstenite::client(url.as_str(), stream).map(|(ws, _)| ws).map_err(|e| match e {
+        // A proxy whose monitor is down or restarting: back soon, and HTTPS would get the same.
+        tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r)) if r.status().is_server_error() => Failure::Unreachable(anyhow!("the proxy answered {}", r.status())),
+        e => refused(anyhow!("{e}")),
+    })
 }
 
 #[cfg(test)]
@@ -220,47 +366,129 @@ mod tests {
 
     /// A monitor's socket that answers each call with its path, after a ping and a stale
     /// answer the agent must skip. The second connection is refused: HTTPS takes over.
-    #[test]
-    fn calls_go_over_one_socket_and_fall_back() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (tcp, _) = listener.accept().unwrap();
-            let mut ws = tungstenite::accept(tcp).unwrap();
-            for _ in 0..2 {
-                let f = loop {
-                    if let Message::Binary(f) = ws.read().unwrap() {
-                        break f; // after the pong of the previous ping
-                    }
-                };
-                assert_eq!(f[4], PLAIN);
-                let (head, _) = unpack::<ReqHead>(&f[5..]).unwrap();
-                assert!(head.h.iter().any(|(k, _)| k == "x-nyx-sig"), "still signed by the agent");
-                ws.send(Message::Ping(vec![].into())).unwrap();
-                ws.send(Message::binary([&[9, 9, 9, 9, PLAIN][..], &pack(&ResHead { s: 200, h: vec![] }, b"\"stale\"")].concat())).unwrap();
-                let body = format!("\"{}\"", head.p);
-                ws.send(Message::binary([&f[..4], &[PLAIN], &pack(&ResHead { s: 200, h: vec![] }, body.as_bytes())].concat())).unwrap();
-            }
-            let _ = ws.close(None);
-            // Read until the agent hangs up: closing with its pong unread makes Linux send
-            // an RST, which can wipe the last answer before the agent reads it.
-            while ws.read().is_ok() {}
-        });
+    /// The tests below share the one socket of the agent: one at a time, from a clean slate.
+    static SERIAL: Mutex<()> = Mutex::new(());
+    fn clean() -> std::sync::MutexGuard<'static, ()> {
+        let g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        *SOCKET.lock().unwrap_or_else(|e| e.into_inner()) = Socket { ws: None, https_until: None, next_try: None, backoff: FIRST_BACKOFF, heard: None, next: 0, addrs: Vec::new(), resolved: None };
+        g
+    }
+
+    fn cfg_for(addr: std::net::SocketAddr) -> Config {
         let flag = |f: &str| match f {
             "--url" => Some(format!("http://{addr}")),
             "--token" | "--key" => Some("x".into()),
             "--kind" => Some("vm".into()),
             _ => None,
         };
-        let cfg = Config::from_flags("p".into(), &flag, false).unwrap();
-        let headers = [("x-nyx-sig", "s".to_string())];
-        let call = |p: &str| over_socket(&cfg, p, &headers, b"{}").map(|r| String::from_utf8(r.unwrap()).unwrap());
-        assert_eq!(call("/agent/v1/report").as_deref(), Some("\"/agent/v1/report\""));
-        assert_eq!(call("/agent/v1/logs").as_deref(), Some("\"/agent/v1/logs\""));
-        assert_eq!(call("/agent/v1/report"), None, "the socket closed: this call goes over HTTPS");
+        Config::from_flags("p".into(), &flag, false).unwrap()
+    }
+
+    const HEADERS: [(&str, String); 0] = [];
+    fn call(cfg: &Config, p: &str) -> Option<anyhow::Result<String>> {
+        over_socket(cfg, p, &HEADERS, b"{}").map(|r| r.map(|b| String::from_utf8(b).unwrap()))
+    }
+
+    /// Answers `calls` calls on an accepted socket, as the monitor does.
+    fn serve(ws: &mut WebSocket<TcpStream>, calls: usize) {
+        for _ in 0..calls {
+            let f = loop {
+                if let Message::Binary(f) = ws.read().unwrap() {
+                    break f; // after the pong of the previous ping
+                }
+            };
+            assert_eq!(f[4], PLAIN);
+            let (head, _) = unpack::<ReqHead>(&f[5..]).unwrap();
+            ws.send(Message::Ping(vec![].into())).unwrap();
+            ws.send(Message::binary([&[9, 9, 9, 9, PLAIN][..], &pack(&ResHead { s: 200, h: vec![] }, b"\"stale\"")].concat())).unwrap();
+            let body = format!("\"{}\"", head.p);
+            ws.send(Message::binary([&f[..4], &[PLAIN], &pack(&ResHead { s: 200, h: vec![] }, body.as_bytes())].concat())).unwrap();
+        }
+    }
+
+    #[test]
+    fn calls_go_over_one_socket_and_a_closed_one_is_replaced_without_https() {
+        let _g = clean();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            // Two connections: the first one closed after two calls, as a proxy closes an idle socket.
+            for calls in [2, 1] {
+                let mut ws = tungstenite::accept(listener.accept().unwrap().0).unwrap();
+                serve(&mut ws, calls);
+                let _ = ws.close(None);
+                // Read until the agent hangs up: closing with its pong unread makes Linux send
+                // an RST, which can wipe the last answer before the agent reads it.
+                while ws.read().is_ok() {}
+            }
+        });
+        let cfg = cfg_for(addr);
+        let ok = |p: &str| call(&cfg, p).map(|r| r.unwrap());
+        assert_eq!(ok("/agent/v1/report").as_deref(), Some("\"/agent/v1/report\""));
+        assert_eq!(ok("/agent/v1/logs").as_deref(), Some("\"/agent/v1/logs\""));
+        assert_eq!(ok("/agent/v1/report").as_deref(), Some("\"/agent/v1/report\""), "the socket was closed: a fresh one, not HTTPS");
+        SOCKET.lock().unwrap().ws = None; // hang up, so that the server goes away
         server.join().unwrap();
-        assert_eq!(call("/agent/v1/report"), None, "nothing listens: HTTPS for a while");
-        assert!(SOCKET.lock().unwrap().retry_at.is_some());
+        let down = call(&cfg, "/agent/v1/report").expect("nothing listens: HTTPS would fail too, so none is tried");
+        assert!(down.is_err());
+        let s = SOCKET.lock().unwrap();
+        assert!(s.next_try.is_some() && !s.https_only(), "tried again soon, over the socket");
+        assert_eq!(s.backoff, FIRST_BACKOFF * 2);
+    }
+
+    /// A server that answers the upgrade with a plain HTTP status, as a proxy would.
+    fn answers(status: &'static str) -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut tcp, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = tcp.read(&mut buf);
+            let _ = tcp.write_all(format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").as_bytes());
+        });
+        addr
+    }
+
+    #[test]
+    fn a_refused_upgrade_means_https_for_a_while() {
+        let _g = clean();
+        let cfg = cfg_for(answers("404 Not Found"));
+        assert!(call(&cfg, "/agent/v1/report").is_none(), "over HTTPS");
+        assert!(SOCKET.lock().unwrap().https_only());
+        assert!(call(&cfg, "/agent/v1/report").is_none(), "still HTTPS, without trying the socket again");
+    }
+
+    #[test]
+    fn a_proxy_whose_monitor_is_down_is_tried_again_soon_not_over_https() {
+        let _g = clean();
+        let cfg = cfg_for(answers("502 Bad Gateway"));
+        assert!(call(&cfg, "/agent/v1/report").is_some_and(|r| r.is_err()));
+        let s = SOCKET.lock().unwrap();
+        assert!(!s.https_only() && s.next_try.is_some());
+    }
+
+    #[test]
+    fn a_dead_socket_is_noticed_and_replaced_while_idle() {
+        let _g = clean();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut ws = tungstenite::accept(listener.accept().unwrap().0).unwrap();
+            serve(&mut ws, 1);
+            drop(ws); // the connection dies without a word
+            let mut ws = tungstenite::accept(listener.accept().unwrap().0).unwrap();
+            loop {
+                if let Message::Ping(_) = ws.read().unwrap() {
+                    return; // the new socket is kept alive
+                }
+            }
+        });
+        let cfg = cfg_for(addr);
+        assert!(call(&cfg, "/agent/v1/report").is_some_and(|r| r.is_ok()));
+        std::thread::sleep(Duration::from_millis(100));
+        keep_up(&cfg);
+        server.join().unwrap();
+        assert!(SOCKET.lock().unwrap().ws.is_some());
     }
 
     #[test]

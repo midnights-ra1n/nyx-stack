@@ -180,10 +180,29 @@ monitor's name is looked up once per connection, not once per report, so the age
 not fill the log of a DNS server such as Pi-hole or AdGuard Home, and through the relay a
 report costs no Cloudflare request. Each call is still signed with the host key.
 
-When the socket breaks, that one call goes over HTTPS and the next one opens a new
-socket. When it cannot be opened, because the monitor is older than the agent or a
-reverse proxy drops WebSockets, the agent logs
-`websocket to … unavailable, using HTTPS for 10 minutes` and sends each call as an HTTPS
+The connection is meant to stay up for days:
+
+- **Kept alive, cheaply.** Reverse proxies close a quiet connection: nginx after 60
+  seconds by default, Cloudflare after 100. The agent pings every 25 seconds between two
+  reports, a frame of 6 bytes. The monitor only pings agents that stay quiet for 30
+  seconds, which keeps older agents connected too. All told, about 1 MB a day per agent,
+  and no request in the proxy's log.
+- **Few DNS lookups.** The monitor's name is looked up when a connection opens, and its
+  addresses are used again for the next minute, so a flapping link does not flood a DNS
+  server such as Pi-hole or AdGuard Home.
+- **Reconnects by itself.** A connection that dies, closed by a proxy or silent for 80
+  seconds although both ends ping, is replaced while the agent waits, before the next
+  report. While the monitor stays out of reach (no network, nothing listening, or a proxy
+  answering 5xx while the monitor restarts), the agent tries again after 5 seconds, then
+  10, 20 and so on up to 5 minutes, and keeps its reports for when it is back. It does not
+  fall back to HTTPS then, as HTTPS would fail the same way.
+- **Only what changed.** Docker containers, services, SMART and the rest are sent when
+  they change. systemd services go out at once when one changes state, and with fresh
+  memory and CPU figures every 5 minutes.
+
+When something answers but refuses the WebSocket, because the monitor is older than the
+agent or a reverse proxy drops WebSockets, the agent logs
+`websocket to … refused, using HTTPS for 10 minutes` and sends each call as an HTTPS
 request until it tries again. Behind nginx, let `/agent/v1/ws` upgrade:
 
 ```nginx
@@ -205,6 +224,7 @@ Caddy and Traefik pass WebSockets on as they are. Agent binary downloads still u
 | Uptime, CPU, RAM, swap, network, disk usage | Each report | |
 | Temperature | Each report | Highest sensor |
 | Docker containers | When changed | Through `/var/run/docker.sock`, skipped if absent |
+| systemd services | Once a minute, when changed | Every loaded service: state, since when, main PID, memory, CPU share, restarts, start at boot, type, last result and unit file. Two `systemctl` calls, at most 400 services. Skipped without systemd |
 | Node.js apps and version | When changed, looked for every 5 min | From running processes: folder, Git origin and branch, user, what runs them. Credentials in a Git URL stay on the host, and the binaries found are never run |
 | VPN tunnels | Each report | Interface, type, address and traffic |
 | Pending system updates | Daily | At the hour set in the monitor |

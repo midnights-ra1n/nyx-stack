@@ -94,6 +94,45 @@ pub struct Report {
     /// Package sources, sent when they changed. Absent from older agents.
     #[serde(default)]
     pub repos: Option<Vec<RepoFile>>,
+    /// Loaded systemd services, sent when they changed. Absent from older agents and
+    /// from hosts without systemd.
+    #[serde(default)]
+    pub services: Option<Vec<Service>>,
+}
+
+/// A systemd service, as `systemctl show` describes it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Service {
+    /// Without `.service`.
+    pub name: String,
+    pub description: String,
+    /// `active`, `inactive`, `failed`, `activating`, `deactivating` or `reloading`.
+    pub active: String,
+    /// What it does inside that state: `running`, `exited`, `dead`, `auto-restart`…
+    pub sub: String,
+    /// Whether it starts at boot: `enabled`, `disabled`, `static`, `masked`, `generated`…
+    pub enabled: String,
+    /// Epoch seconds it entered its current state; for a running one, when it started. 0 if unknown.
+    pub since: i64,
+    pub pid: u32,
+    /// Bytes, 0 without memory accounting.
+    pub mem: u64,
+    /// Share of one core since the previous reading.
+    pub cpu_pct: f32,
+    /// Restarts by systemd since it was loaded.
+    pub restarts: u32,
+    /// `simple`, `oneshot`, `forking`, `notify`…
+    pub kind: String,
+    /// How its last run ended: `success`, `exit-code`, `signal`, `timeout`…
+    pub result: String,
+    /// The unit file.
+    pub path: String,
+}
+
+/// Names systemd gives units: escaped ones keep their backslashes, and none starts with
+/// a dash, which `systemctl` would read as an option.
+pub fn unit_name_ok(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 256 && !name.starts_with('-') && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:\\".contains(c))
 }
 
 /// A package source file: `/etc/apt/sources.list`, one in `/etc/apt/sources.list.d`
@@ -500,6 +539,8 @@ pub enum Action {
     Site(SiteControl),
     /// `start`, `stop`, `restart` or `logs` of a Docker container.
     Container { op: String, name: String },
+    /// `start`, `stop`, `restart`, `logs`, `status` or `cat` (its unit file) of a systemd service.
+    Service { op: String, name: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

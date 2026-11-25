@@ -30,6 +30,7 @@ pub fn run(cfg: &Config, http: &ureq::Agent, cmd: Command, tx: &Sender<Msg>) {
         Action::Deploy(d) => deploy(&d),
         Action::Site(c) => site_control(&c),
         Action::Container { op, name } => container_op(&op, &name),
+        Action::Service { op, name } => service_op(&op, &name),
         Action::Firewall(c) => {
             let done = crate::firewall::change(cfg, &c);
             let _ = tx.send(Msg::FirewallChanged); // also after a failure: it may have been undone
@@ -264,6 +265,26 @@ fn write_env(d: &Deploy) -> anyhow::Result<()> {
 }
 
 /// Start, stop or restart a Docker container, or read its last lines.
+/// Start, stop or restart a systemd service, or read its logs, status or unit file.
+fn service_op(op: &str, name: &str) -> anyhow::Result<String> {
+    if !nyx_proto::unit_name_ok(name) {
+        bail!("invalid service name");
+    }
+    let unit = format!("{name}.service");
+    // Stopping the agent from the monitor would leave nothing to start it again.
+    if name == "nyx-agent" && op == "stop" {
+        bail!("the agent cannot stop itself from here");
+    }
+    match op {
+        "start" | "stop" | "restart" => sh(cmd("systemctl", [op, "--", &unit])).map(|_| format!("{op} done")),
+        "logs" => sh(cmd("journalctl", ["-u", &unit, "-n", "300", "--no-pager", "-o", "short-iso"])),
+        // `status` exits 3 for a stopped unit: still an answer worth showing.
+        "status" => Ok(String::from_utf8_lossy(&cmd("systemctl", ["status", "--no-pager", "--full", "-n", "0", "--", &unit]).output()?.stdout).into_owned()),
+        "cat" => sh(cmd("systemctl", ["cat", "--no-pager", "--", &unit])),
+        _ => bail!("unknown operation"),
+    }
+}
+
 fn container_op(op: &str, name: &str) -> anyhow::Result<String> {
     if !nyx_proto::container_name_ok(name) {
         bail!("invalid container name");

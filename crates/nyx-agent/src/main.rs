@@ -12,6 +12,7 @@ mod node;
 mod packages;
 mod proxmox;
 mod repos;
+mod services;
 mod smart;
 mod transport;
 mod uninstall;
@@ -113,7 +114,7 @@ fn run(mut cfg: Config) -> anyhow::Result<()> {
         } else {
             collect::forget_live_logs();
         }
-        std::thread::sleep(next_report.saturating_duration_since(Instant::now()));
+        transport::wait(&cfg, next_report);
     }
 }
 

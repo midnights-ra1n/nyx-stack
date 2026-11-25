@@ -59,6 +59,9 @@ pub struct Collector {
     containers: Option<Vec<Container>>,
     /// CPU counters of each container at the last report: its own, then the whole system's.
     container_cpu: HashMap<String, (u64, u64)>,
+    services: Option<Vec<nyx_proto::Service>>,
+    service_cpu: crate::services::CpuSeen,
+    services_every: Every,
     /// Slow data sent only when it changed; `None` means "must be re-sent".
     updates: Option<Vec<PackageUpdate>>,
     updates_dirty: bool,
@@ -90,6 +93,9 @@ impl Collector {
             detected: detected_kind(),
             containers: None,
             container_cpu: HashMap::new(),
+            services: None,
+            service_cpu: Default::default(),
+            services_every: Every(RARE, None),
             updates: None,
             updates_dirty: false,
             node: None,
@@ -122,6 +128,8 @@ impl Collector {
     /// Forget what the monitor has seen: everything goes out on the next report.
     pub fn resync(&mut self) {
         self.containers = None;
+        self.services = None;
+        self.services_every.reset();
         self.node = None;
         self.guests = None;
         self.smart = None;
@@ -144,7 +152,7 @@ impl Collector {
         logs.drain(..excess);
         self.pending_logs = logs;
         self.pending_results.splice(0..0, failed.results);
-        if failed.containers.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() || failed.repos.is_some() {
+        if failed.containers.is_some() || failed.services.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() || failed.repos.is_some() {
             self.resync();
         }
     }
@@ -193,6 +201,14 @@ impl Collector {
 
         if self.slow.due() {
             r.containers = changed(&mut self.containers, docker_containers(&mut self.container_cpu));
+            if let Some(list) = crate::services::scan(&mut self.service_cpu, System::boot_time().unwrap_or(0)) {
+                // A state change goes out at once; CPU and memory alone every 5 minutes.
+                let moved = self.services.as_ref().is_none_or(|old| !crate::services::same_states(old, &list));
+                if self.services_every.due() || moved {
+                    self.services = Some(list.clone());
+                    r.services = Some(list);
+                }
+            }
             r.logs.extend(journal("warning", "100", JOURNAL_CURSOR));
         }
         if self.rare.due() {

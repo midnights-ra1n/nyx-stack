@@ -1,5 +1,5 @@
 import "../ui/tokens.css"
-import { BellIcon, CircleStackIcon, CodeBracketSquareIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, BellIcon, ChartBarIcon, QueueListIcon, CircleStackIcon, CodeBracketSquareIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { t } from "../ui/i18n"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
@@ -12,14 +12,22 @@ import { Alerts, Containers, Network, SearchPage } from "./pages"
 import { AddHostPage, HostDetail, Hosts } from "./hosts"
 import { Overview } from "./overview"
 import { Pipelines } from "./pipelines"
+import { Charts } from "./charts"
+import { Updates } from "./updates"
+import { ServiceDetail, ServicesPage } from "./services"
 import { Settings } from "./settings"
 
 function route(path: string) {
   if (path === "/") return <Overview />
   if (path === "/hosts") return <Hosts />
   if (path === "/hosts/new") return <AddHostPage />
+  const svc = path.match(/^\/hosts\/([^/]+)\/services\/(.+)$/)
+  if (svc) return <ServiceDetail key={path} hostId={svc[1]} name={decodeURIComponent(svc[2])} />
   if (path.startsWith("/hosts/")) return <HostDetail id={path.slice(7)} />
+  if (path === "/services") return <ServicesPage />
   if (path === "/map") return <MapPage />
+  if (path === "/charts") return <Charts />
+  if (path === "/updates") return <Updates />
   if (path === "/containers") return <Containers />
   if (path === "/network") return <Network />
   if (path === "/storage") return <Storage />
@@ -44,13 +52,16 @@ function useNav(): NavConfig {
       { label: "Monitoring", items: [
         { to: "/", label: "Overview", icon: Squares2X2Icon },
         { to: "/hosts", label: "Hosts", icon: ServerStackIcon },
+        { to: "/charts", label: "Charts", icon: ChartBarIcon },
         { to: "/map", label: "Map", icon: MapIcon },
+        { to: "/services", label: "Services", icon: QueueListIcon },
         { to: "/containers", label: "Containers", icon: CubeIcon },
         { to: "/network", label: "Network", icon: GlobeAltIcon },
         { to: "/storage", label: "Storage", icon: CircleStackIcon },
       ] },
       { label: "Operations", items: [
         { to: "/alerts", label: "Alerts", icon: BellIcon, badge: data?.alerts },
+        { to: "/updates", label: "Updates", icon: ArrowPathIcon, badge: data?.hosts_to_update || undefined },
         { to: "/pipelines", label: "Pipelines", icon: CodeBracketSquareIcon },
         { to: "/logs", label: "Logs", icon: CommandLineIcon },
         { to: "/pages", label: "Status pages", icon: PresentationChartBarIcon },

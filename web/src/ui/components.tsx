@@ -142,7 +142,7 @@ export interface Series { name: string; color: string; values: { t: number; v: n
  * Hairline and readout over a plot. Snaps to the nearest sample and lists every series
  * there, so the pointer never has to land on a line. The arrow keys do the same.
  */
-export function ChartHover({ series, top, unit, colors }: { series: { name: string; values: { t: number; v: number }[] }[]; top: number; unit: string; colors: string[] }) {
+export function ChartHover({ series, top, unit, colors, format }: { series: { name: string; values: { t: number; v: number }[] }[]; top: number; unit: string; colors: string[]; format?: (v: number) => string }) {
   const [t, setT] = useState<number>()
   const times = [...new Set(series.flatMap((s) => s.values.map((p) => p.t)))].sort((a, b) => a - b)
   const t0 = times[0], t1 = times[times.length - 1]
@@ -172,7 +172,7 @@ export function ChartHover({ series, top, unit, colors }: { series: { name: stri
               <div key={s.name} className="flex items-center gap-2">
                 <span className="inline-block h-0.5 w-3" style={{ background: colors[i] }} />
                 <span className="mr-auto pr-3 text-fg2">{s.name}</span>
-                <span className="font-medium">{point.v.toFixed(point.v < 10 ? 1 : 0)}{unit}</span>
+                <span className="font-medium">{format ? format(point.v) : `${point.v.toFixed(point.v < 10 ? 1 : 0)}${unit}`}</span>
               </div>
             ))}
           </div>
@@ -182,9 +182,13 @@ export function ChartHover({ series, top, unit, colors }: { series: { name: stri
   )
 }
 
-/** Time series with a legend table: mean, max, last. At most one per screen. */
-export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[]; max?: number; unit?: string }) {
+/**
+ * Time series with a legend table: mean, max, last. `max` defaults to 100 for
+ * percentages; pass `format` for other units, and `fill={false}` for bare lines.
+ */
+export function TimeSeries({ series, max = 100, unit = " %", format, fill = true, compact }: { series: Series[]; max?: number; unit?: string; format?: (v: number) => string; fill?: boolean; compact?: boolean }) {
   const W = 600, H = 180
+  const show = format ?? ((v: number) => `${v.toFixed(0)}${unit}`)
   const all = series.flatMap((s) => s.values)
   const drawn = series.filter((s) => s.values.length)
   if (all.length < 2) return <Empty>{t("Not enough data yet.")}</Empty>
@@ -193,8 +197,8 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
   const clock = (t: number) => t1 - t0 > 2 * 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" }) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   return (
     <div>
-      <div className="grid grid-cols-[32px_1fr] gap-2">
-        <div className="flex h-44 flex-col justify-between text-right text-xs text-fg3" aria-hidden><span>{max}</span><span>{max / 2}</span><span>0</span></div>
+      <div className={`grid gap-2 ${format ? "grid-cols-[64px_1fr]" : "grid-cols-[32px_1fr]"}`}>
+        <div className="flex h-44 flex-col justify-between text-right text-xs text-fg3" aria-hidden><span>{format ? format(max) : max}</span><span>{format ? format(max / 2) : max / 2}</span><span>0</span></div>
         <div className="relative h-44">
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={t("Chart of {names}", { names: series.map((s) => s.name).join(", ") })}>
             {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
@@ -203,17 +207,17 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
               const last = s.values[s.values.length - 1], first = s.values[0]
               return (
                 <g key={s.name}>
-                  <path d={`${line} L${x(last.t)} ${H} L${x(first.t)} ${H} Z`} fill={s.color} fillOpacity="0.14" />
+                  {fill && <path d={`${line} L${x(last.t)} ${H} L${x(first.t)} ${H} Z`} fill={s.color} fillOpacity="0.14" />}
                   <path d={line} fill="none" stroke={s.color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
                 </g>
               )
             })}
           </svg>
-          <ChartHover series={drawn} top={max} unit={unit} colors={drawn.map((s) => s.color)} />
+          <ChartHover series={drawn} top={max} unit={unit} format={format} colors={drawn.map((s) => s.color)} />
         </div>
       </div>
-      <div className="mt-2 ml-10 flex justify-between text-xs text-fg3"><span>{clock(t0)}</span><span>{clock((t0 + t1) / 2)}</span><span>{t("Now")}</span></div>
-      <table className="mt-3 w-full border-t border-line text-[13px]">
+      <div className={`mt-2 flex justify-between text-xs text-fg3 ${format ? "ml-[72px]" : "ml-10"}`}><span>{clock(t0)}</span><span>{clock((t0 + t1) / 2)}</span><span>{t("Now")}</span></div>
+      {!compact && <table className="mt-3 w-full border-t border-line text-[13px]">
         <thead className="text-xs text-fg3"><tr><th className="py-2 text-left font-normal">{t("Series")}</th><th className="text-right font-normal">{t("Mean")}</th><th className="text-right font-normal">{t("Max")}</th><th className="text-right font-normal">{t("Last")}</th></tr></thead>
         <tbody>
           {series.map((s) => {
@@ -221,14 +225,14 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
             return (
               <tr key={s.name}>
                 <td className="py-1"><span className="mr-2 inline-block h-0.5 w-3 align-middle" style={{ background: s.color }} />{s.name}</td>
-                <td className="text-right text-fg2">{(vs.reduce((a, b) => a + b, 0) / vs.length).toFixed(0)}{unit}</td>
-                <td className="text-right text-fg2">{Math.max(...vs).toFixed(0)}{unit}</td>
-                <td className="text-right font-medium">{vs[vs.length - 1].toFixed(0)}{unit}</td>
+                <td className="text-right text-fg2">{vs.length ? show(vs.reduce((a, b) => a + b, 0) / vs.length) : "—"}</td>
+                <td className="text-right text-fg2">{vs.length ? show(Math.max(...vs)) : "—"}</td>
+                <td className="text-right font-medium">{vs.length ? show(vs[vs.length - 1]) : "—"}</td>
               </tr>
             )
           })}
         </tbody>
-      </table>
+      </table>}
     </div>
   )
 }

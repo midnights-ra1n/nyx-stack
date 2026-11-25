@@ -185,7 +185,22 @@ pub async fn socket(req: Request<Body>, router: Router) -> Response {
     tokio::spawn(async move {
         let Ok(io) = hyper::upgrade::on(req).await else { return };
         let mut ws = WebSocketStream::from_raw_socket(TokioIo::new(io), Role::Server, None).await;
-        while let Ok(Some(Ok(msg))) = tokio::time::timeout(SOCKET_IDLE, ws.next()).await {
+        // A ping now and then, so that a reverse proxy does not close the socket as idle
+        // between two reports: the agent would then send its next report over HTTPS.
+        let mut beat = tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
+        let mut heard = tokio::time::Instant::now();
+        loop {
+            let msg = tokio::select! {
+                m = ws.next() => m,
+                _ = beat.tick() => {
+                    if heard.elapsed() > SOCKET_IDLE { break }
+                    // Up-to-date agents ping on their own: only a quiet one needs it.
+                    if heard.elapsed() >= HEARTBEAT && ws.send(Message::Ping(Vec::new().into())).await.is_err() { break }
+                    continue;
+                }
+            };
+            let Some(Ok(msg)) = msg else { break };
+            heard = tokio::time::Instant::now();
             let Message::Binary(frame) = msg else { continue };
             let Some((head, body)) = unpack::<ReqHead>(frame.get(5..).unwrap_or_default()).filter(|_| frame[4] == PLAIN) else { break };
             let (res, body) = call(&router, head, body, false).await;

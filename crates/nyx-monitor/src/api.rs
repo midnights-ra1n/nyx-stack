@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 10] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout", "probe_dns"];
+const SETTINGS: [&str; 11] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout", "probe_dns", "charts"];
 const MAX_POINTS: usize = 400;
 
 fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
@@ -26,7 +26,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     let r = live.map(|l| &l.report);
     json!({
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
-        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted,
+        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted, "tags": h.tags,
         "ct_autoinstall": h.ct_autoinstall, "dns": r.map(|r| &r.dns), "last_seen": h.last_seen, "status": host_status(h, now, th),
         "issues": host_issues(h, th).into_iter().map(|(level, message)| json!({"level": level, "message": message})).collect::<Vec<_>>(),
         "installed": h.last_seen > 0,
@@ -35,10 +35,16 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
         "swap": r.map(|r| pct(r.swap_used, r.swap_total)), "uptime_s": r.map(|r| r.uptime_s), "temp": r.and_then(|r| r.temp_c),
         "rx": r.map(|r| r.net_rx_bps), "tx": r.map(|r| r.net_tx_bps),
         "updates": live.map_or(0, |l| l.updates.len()),
+        "security": live.map_or(0, |l| l.updates.iter().filter(|u| u.security).count()),
+        "disk": r.and_then(|r| r.disks.iter().map(|d| pct(d.used, d.total)).reduce(f32::max)),
+        "agent_outdated": !h.agent_version.is_empty() && h.agent_version != st.agent_target(),
         "reboot_required": r.is_some_and(|r| r.reboot_required),
         "update": h.update.as_ref().map(|u| u.to_json(now, h.last_seen, r.and_then(|r| r.progress.as_ref()))),
         "containers_running": live.map_or(0, |l| l.containers.iter().filter(|c| c.state == "running").count()),
         "containers_total": live.map_or(0, |l| l.containers.len()),
+        "services_running": live.map_or(0, |l| l.services.iter().filter(|s| s.sub == "running").count()),
+        "services_failed": live.map_or(0, |l| l.services.iter().filter(|s| s.active == "failed").count()),
+        "services_total": live.map_or(0, |l| l.services.len()),
         "guests": live.map_or(vec![], |l| l.guests.clone()),
         "vpn": live.map_or(vec![], |l| l.vpn.clone()),
     })
@@ -82,6 +88,7 @@ pub fn overview_json(app: &App) -> Value {
     json!({
         "hosts_online": online, "hosts_total": st.hosts.len(),
         "alerts": st.alerts.len(), "alerts_crit": crit,
+        "hosts_to_update": st.hosts.values().filter(|h| h.live.as_ref().is_some_and(|l| !l.updates.is_empty())).count(),
         "containers_running": running, "containers_total": total,
         "availability_7d": st.uptime.availability(st.probes.keys(), Local::now().date_naive(), 7),
         "cpu": if n > 0.0 { cpu / n } else { 0.0 }, "mem": if n > 0.0 { mem / n } else { 0.0 },
@@ -108,6 +115,7 @@ pub fn host_json(app: &App, id: &str) -> Option<Value> {
         v["repos"] = json!(l.repos);
         v["guests"] = json!(l.guests);
         v["logs"] = json!(l.logs);
+        v["services"] = json!(l.services);
     }
     v["results"] = st.results.iter().filter(|r| r["host"] == id).cloned().collect();
     Some(v)
@@ -209,18 +217,36 @@ async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Str
 
 #[derive(Deserialize)]
 struct HostPatch {
-    muted: bool,
+    muted: Option<bool>,
+    tags: Option<Vec<String>>,
 }
 
 /// Keeps a host out of alerts and notifications, or brings it back. Its open alerts
 /// close quietly; unmuted, it alerts again from its next report.
 async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<HostPatch>) -> ApiResult<Json<Value>> {
-    app.lock().hosts.get_mut(&id).ok_or_else(ApiError::not_found)?.muted = b.muted;
-    app.core.pb.update("hosts", &id, &json!({"muted": b.muted})).await?;
-    if b.muted {
+    let tags = b.tags.as_ref().map(|t| crate::state::parse_tags(t.iter().map(String::as_str)));
+    {
+        let mut st = app.lock();
+        let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
+        if let Some(m) = b.muted {
+            h.muted = m;
+        }
+        if let Some(t) = &tags {
+            h.tags = t.clone();
+        }
+    }
+    let mut rec = serde_json::Map::new();
+    if let Some(m) = b.muted {
+        rec.insert("muted".into(), m.into());
+    }
+    if let Some(t) = &tags {
+        rec.insert("tags".into(), t.join(",").into());
+    }
+    app.core.pb.update("hosts", &id, &Value::Object(rec)).await?;
+    if b.muted == Some(true) {
         app.silence(&id).await?;
     }
-    Ok(Json(Value::Null))
+    Ok(Json(json!({"tags": tags})))
 }
 
 #[derive(Deserialize)]
@@ -272,6 +298,13 @@ async fn command(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>
             }
             Action::Container { op, name }
         }
+        "service" => {
+            let (op, name) = (b.op.unwrap_or_default(), b.name.unwrap_or_default());
+            if !["start", "stop", "restart", "logs", "status", "cat"].contains(&op.as_str()) || !nyx_proto::unit_name_ok(&name) {
+                return Err(ApiError::bad_request("unknown operation or invalid service name"));
+            }
+            Action::Service { op, name }
+        }
         _ => return Err(ApiError::bad_request("unknown action")),
     };
     let cmd = if matches!(action, Action::UpdateSystem | Action::CleanSystem | Action::UpdateAgent) {
@@ -289,15 +322,27 @@ async fn results(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
     Json(json!(app.lock().results))
 }
 
-async fn update_all(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
-    Json(json!({"started": app.lock().update_all(Utc::now().timestamp())}))
+#[derive(Deserialize, Default)]
+struct UpdateAll {
+    /// Only these hosts; none, every host.
+    #[serde(default)]
+    ids: Vec<String>,
+}
+
+async fn update_all(_: Session, State(app): State<Arc<App>>, body: Option<Json<UpdateAll>>) -> Json<Value> {
+    let only = body.map(|b| b.0).unwrap_or_default().ids;
+    Json(json!({"started": app.lock().update_all(Utc::now().timestamp(), &only)}))
 }
 
 #[derive(Deserialize)]
 struct SeriesQuery {
     host: Option<String>,
+    /// Several hosts at once, comma-separated: the answer is keyed by host id.
+    hosts: Option<String>,
     range: Option<String>,
 }
+
+const MAX_CHART_HOSTS: usize = 24;
 
 fn thin(mut points: Vec<Value>) -> Vec<Value> {
     if points.len() > MAX_POINTS {
@@ -311,22 +356,35 @@ fn thin(mut points: Vec<Value>) -> Vec<Value> {
 /// ranges of a host come from its rollups.
 async fn series(_: Session, State(app): State<Arc<App>>, Query(q): Query<SeriesQuery>) -> ApiResult<Json<Value>> {
     let range = q.range.as_deref().unwrap_or("24h");
-    let host = q.host.filter(|h| !h.is_empty());
     let since = Utc::now() - Duration::hours(range_hours(range)?);
-    let Some(id) = host else {
+    if let Some(ids) = q.hosts.filter(|h| !h.is_empty()) {
+        let mut out = serde_json::Map::new();
+        for id in ids.split(',').filter(|i| !i.is_empty()).take(MAX_CHART_HOSTS) {
+            out.insert(id.to_string(), json!(host_series(&app, id, range, since).await?));
+        }
+        return Ok(Json(Value::Object(out)));
+    }
+    let Some(id) = q.host.filter(|h| !h.is_empty()) else {
         let st = app.lock();
         let points = st.fleet.iter().filter(|p| p.t >= since.timestamp()).map(|p| json!({"t": p.t, "cpu": p.cpu, "mem": p.mem}));
         return Ok(Json(json!(thin(points.collect()))));
     };
+    Ok(Json(json!(host_series(&app, &id, range, since).await?)))
+}
+
+/// Every measure of one host: from RAM for the last hour, from its rollups beyond.
+async fn host_series(app: &App, id: &str, range: &str, since: chrono::DateTime<Utc>) -> ApiResult<Vec<Value>> {
     if range == "1h" {
         let st = app.lock();
-        let points: Vec<Value> = st.hosts.get(&id).and_then(|h| h.live.as_ref()).map_or(vec![], |l| l.series.iter().filter(|p| p.t >= since.timestamp()).map(|p| json!(p)).collect()); // idle pace: the buffer spans 4 h
-        return Ok(Json(json!(points)));
+        let points = st.hosts.get(id).and_then(|h| h.live.as_ref()).map_or(vec![], |l| l.series.iter().filter(|p| p.t >= since.timestamp()).map(|p| json!(p)).collect()); // idle pace: the buffer spans 4 h
+        return Ok(points);
     }
-    let filter = format!("t >= {} && host = {}", pb_quote(&pb_date(since)), pb_quote(&id));
+    let filter = format!("t >= {} && host = {}", pb_quote(&pb_date(since)), pb_quote(id));
     let mut points = vec![];
-    app.core.pb.each("rollups", &filter, "t", "t,cpu,mem", |r| points.extend(rollup_time(&r).map(|t| json!({"t": t, "cpu": r["cpu"], "mem": r["mem"]})))).await?;
-    Ok(Json(json!(thin(points))))
+    app.core.pb.each("rollups", &filter, "t", "t,cpu,mem,disk,temp,rx,tx", |r| {
+        points.extend(rollup_time(&r).map(|t| json!({"t": t, "cpu": r["cpu"], "mem": r["mem"], "disk": r["disk"], "temp": r["temp"], "rx": r["rx"], "tx": r["tx"]})))
+    }).await?;
+    Ok(thin(points))
 }
 
 fn range_hours(range: &str) -> ApiResult<i64> {
@@ -350,6 +408,15 @@ async fn containers(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
     let st = app.lock();
     let rows: Vec<Value> = st.hosts.values().filter_map(|h| Some((h, h.live.as_ref()?)))
         .flat_map(|(h, l)| l.containers.iter().map(|c| json!({"host": h.name, "host_id": h.id, "name": c.name, "image": c.image, "state": c.state, "status": c.status, "cpu_pct": c.cpu_pct, "mem_used": c.mem_used, "mem_limit": c.mem_limit, "mem_pct": pct(c.mem_used, c.mem_limit), "id": c.id})))
+        .collect();
+    Json(json!(rows))
+}
+
+/// Every systemd service of every host, each with its host.
+async fn services(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
+    let st = app.lock();
+    let rows: Vec<Value> = st.hosts.values().filter_map(|h| Some((h, h.live.as_ref()?)))
+        .flat_map(|(h, l)| l.services.iter().map(|s| { let mut v = json!(s); v["host"] = h.name.clone().into(); v["host_id"] = h.id.clone().into(); v }))
         .collect();
     Json(json!(rows))
 }
@@ -494,6 +561,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/hosts/{id}/logs/live", get(live_logs))
         .route("/api/series", get(series))
         .route("/api/containers", get(containers))
+        .route("/api/services", get(services))
         .route("/api/storage", get(storage))
         .route("/api/logs", get(logs))
         .route("/api/probes", get(probes))

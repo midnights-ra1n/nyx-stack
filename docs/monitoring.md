@@ -31,16 +31,102 @@ container, and only lists your physical and Proxmox servers. A name can only be 
 install command shown beside it. **Open** leads to the new host, **Add another** starts
 over with the same type.
 
-The host list has a search field (name, hostname, address or OS) and filters per type and
-state (healthy, warning or critical, offline). CPU and memory show as bars coloured by
-your thresholds, and the temperature turns amber or red past its own. Click a row to open
-the host. Agent-less Proxmox guests only show while no filter is set.
+The host list has a search field (name, hostname, address, OS or tag) and filters per
+type, state (healthy, warning or critical, offline) and tag. CPU, memory and the fullest
+disk show as bars coloured by your thresholds, and the temperature turns amber or red
+past its own. A number of pending updates in red holds security fixes; click it for the
+[Updates](#updates) page. Click a row to open the host. Agent-less Proxmox guests only
+show while no filter is set.
 
-**Update all**, on the Hosts page, upgrades the packages of every online host and brings
-its agent to the version of this server. A bar follows the whole run, with one per host,
-and failures keep their output on screen. The same page lists the hosts that need a
-restart, also marked in the table and on each host. Nyx never restarts a host on its own.
-See [agent updates](agent.md#updates).
+**Cards**, beside **Table** above the list, shows one card per host in the manner of
+Beszel: a state dot, CPU, memory and disk bars, traffic, temperature, uptime, tags, and
+badges for failed services and pending updates. The choice is remembered.
+
+A host's page opens on a line of facts under its name: uptime, address, hostname,
+system, kernel and architecture, agent version, and its services, in red with the number
+failed. **Details** adds the type, the host it runs on, the last report and whether a
+newer agent exists. **History** is a grid of charts, one per measure with a line on what
+it shows: CPU, memory, the fullest disk, bandwidth (down and up) and temperature, over
+the period picked at the top. Hosts without a sensor say so instead of drawing a flat
+line.
+
+### Services
+
+The agent lists every loaded systemd service once a minute. A host's page has a
+**Services** panel, and **Services** in the menu lists them across hosts, filtered by
+host or tag; `/services?host=<id>` opens it on one host.
+
+- Counts at the top: running, failed, enabled but not running (set to start at boot,
+  yet stopped), and loaded.
+- The table shows the state in words (running, done for a one-shot that ended well,
+  failed, stopped, restarting), the name and description, how long it has been in that
+  state, memory, CPU as a share of one core, restarts and whether it starts at boot.
+  Failed ones come first; click a header to sort, or search names and descriptions.
+- Click a service for its page: state and since when, memory, CPU, restarts, type, last
+  result, main PID and unit file, with **Start**, **Restart** and **Stop**. Its
+  **Logs** (the last 300 journal lines), **Status** (`systemctl status`) and **Unit
+  file** (`systemctl cat`, drop-ins included) are read from the agent when the tab
+  opens, within seconds while the page is open. The agent refuses to stop itself.
+
+A failed service turns its host amber and opens an alert, which closes once it runs
+again or is reset with `systemctl reset-failed`.
+
+### Tags
+
+Tags are free labels, such as `lab`, `prod` or `rack-A`, to group hosts as you see them.
+Add them on a host's page: type one and press Enter, or a comma; Backspace takes the last
+one off. Up to 20 per host, 32 characters each. A tag keeps its colour everywhere.
+
+- The host list filters by tag, and its summary has one button per tag with its number of
+  hosts and their worst state. Click one to show only those hosts; a tag in the table
+  does the same. `/hosts?tag=prod` opens the list filtered.
+- The [Updates](#updates) page acts on the hosts of a tag.
+- [Charts](#charts) draw the hosts of a tag, fixed or picked at the top of the page.
+
+The manager has tags too, on hardware, virtual assets, tasks and deployments: see
+[inventory](manager.md#inventory).
+
+## Updates
+
+**Updates** lists every host with something waiting: pending packages, security fixes,
+a restart, or an agent older than this server. Security fixes come first, then
+restarts, then the most packages. The summary counts each of them for the whole fleet,
+and the menu shows how many hosts have updates.
+
+- Open a row with its arrow for the list of packages, security fixes first.
+- **Check** asks the agents for a fresh list; it arrives with their next report.
+- **Update** upgrades the packages and brings the agent up to date, with a bar per host
+  while it runs. Nyx never restarts a host on its own.
+- Both buttons act on the hosts ticked, or else on every host shown: pick a tag to act
+  on its hosts only. Hosts offline, and containers watched from Proxmox without an
+  agent, cannot be ticked.
+- Untick **Only hosts with something to do** to see every host and its agent version.
+
+**Update all**, on the Hosts page, still upgrades every online host at once. See
+[agent updates](agent.md#updates).
+
+## Charts
+
+**Charts** is a page of graphs you build yourself, saved on the monitor so every browser
+sees the same ones. It starts with four examples; **Bring back the examples** restores
+them.
+
+**Add chart** asks five things, with a live preview beside the form:
+
+| Field | Choices |
+| --- | --- |
+| Measure | CPU, memory, fullest disk, temperature, network in, network out |
+| Hosts | All hosts, the **Host** variable, the **Tag** variable, one tag, or hosts ticked in a list |
+| Show | One line per host, their average, or the highest of them |
+| Look | Areas, lines, or bars of the latest value, longest first |
+| Title | Free text; `$host` and `$tag` read as what the variables hold |
+
+The variables sit at the top of the page: **Host**, **Tag** and the period. Change one and
+every chart that uses it follows, so one chart "CPU of `$tag`" serves every tag. They are
+remembered by the browser. With a variable left on **All**, its charts take every host.
+
+A chart draws at most 24 hosts. Each one's menu edits, duplicates, moves or deletes it,
+and **Full width** gives a chart the whole row.
 
 The host list is a tree: guests appear under their Proxmox host. LXC containers only
 appear when that host watches them, with figures from Proxmox and no agent inside: see

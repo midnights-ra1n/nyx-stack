@@ -4,11 +4,13 @@ import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, S
 import { t } from "./i18n"
 import { api, fmt, sortRows, useApi, useStored } from "./lib"
 import { Link, navigate, PageHeader, Section } from "./shell"
+import { allTags, hasTag, splitTags, TagInput, TagList } from "./tags"
 
 export interface Col {
   key: string
   label: string
-  type?: "text" | "number" | "date" | "bool" | "area" | "select"
+  /** `tags`: a comma-separated list, edited as chips and filtered one tag at a time. */
+  type?: "text" | "number" | "date" | "bool" | "area" | "select" | "tags"
   options?: string[]
   mono?: boolean
   hint?: string
@@ -126,6 +128,7 @@ function Field({ c, form, set, rows }: { c: Col; form: any; set: (k: string, v: 
   const input = () => {
     if (c.icons) return <Tiles col={c} value={form[c.key]} onChange={(v) => set(c.key, v)} />
     if (c.type === "bool") return <Check label={c.label} hint={c.hint} checked={!!form[c.key]} onChange={(e) => set(c.key, e.target.checked)} />
+    if (c.type === "tags") return <div className="col-span-full"><TagInput label={c.label} hint={c.hint} value={splitTags(form[c.key])} onChange={(v) => set(c.key, v.join(", "))} known={allTags(rows, c.key)} /></div>
     if (c.type === "area") return <div className="col-span-full"><TextArea {...common} rows={4} value={form[c.key]} onChange={onChange} /></div>
     if (c.type === "select") return <Select {...common} value={form[c.key]} onChange={onChange} options={[c.choices ? { value: "", label: "None" } : "", ...(c.choices ?? c.options ?? [])]} />
     return <Input {...common} list={known.length ? `suggest-${c.key}` : undefined} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} step={c.type === "number" ? "any" : undefined} value={form[c.key]} onChange={onChange} />
@@ -324,7 +327,7 @@ export function columnChoices(cols: Col[]) {
   return [...by.values()]
 }
 
-const cell = (c: Col, row: any) => c.render ? c.render(row) : c.type === "date" ? fmt.date(row[c.key]) : c.type === "bool" ? t(row[c.key] ? "Yes" : "No") : row[c.key] || row[c.key] === 0 ? row[c.key] : "—"
+const cell = (c: Col, row: any) => c.render ? c.render(row) : c.type === "tags" ? <TagList tags={row[c.key]} /> : c.type === "date" ? fmt.date(row[c.key]) : c.type === "bool" ? t(row[c.key] ? "Yes" : "No") : row[c.key] || row[c.key] === 0 ? row[c.key] : "—"
 
 /** List, add, edit and delete records of one collection. With `path`, a record opens on a page of its own rather than in the list. */
 export function CrudPage({ title, heading = title, variables, singular, collection, cols, sort = "name", crumbs, extra, onChanged, defaults, path, facet }: { title: string; heading?: string; variables?: ReactNode; singular: string; collection: string; cols: Col[]; sort?: string; crumbs?: { label: string; to?: string }[]; extra?: ReactNode; onChanged?: () => void; defaults?: any; path?: string; facet?: string }) {
@@ -340,9 +343,10 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
   const lead = choices.find((c) => !c.formOnly) ?? choices[0]
   const shown = [lead, ...choices.filter((c) => c !== lead && (picks[c.key] ?? !c.formOnly))]
   const filters = choices.filter((c) => c.type === "select" && !c.formOnly && c.key !== facet)
+  const tagCol = cols.find((c) => c.type === "tags")
   const all: any[] = data?.items ?? []
   const needle = query.trim().toLowerCase()
-  const matching = all.filter((r) => [...filters.map((c) => c.key), ...(facet ? [facet] : [])].every((k) => !picked[k] || r[k] === picked[k]) && (!needle || cols.some((c) => String(r[c.key] ?? "").toLowerCase().includes(needle))))
+  const matching = all.filter((r) => [...filters.map((c) => c.key), ...(facet ? [facet] : [])].every((k) => !picked[k] || r[k] === picked[k]) && (!tagCol || hasTag(r, picked.$tag, tagCol.key)) && (!needle || cols.some((c) => String(r[c.key] ?? "").toLowerCase().includes(needle))))
   const rows = order.key ? sortRows(matching, (r) => r[order.key], order.desc) : matching
   const chosen = rows.filter((r) => selected.has(r.id))
   const sortBy = (key: string) => setOrder({ key, desc: order.key === key && !order.desc })
@@ -366,6 +370,7 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-64 max-sm:w-full"><Input label="Search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
             {filters.map((c) => <Variable key={c.key} label={c.label} value={picked[c.key] ?? ""} onChange={(v) => setPicked({ ...picked, [c.key]: v })} options={[{ value: "", label: "All" }, ...[...new Set(all.map((r) => r[c.key]).filter(Boolean))].map((v) => ({ value: v, label: c.choices?.find((o) => o.value === v)?.label ?? v }))]} />)}
+            {tagCol && allTags(all, tagCol.key).length > 0 && <Variable label="Tag" value={picked.$tag ?? ""} onChange={(v) => setPicked({ ...picked, $tag: v })} options={[{ value: "", label: "All" }, ...allTags(all, tagCol.key).map((v) => ({ value: v, label: v }))]} />}
             {/* The table turns into a list on phones, without its headers. */}
             <div className="sm:hidden"><Variable label="Sort by" value={order.key} onChange={sortBy} options={[{ value: "", label: "Default" }, ...shown.map((c) => ({ value: c.key, label: c.label }))]} /></div>
             <details className="relative ml-auto max-sm:ml-0">

@@ -1,6 +1,7 @@
 import { ArrowDownTrayIcon, ArrowsRightLeftIcon, CircleStackIcon, CloudArrowUpIcon, CloudIcon, ComputerDesktopIcon, CpuChipIcon, CubeIcon, CubeTransparentIcon, GlobeAltIcon, LinkIcon, PlusIcon, ServerIcon, ServerStackIcon, ShieldCheckIcon, SignalIcon, Squares2X2Icon, TrashIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useId, useRef, useState } from "react"
 import { MapControls, matches, useFullscreen, usePanZoom } from "../ui/canvas"
+import { findHost, liveLevel } from "./live"
 import { Board, CustomizeButton } from "../ui/board"
 import { Button, Empty, IconButton, Panel, Select, Status, Table, Td, Tabs, Input, Variable, ask } from "../ui/components"
 import { t } from "../ui/i18n"
@@ -99,11 +100,7 @@ export function NetworkMap() {
   const parent = parents(list, links.data?.items ?? [])
   const isTree = (l: any) => !l.vpn && (parent[l.source] === l.target || parent[l.target] === l.source)
   const hosts = list.filter((n) => Object.values(parent).includes(n.id))
-  const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
-  const stateOf = (n: any): Level | undefined => {
-    const h = (live.data ?? []).find((h: any) => same(h.name, n.name) || same(h.hostname, n.name) || (n.ip && h.ip === n.ip))
-    return h ? (["ok", "warn", "crit"].includes(h.status) ? h.status : "off") : undefined
-  }
+  const stateOf = (n: any): Level | undefined => { const h = findHost(live.data, n); return h && liveLevel(h) }
   // Without a monitored host behind it, nothing says a device is up: neutral blue, not a green that would claim it.
   const viewNodes: ViewNode[] = list.map((n) => ({ label: n.name, state: stateOf(n) ?? "info", type: n.type || "other", parent: parent[n.id] ? list.findIndex((p) => p.id === parent[n.id]) : null, sub: n.ip }))
   const icons = Object.fromEntries(Object.entries(TYPE_ICONS).map(([k, icon]) => [k, { label: t(TYPE_LABELS[k]), icon }]))

@@ -1,9 +1,9 @@
-import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, GlobeAltIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, BellIcon, BellSlashIcon, ChevronRightIcon, ClockIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CpuChipIcon, QueueListIcon, CubeIcon, CubeTransparentIcon, GlobeAltIcon, PlusIcon, ServerIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { ProxmoxIcon } from "../ui/brand-icons"
-import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, ask } from "../ui/components"
-import { api, fmt, type Level, levelOf, levelSoft, useApi, useStored } from "../ui/lib"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Tabs, Td, TimeSeries, Variable, ask } from "../ui/components"
+import { api, fmt, type Level, levelBg, levelOf, levelSoft, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
 import { FirewallPanel } from "./firewall"
@@ -11,7 +11,10 @@ import { ReposPanel } from "./repos"
 import { HostLogs } from "./logs"
 import { hostLevel } from "./overview"
 import { VpnTable } from "./vpn"
+import { HostServices } from "./services"
 import { t } from "../ui/i18n"
+import { allTags, hasTag, splitTags, Tag, TagInput, TagList } from "../ui/tags"
+import { axis, pointsOf } from "./metrics"
 
 const KINDS = [{ value: "vm", label: "VM" }, { value: "lxc", label: "LXC container" }, { value: "physical", label: "Physical server" }, { value: "proxmox", label: "Physical server (Proxmox)" }, { value: "vps", label: "VPS" }]
 const WATCH_CTS = "Manage LXC containers from this host"
@@ -84,7 +87,7 @@ export function updateRun(hosts: any[], seen: number) {
 }
 
 /** The bar must move even with auto-refresh slowed down or off. */
-function useUpdatePolling(running: boolean, reload: () => void) {
+export function useUpdatePolling(running: boolean, reload: () => void) {
   useEffect(() => {
     if (!running) return
     const id = setInterval(reload, UPDATE_POLL_MS)
@@ -107,7 +110,7 @@ function RunRow({ host: h }: { host: any }) {
 }
 
 /** Outside the board: it only exists while there is something to follow or to do. */
-function FleetUpdates({ hosts }: { hosts: any[] }) {
+export function FleetUpdates({ hosts }: { hosts: any[] }) {
   const [seen, setSeen] = useStored("nyx.updates-seen", 0)
   const { run, done, pct, last } = updateRun(hosts, seen)
   const restart = hosts.filter((h) => h.reboot_required)
@@ -228,11 +231,12 @@ export function AddHostPage() {
 
 const STATES = [{ value: "", label: "All" }, { value: "ok", label: "Healthy" }, { value: "problem", label: "Warning or critical" }, { value: "off", label: "Offline" }]
 
-/** Search, type and state together. A guest without an agent only shows on the unfiltered tree. */
-export function filterHosts(hosts: any[], q: string, type: string, state: string) {
+/** Search, type, state and tag together. A guest without an agent only shows on the unfiltered tree. */
+export function filterHosts(hosts: any[], q: string, type: string, state: string, tag = "") {
   const n = q.trim().toLowerCase()
   return hosts.filter((h) =>
-    (!n || [h.name, h.hostname, h.ip, h.os].some((v) => String(v ?? "").toLowerCase().includes(n))) &&
+    (!n || [h.name, h.hostname, h.ip, h.os, ...splitTags(h.tags)].some((v) => String(v ?? "").toLowerCase().includes(n))) &&
+    hasTag(h, tag) &&
     (!type || hostType(h, hosts) === type) &&
     (!state || (state === "problem" ? h.status === "warn" || h.status === "crit" : h.status === state)))
 }
@@ -241,6 +245,60 @@ export function filterHosts(hosts: any[], q: string, type: string, state: string
 function Usage({ pct, warn, crit }: { pct?: number | null; warn?: number; crit?: number }) {
   if (pct == null) return <span className="text-fg3">—</span>
   return <span className="flex w-28 items-center gap-2"><span className="flex-1"><Meter pct={pct} warn={warn} crit={crit} /></span><span className="w-11 text-right text-[13px] tabular-nums text-fg2">{fmt.pct(pct)}</span></span>
+}
+
+/** One host as a card: state, the three gauges that matter, then traffic, heat and uptime. */
+function HostCard({ h, all, th, onTag }: { h: any; all: any[]; th: any; onTag: (tag: string) => void }) {
+  const off = h.status === "off"
+  const gauge = (label: string, pct: number | null | undefined, warn = th.warn, crit = th.crit) => (
+    <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2 text-[13px]">
+      <span className="text-fg2">{t(label)}</span>
+      {off || pct == null ? <span className="text-fg3">—</span> : <Meter pct={pct} warn={warn} crit={crit} />}
+      <span className="text-right tabular-nums text-fg2">{off ? "" : fmt.pct(pct)}</span>
+    </div>
+  )
+  return (
+    <li className="flex cursor-pointer flex-col gap-3 rounded-box border border-line bg-surface p-3 hover:border-accent" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) navigate(`/hosts/${h.id}`) }}>
+      <div className="flex items-center gap-2">
+        <span className={`size-2.5 shrink-0 rounded-full ${levelBg[hostLevel(h.status)]}`} aria-hidden />
+        <HostIcon type={hostType(h, all)} />
+        <Link to={`/hosts/${h.id}`} className="min-w-0 flex-1 truncate font-medium hover:text-accent">{h.name}</Link>
+        {h.services_failed > 0 && <Status cell level="crit" label={t("{n} failed", { n: h.services_failed })} />}
+        {h.updates > 0 && <span title={t("Pending updates")} className={`text-xs ${h.security ? "text-crit" : "text-fg2"}`}>↑{h.updates}</span>}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {gauge("CPU", h.cpu)}
+        {gauge("Memory", h.mem)}
+        {gauge("Disk", h.disk, th.disk_warn ?? th.warn, th.disk_crit ?? th.crit)}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-fg2">
+        {!off && <span title={t("Network")}>↓ {fmt.bps(h.rx)} · ↑ {fmt.bps(h.tx)}</span>}
+        {h.temp != null && <span className={h.temp >= (th.temp_crit ?? 90) ? "text-crit" : h.temp >= (th.temp_warn ?? 80) ? "text-warn" : ""}>{fmt.temp(h.temp)}</span>}
+        <span>{off ? t("Offline") : t("Up {time}", { time: fmt.uptime(h.uptime_s) })}</span>
+      </div>
+      {splitTags(h.tags).length > 0 && <TagList tags={h.tags} onPick={onTag} />}
+    </li>
+  )
+}
+
+const RANK: Level[] = ["crit", "warn", "off", "ok"]
+/** One chip per tag with its hosts and their worst state: which group needs a look, at a glance. */
+function TagHealth({ hosts, tags, value, onPick }: { hosts: any[]; tags: string[]; value: string; onPick: (tag: string) => void }) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+      <span className="mr-1 text-[13px] text-fg2">{t("By tag")}</span>
+      {tags.map((tag) => {
+        const of = hosts.filter((h) => hasTag(h, tag))
+        const worst = RANK.find((l) => of.some((h) => hostLevel(h.status) === l)) ?? "ok"
+        return (
+          <button key={tag} type="button" aria-pressed={value === tag} onClick={() => onPick(value === tag ? "" : tag)}
+            className={`inline-flex h-8 items-center gap-2 rounded-control border px-2.5 text-[13px] ${value === tag ? "border-accent bg-accent-soft" : "border-line2 hover:border-accent"}`}>
+            <Tag tag={tag} /><span className="text-fg2">{of.length}</span><Status cell level={worst} label="" />
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 export function Hosts() {
@@ -253,11 +311,14 @@ export function Hosts() {
   const [q, setQ] = useState("")
   const [type, setType] = useState("")
   const [state, setState] = useState("")
+  // `?tag=` comes from a tag clicked elsewhere, such as the overview.
+  const [tag, setTag] = useState(() => new URLSearchParams(location.search).get("tag") ?? "")
+  const [view, setView] = useStored("nyx.hosts.view", "table")
   const list = hosts.data ?? []
-  const filtered = !!(q.trim() || type || state)
+  const filtered = !!(q.trim() || type || state || tag)
   const updating = list.some((h) => h.update && !h.update.done)
   useUpdatePolling(updating, hosts.reload)
-  const rows = buildTree(filterHosts(list, q, type, state), (h) => (filtered ? [] : h.guests ?? []), collapsed)
+  const rows = buildTree(filterHosts(list, q, type, state, tag), (h) => (filtered ? [] : h.guests ?? []), collapsed)
   const toggle = (id: string) => { const s = new Set(collapsed); s.has(id) ? s.delete(id) : s.add(id); setCollapsed(s) }
   const online = list.filter((h) => h.status !== "off").length
   const problems = list.filter((h) => h.status === "warn" || h.status === "crit").length
@@ -265,6 +326,7 @@ export function Hosts() {
   const updates = list.reduce((n, h) => n + (h.updates || 0), 0)
   const restart = list.filter((h) => h.reboot_required).length
   const types = [...new Set(list.map((h) => hostType(h, list)))]
+  const tags = allTags(list)
   const updateAll = async () => {
     if (!await ask(t("Upgrade the packages of {updatable} online hosts and bring their agents up to date? Services can restart while packages are replaced. Hosts are not rebooted.", { updatable }), { action: "Update all" })) return
     setUpdateError("")
@@ -279,6 +341,7 @@ export function Hosts() {
           <Stat label="Pending updates" value={updates} level={updates ? "warn" : "ok"} sub={restart ? `${restart} to restart` : undefined} />
           <Stat label="Agent-less guests" value={list.reduce((n, h) => n + buildTree([h], (x) => x.guests ?? [], new Set()).filter((r) => r.guest).length, 0)} />
         </div>
+        {tags.length > 0 && <TagHealth hosts={list} tags={tags} value={tag} onPick={setTag} />}
       </Panel>
     ) },
     { id: "fleet", title: "Fleet", render: (edit: any) => (
@@ -288,10 +351,16 @@ export function Hosts() {
             <div className="w-64 max-sm:w-full"><Input label="Search" type="search" placeholder={t("Name, address or OS")} value={q} onChange={(e) => setQ(e.target.value)} /></div>
             <Variable label="Type" value={type} onChange={setType} options={[{ value: "", label: "All" }, ...types.map((t) => ({ value: t, label: HOST_TYPES[t]?.label ?? t }))]} />
             <Variable label="State" value={state} onChange={setState} options={STATES} />
+            {tags.length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...tags.map((x) => ({ value: x, label: x }))]} />}
+            <div className="ml-auto"><Tabs tabs={[{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }]} value={view} onChange={setView} /></div>
           </div>
         )}
-        {list.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No hosts yet. Add one to get an install command.")}</Empty></div> : rows.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No host matches.")}</Empty></div> : (
-          <Table head={["Host", "Type", "Address", "CPU", "Memory", "Temp.", "Updates", "State"]}>
+        {list.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No hosts yet. Add one to get an install command.")}</Empty></div> : rows.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No host matches.")}</Empty></div> : view === "cards" ? (
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3 px-4 pb-4">
+            {rows.filter((r) => r.host).map((r) => <HostCard key={r.key} h={r.host} all={list} th={th} onTag={setTag} />)}
+          </ul>
+        ) : (
+          <Table head={["Host", "Type", "Address", "Tags", "CPU", "Memory", "Disk", "Temp.", "Updates", "State"]}>
             {rows.map((r) => r.host ? (
               <tr key={r.key} className="cursor-pointer hover:bg-raised" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) navigate(`/hosts/${r.host.id}`) }}>
                 <Td className="font-medium">
@@ -305,21 +374,24 @@ export function Hosts() {
                       {r.host.os && <span className="truncate text-xs font-normal text-fg3">{r.host.os}</span>}
                     </span>
                     {r.host.muted && <BellSlashIcon className="size-4 shrink-0 text-fg3" aria-label={t("Excluded from alerts")} />}
+                    {r.host.services_failed > 0 && <Link to={`/services?host=${r.host.id}`} className="ml-1 shrink-0"><Status cell level="crit" label={t("{n} failed", { n: r.host.services_failed })} /></Link>}
                   </span>
                 </Td>
                 <Td className="text-fg2">{HOST_TYPES[hostType(r.host, list)]?.label ?? r.host.kind}</Td>
                 <Td mono>{r.host.ip || "—"}</Td>
+                <Td><TagList tags={r.host.tags} onPick={setTag} /></Td>
                 <Td><Usage pct={r.host.status === "off" ? null : r.host.cpu} warn={th.warn} crit={th.crit} /></Td>
                 <Td><Usage pct={r.host.status === "off" ? null : r.host.mem} warn={th.warn} crit={th.crit} /></Td>
+                <Td><Usage pct={r.host.status === "off" ? null : r.host.disk} warn={th.disk_warn ?? th.warn} crit={th.disk_crit ?? th.crit} /></Td>
                 <Td className={r.host.temp >= (th.temp_crit ?? 90) ? "text-crit" : r.host.temp >= (th.temp_warn ?? 80) ? "text-warn" : "text-fg2"}>{fmt.temp(r.host.temp)}</Td>
-                <Td className="text-fg2"><span className="flex items-center gap-2 whitespace-nowrap">{r.host.updates || "—"}{r.host.reboot_required && <Status cell level="warn" label="Restart" />}</span></Td>
+                <Td className="text-fg2"><span className="flex items-center gap-2 whitespace-nowrap">{r.host.updates ? <Link to="/updates" className={r.host.security ? "text-crit hover:underline" : "hover:text-accent"} title={r.host.security ? t("{n} security fixes", { n: r.host.security }) : undefined}>{r.host.updates}</Link> : "—"}{r.host.reboot_required && <Status cell level="warn" label="Restart" />}</span></Td>
                 <StateCell level={hostLevel(r.host.status)} label={r.host.installed ? undefined : r.host.kind === "lxc" ? "Stopped" : "Waiting for install"} />
               </tr>
             ) : (
               <tr key={r.key}>
                 <Td className="text-fg2"><span className="flex items-center gap-2 whitespace-nowrap" style={{ paddingLeft: r.depth * 24 + 20 }}><HostIcon type={r.guest.kind === "lxc" ? "ct" : "vm"} />{r.guest.name}</span></Td>
                 <Td className="text-fg3">{r.guest.kind === "lxc" ? "LXC container" : "VM"} {r.guest.vmid}, no agent</Td>
-                <Td /><Td /><Td /><Td /><Td />
+                <Td /><Td /><Td /><Td /><Td /><Td /><Td />
                 <Td>{proxmox.data?.url && <a className="text-accent" target="_blank" rel="noreferrer" href={consoleUrl(proxmox.data.url, r.parent, r.guest)}>{t("Console")}</a>}</Td>
               </tr>
             ))}
@@ -426,11 +498,39 @@ function IssuesBadge({ level, issues }: { level: Level; issues?: { level: Level;
   )
 }
 
+/** A chart with its title and what it shows, as one card of a grid. */
+function ChartCard({ title, about, children }: { title: string; about: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={t(title)} className="min-w-0 rounded-box border border-line p-3">
+      <h3 className="font-medium">{t(title)}</h3>
+      <p className="mb-2 text-xs text-fg3">{t(about)}</p>
+      {children}
+    </section>
+  )
+}
+
+/** The line under a host's name: what it is at a glance, each fact with its icon. */
+function HostFacts({ h }: { h: any }) {
+  const fact = (I: Icon, text: React.ReactNode, title: string) => text ? <span className="inline-flex items-center gap-1.5" title={t(title)}><I className="size-4 shrink-0 text-fg3" aria-hidden />{text}</span> : null
+  return (
+    <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+      {fact(ClockIcon, h.status === "off" ? t("Offline") : t("Up {time}", { time: fmt.uptime(h.uptime_s) }), "Uptime")}
+      {fact(GlobeAltIcon, h.ip && <Mono>{h.ip}</Mono>, "Address")}
+      {fact(ServerIcon, h.hostname !== h.name && h.hostname, "Hostname")}
+      {fact(ComputerDesktopIcon, h.os || t("waiting for first report"), "System")}
+      {fact(CpuChipIcon, [h.kernel, h.arch].filter(Boolean).join(" · "), "Kernel")}
+      {fact(CommandLineIcon, h.agent_version && `${t("Agent")} ${h.agent_version}`, "Agent")}
+      {h.services_total > 0 && <Link to={`/services?host=${h.id}`} className={`inline-flex items-center gap-1.5 hover:text-accent ${h.services_failed ? "text-crit" : ""}`}><QueueListIcon className="size-4 shrink-0" aria-hidden />{h.services_failed ? t("{n} services, {f} failed", { n: h.services_total, f: h.services_failed }) : t("{n} services", { n: h.services_total })}</Link>}
+    </span>
+  )
+}
+
 export function HostDetail({ id }: { id: string }) {
   const [range, setRange] = useState("1h")
   const { data: h, reload, error } = useApi(`/api/hosts/${id}`)
   const series = useApi<any[]>(`/api/series?range=${range}&host=${id}`)
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
+  const all = useApi<any[]>("/api/hosts", { poll: false }).data ?? []
   const [install, setInstall] = useState(false)
   const [note, setNote] = useState("")
   const [removing, setRemoving] = useState(false)
@@ -452,6 +552,12 @@ export function HostDetail({ id }: { id: string }) {
   }
   const consoleLink = consoleUrl(proxmox.data?.url ?? "", h)
   const points = series.data ?? []
+  const parent = all.find((p) => p.id === h.parent)
+  const saveTags = async (tags: string[]) => {
+    try { await api(`/api/hosts/${id}`, { method: "PATCH", body: { tags } }); reload() } catch (e) { setNote((e as Error).message) }
+  }
+  const net = axis("rx", [...pointsOf(points, "rx"), ...pointsOf(points, "tx")].map((p) => p.v))
+  const temps = pointsOf(points, "temp")
   const physical = h.kind === "physical" || h.kind === "proxmox"
   const watched = noAgent(h)
   const panels = [
@@ -462,9 +568,16 @@ export function HostDetail({ id }: { id: string }) {
     ) },
     { id: "history", title: "History", render: (edit: any) => (
       <Panel title={t("History")} edit={edit}>
-        <TimeSeries series={[{ name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) }, { name: "Memory", color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) }]} />
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-4">
+          <ChartCard title="CPU" about="Average use of all cores."><TimeSeries compact series={[{ name: t("CPU"), color: "var(--color-s1)", values: pointsOf(points, "cpu") }]} /></ChartCard>
+          <ChartCard title="Memory" about="Share of memory in use, cache left out."><TimeSeries compact series={[{ name: t("Memory"), color: "var(--color-s2)", values: pointsOf(points, "mem") }]} /></ChartCard>
+          <ChartCard title="Disk" about="The fullest file system at each moment."><TimeSeries compact series={[{ name: t("Fullest disk"), color: "var(--color-s3)", values: pointsOf(points, "disk") }]} /></ChartCard>
+          <ChartCard title="Bandwidth" about="Traffic of the physical interfaces."><TimeSeries compact fill={false} max={net.max} format={net.format} series={[{ name: t("Down"), color: "var(--color-s1)", values: pointsOf(points, "rx") }, { name: t("Up"), color: "var(--color-s4)", values: pointsOf(points, "tx") }]} /></ChartCard>
+          <ChartCard title="Temperature" about="The hottest sensor.">{temps.length ? <TimeSeries compact {...axis("temp", temps.map((p) => p.v))} series={[{ name: t("Temperature"), color: "var(--color-s3)", values: temps }]} /> : <Empty>{t("No sensor reported.")}</Empty>}</ChartCard>
+        </div>
       </Panel>
     ) },
+    { id: "services", title: "Services", absent: watched, render: (edit: any) => <HostServices host={h} edit={edit} /> },
     { id: "details", title: "Details", render: (edit: any) => (
       <Panel title={t("Details")} edit={edit}>
         <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-2">
@@ -473,8 +586,18 @@ export function HostDetail({ id }: { id: string }) {
           <Stat label="Containers" value={`${h.containers_running}/${h.containers_total}`} />
           <Stat label="Down" value={<span className="text-xl">{fmt.bps(h.rx)}</span>} />
           <Stat label="Up" value={<span className="text-xl">{fmt.bps(h.tx)}</span>} />
-          <Stat label="Agent" value={<span className="text-xl">{h.agent_version || "—"}</span>} />
+          <Stat label="Agent" value={<span className="text-xl">{h.agent_version || "—"}</span>} sub={h.agent_outdated ? "A newer agent exists" : undefined} level={h.agent_outdated ? "warn" : undefined} />
         </div>
+        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t border-line pt-4 text-[13px]">
+          <dt className="text-fg2">{t("Hostname")}</dt><dd className="truncate font-mono">{h.hostname || "—"}</dd>
+          <dt className="text-fg2">{t("Address")}</dt><dd className="font-mono">{h.ip || "—"}</dd>
+          <dt className="text-fg2">{t("Type")}</dt><dd>{t(HOST_TYPES[hostType(h, all)]?.label ?? kindLabel(h.kind))}</dd>
+          {parent && <><dt className="text-fg2">{t("Runs on")}</dt><dd><Link to={`/hosts/${parent.id}`} className="text-accent">{parent.name}</Link></dd></>}
+          <dt className="text-fg2">{t("System")}</dt><dd className="truncate">{[h.os, h.kernel, h.arch].filter(Boolean).join(" · ") || "—"}</dd>
+          <dt className="text-fg2">{t("Up for")}</dt><dd>{fmt.uptime(h.uptime_s)}</dd>
+          <dt className="text-fg2">{t("Last report")}</dt><dd>{h.last_seen ? fmt.ago(h.last_seen) : t("Never")}</dd>
+        </dl>
+        <div className="mt-4"><TagInput label="Tags" value={splitTags(h.tags)} onChange={saveTags} known={allTags(all)} hint="Group hosts to filter them, chart them together and update them together." /></div>
       </Panel>
     ) },
     { id: "logs", title: "Logs", absent: watched, render: (edit: any) => <HostLogs id={id} lines={h.logs} edit={edit} /> },
@@ -557,7 +680,7 @@ export function HostDetail({ id }: { id: string }) {
       <PageHeader
         title={h.name}
         crumbs={[{ label: "Hosts", to: "/hosts" }, { label: h.name }]}
-        subtitle={<><Mono>{h.ip || "no address yet"}</Mono> · {kindLabel(h.kind)} · {h.os || "waiting for first report"} · up {fmt.uptime(h.uptime_s)}</>}
+        subtitle={<HostFacts h={h} />}
         onRefresh={reload}
         actions={<>
           <IssuesBadge level={hostLevel(h.status)} issues={h.issues} />
@@ -571,8 +694,8 @@ export function HostDetail({ id }: { id: string }) {
       {watched && <p role="note" className="mb-4 rounded-panel bg-raised px-4 py-2.5 text-fg2">{t("Measured by its Proxmox host, with no agent inside. Logs, updates and Docker state need an agent.")}</p>}
       {h.oci && !watched && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">{t("This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker.")}</p>}
       <Board id="host" panels={panels}
-        desktop={{ cols: [["usage", "history", "details", "logs"], ["disks", "smart", "containers", "vpn", "firewall", "node", "updates", "agent"]], hidden: [] }}
-        phone={{ cols: [["usage", "details", "disks", "smart", "containers", "vpn", "firewall", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
+        desktop={{ cols: [["usage", "history", "details", "services", "logs"], ["disks", "smart", "containers", "vpn", "firewall", "node", "updates", "agent"]], hidden: [] }}
+        phone={{ cols: [["usage", "details", "services", "disks", "smart", "containers", "vpn", "firewall", "logs", "history", "node", "updates", "agent"]], hidden: [] }} />
       {removing && (
         <Modal title={`Delete ${h.name}`} onClose={() => setRemoving(false)}>
           <div className="flex flex-col gap-4">

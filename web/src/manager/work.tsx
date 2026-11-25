@@ -2,6 +2,7 @@ import { ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons
 import { type ReactNode, useState } from "react"
 import { Empty, IconButton, Progress, Status, Table, Tabs, Td, Variable } from "../ui/components"
 import { t } from "../ui/i18n"
+import { splitTags, TagList } from "../ui/tags"
 import { fmt, isOverdue, type Level, sortRows, useStored } from "../ui/lib"
 
 export interface WorkState { id: string; label: string; level: Level }
@@ -22,7 +23,7 @@ export interface WorkItem {
 }
 export interface WorkColumn { label: string; value: (w: WorkItem) => ReactNode }
 
-export const parseTags = (tags?: string) => (tags ?? "").split(",").map((t) => t.trim()).filter(Boolean)
+export const parseTags = (tags?: string) => splitTags(tags)
 
 const VIEWS = [{ id: "board", label: "Board" }, { id: "list", label: "List" }]
 
@@ -39,9 +40,7 @@ function Checklist({ item }: { item: WorkItem }) {
   return <span className="flex items-center gap-2 text-[13px] text-fg2"><span className="w-full max-w-40"><Progress thin pct={pct} label={t("Checklist of {title}", { title: item.title })} /></span><span className="whitespace-nowrap">{c.done}/{c.total}</span></span>
 }
 
-function Tags({ tags, onPick }: { tags: string[]; onPick: (t: string) => void }) {
-  return <span className="flex flex-wrap gap-1">{tags.map((tag) => <button key={tag} type="button" title={t("Show only {tag}", { tag })} className="rounded-full bg-raised px-2 text-xs leading-6 text-fg2 hover:text-fg" onClick={() => onPick(tag)}>{tag}</button>)}</span>
-}
+const Tags = ({ tags, onPick }: { tags: string[]; onPick: (t: string) => void }) => <TagList tags={tags} onPick={onPick} />
 
 /** What moves an item by keyboard or on a phone, where dragging does not work. */
 function StateSelect({ item, states, onMove }: { item: WorkItem; states: WorkState[]; onMove: (state: string) => void }) {

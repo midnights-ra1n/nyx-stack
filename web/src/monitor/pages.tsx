@@ -10,7 +10,7 @@ import { VpnTable } from "./vpn"
 import { t } from "../ui/i18n"
 
 /** Sends a command to a host's agent and waits for its answer, which comes with the next report. */
-async function onHost(hostId: string, body: object) {
+export async function onHost(hostId: string, body: object) {
   const { id } = await api(`/api/hosts/${hostId}/command`, { body })
   for (let i = 0; i < 45; i++) {
     await new Promise((r) => setTimeout(r, 2000))
