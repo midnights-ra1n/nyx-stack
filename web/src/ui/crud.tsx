@@ -1,6 +1,7 @@
 import { PencilSquareIcon, PlusIcon, TrashIcon, ViewColumnsIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useId, useRef, useState } from "react"
 import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable, ask } from "./components"
+import { t } from "./i18n"
 import { api, fmt, sortRows, useApi, useStored } from "./lib"
 import { Link, navigate, PageHeader, Section } from "./shell"
 
@@ -41,14 +42,14 @@ const fromInput = (c: Col, v: any) => {
 function Tiles({ col, value, onChange }: { col: Col; value: string; onChange: (v: string) => void }) {
   return (
     <fieldset className="col-span-full">
-      <legend className="mb-1 text-[13px] text-fg2">{col.label}</legend>
+      <legend className="mb-1 text-[13px] text-fg2">{t(col.label)}</legend>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {col.options?.map((o) => {
           const I = col.icons![o]
           return (
             <label key={o} className={`flex h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-box border text-[13px] has-focus-visible:outline-2 has-focus-visible:outline-accent ${value === o ? "border-accent bg-accent-soft text-accent" : "border-line2 bg-raised text-fg2 hover:border-fg3"}`}>
               <input type="radio" className="sr-only" name={col.key} checked={value === o} onChange={() => onChange(o)} />
-              <I className="size-5" aria-hidden />{o}
+              <I className="size-5" aria-hidden />{t(o)}
             </label>
           )
         })}
@@ -75,16 +76,16 @@ export function Editor({ title, onCancel, onSubmit, error, children, footer }: {
     ref.current?.querySelector<HTMLElement>("input:not([type=radio]), select, textarea")?.focus({ preventScroll: true })
   }, [])
   return (
-    <section ref={ref} aria-label={title} className="mb-6 scroll-mt-4 rounded-panel border border-accent/40 bg-surface" onKeyDown={(e) => e.key === "Escape" && onCancel()}>
+    <section ref={ref} aria-label={t(title)} className="mb-6 scroll-mt-4 rounded-panel border border-accent/40 bg-surface" onKeyDown={(e) => e.key === "Escape" && onCancel()}>
       <header className="flex h-12 items-center justify-between gap-3 border-b border-line pl-5 pr-2">
-        <h2 className="text-[15px] font-medium">{title}</h2>
+        <h2 className="text-[15px] font-medium">{t(title)}</h2>
         <IconButton label="Close" icon={XMarkIcon} onClick={onCancel} />
       </header>
       <form onSubmit={onSubmit}>
         <div className="divide-y divide-line">{children}</div>
         <footer className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-3">
-          <Button variant="primary" type="submit">Save</Button>
-          <Button type="button" onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" type="submit">{t("Save")}</Button>
+          <Button type="button" onClick={onCancel}>{t("Cancel")}</Button>
           {footer}
           <div className="ml-auto"><ErrorNote>{error}</ErrorNote></div>
         </footer>
@@ -97,7 +98,7 @@ export function Editor({ title, onCancel, onSubmit, error, children, footer }: {
 export function EditorGroup({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[180px_1fr] gap-6 px-5 py-5 max-md:grid-cols-1 max-md:gap-3">
-      <h3 className="text-[13px] font-medium text-fg2">{title}</h3>
+      <h3 className="text-[13px] font-medium text-fg2">{title && t(title)}</h3>
       <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">{children}</div>
     </div>
   )
@@ -124,7 +125,7 @@ function Field({ c, form, set, rows }: { c: Col; form: any; set: (k: string, v: 
   const known = c.suggest ? [...new Set(rows.map((r) => r[c.key]).filter(Boolean))] as string[] : []
   const input = () => {
     if (c.icons) return <Tiles col={c} value={form[c.key]} onChange={(v) => set(c.key, v)} />
-    if (c.type === "bool") return <Check label={c.label} checked={!!form[c.key]} onChange={(e) => set(c.key, e.target.checked)} />
+    if (c.type === "bool") return <Check label={c.label} hint={c.hint} checked={!!form[c.key]} onChange={(e) => set(c.key, e.target.checked)} />
     if (c.type === "area") return <div className="col-span-full"><TextArea {...common} rows={4} value={form[c.key]} onChange={onChange} /></div>
     if (c.type === "select") return <Select {...common} value={form[c.key]} onChange={onChange} options={[c.choices ? { value: "", label: "None" } : "", ...(c.choices ?? c.options ?? [])]} />
     return <Input {...common} list={known.length ? `suggest-${c.key}` : undefined} type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} step={c.type === "number" ? "any" : undefined} value={form[c.key]} onChange={onChange} />
@@ -196,7 +197,7 @@ export function RecordPage(p: RecordPageProps) {
   const rec = useApi(isNew ? null : `/api/c/${p.collection}/${p.id}`, { poll: false })
   const list = useApi(`/api/c/${p.collection}?perPage=500`, { poll: false })
   if (!isNew && rec.error) return <><PageHeader title={p.title} crumbs={[{ label: p.title, to: p.path }]} /><ErrorNote>{rec.error}</ErrorNote></>
-  if (!isNew && !rec.data) return <Empty>Loading…</Empty>
+  if (!isNew && !rec.data) return <Empty>{t("Loading…")}</Empty>
   return <RecordBody key={p.id} {...p} row={isNew ? null : rec.data} rows={list.data?.items ?? []} reload={rec.reload} />
 }
 
@@ -207,21 +208,21 @@ function RecordBody({ title, singular, collection, cols, path, defaults, aside, 
   const [busy, setBusy] = useState(false)
   const [saves, setSaves] = useState(0)
   const formId = useId()
-  const name = row ? recordName(row, singular) : `New ${singular}`
+  const name = row ? recordName(row, singular) : t(`New ${singular}`)
   // Tabs come from all fields, so a field hidden by `when` never takes its tab away.
   const formTabs = tabsOf(cols.filter((c) => !c.listOnly))
   const extra: RecordTab[] = row ? [...tabs, ...(history ? [{ id: "History", label: "History", render: () => <History key={saves} collection={collection} id={row.id} cols={cols} /> }] : [])] : []
-  const all = [...formTabs.map((t) => ({ id: t.id, label: t.id, count: undefined })), ...extra]
-  const [tab, setTab] = useState(() => all.find((t) => t.id === decodeURIComponent(location.hash.slice(1)))?.id ?? all[0].id)
+  const all = [...formTabs.map((x) => ({ id: x.id, label: x.id, count: undefined })), ...extra]
+  const [tab, setTab] = useState(() => all.find((x) => x.id === decodeURIComponent(location.hash.slice(1)))?.id ?? all[0].id)
   const pick = (id: string) => { setTab(id); window.history.replaceState(window.history.state, "", `#${encodeURIComponent(id)}`) }
-  const open = extra.find((t) => t.id === tab)
+  const open = extra.find((x) => x.id === tab)
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     // The form has no browser validation: a required field may sit on a tab that is not shown, so open it first.
     const bad = e.currentTarget.querySelector<HTMLInputElement>("input:invalid, select:invalid, textarea:invalid")
     if (bad) {
-      const t = bad.closest<HTMLElement>("[data-tab]")?.dataset.tab
-      if (t) pick(t)
+      const id = bad.closest<HTMLElement>("[data-tab]")?.dataset.tab
+      if (id) pick(id)
       setTimeout(() => bad.reportValidity())
       return
     }
@@ -229,37 +230,37 @@ function RecordBody({ title, singular, collection, cols, path, defaults, aside, 
     setError("")
     try {
       const saved = await save()
-      if (row) { reload(); setSaves(saves + 1); setNote("Saved.") } else navigate(`${path}/${saved.id}`)
+      if (row) { reload(); setSaves(saves + 1); setNote(t("Saved.")) } else navigate(`${path}/${saved.id}`)
     } catch (err) { setError((err as Error).message) }
     setBusy(false)
   }
   const remove = async () => {
-    if (!await ask(`Delete ${name}?`, { action: "Delete", danger: true })) return
+    if (!await ask(t("Delete {name}?", { name }), { action: "Delete", danger: true })) return
     try { await api(`/api/c/${collection}/${row.id}`, { method: "DELETE" }); navigate(path) } catch (err) { setError((err as Error).message) }
   }
   const side = aside?.(form, row)
   return (
     <div>
       <PageHeader title={name} crumbs={[{ label: title, to: path }, { label: name }]}
-        subtitle={row ? <>Updated {fmt.ago(row.updated)}</> : undefined}
-        actions={row && <Button variant="danger" onClick={remove}><TrashIcon className="size-5" aria-hidden />Delete</Button>} />
+        subtitle={row ? t("Updated {ago}", { ago: fmt.ago(row.updated) }) : undefined}
+        actions={row && <Button variant="danger" onClick={remove}><TrashIcon className="size-5" aria-hidden />{t("Delete")}</Button>} />
       <div className="grid items-start gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
-        <nav role="tablist" aria-label={`${name} tabs`} aria-orientation="vertical" className="flex gap-1 overflow-x-auto max-lg:pb-1 lg:sticky lg:top-4 lg:flex-col">
-          {all.map((t) => (
-            <button key={t.id} type="button" role="tab" aria-selected={t.id === tab} onClick={() => pick(t.id)}
-              className={`flex h-9 shrink-0 items-center justify-between gap-3 rounded-control px-3 text-left whitespace-nowrap max-sm:h-11 ${t.id === tab ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>
-              {t.label}{t.count ? <span className="text-xs text-fg3">{t.count}</span> : null}
+        <nav role="tablist" aria-label={t("{name} tabs", { name })} aria-orientation="vertical" className="flex gap-1 overflow-x-auto max-lg:pb-1 lg:sticky lg:top-4 lg:flex-col">
+          {all.map((x) => (
+            <button key={x.id} type="button" role="tab" aria-selected={x.id === tab} onClick={() => pick(x.id)}
+              className={`flex h-9 shrink-0 items-center justify-between gap-3 rounded-control px-3 text-left whitespace-nowrap max-sm:h-11 ${x.id === tab ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>
+              {t(x.label)}{x.count ? <span className="text-xs text-fg3">{x.count}</span> : null}
             </button>
           ))}
         </nav>
-        <div role="tabpanel" aria-label={tab} className="min-w-0">
+        <div role="tabpanel" aria-label={t(tab)} className="min-w-0">
           <form id={formId} noValidate onSubmit={submit} hidden={!!open} onKeyDown={(e) => e.key === "Escape" && navigate(path)}>
             <div className={`grid items-start gap-4 ${side ? "xl:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
               <div className="flex flex-col gap-4">
-                {formTabs.map((t) => (
-                  <div key={t.id} data-tab={t.id} hidden={t.id !== tab} className="flex flex-col gap-4">
-                    {groups(visible.filter((c) => t.cols.includes(c))).map((g, i) => (
-                      <Panel key={i} title={g.title ?? t.id}>
+                {formTabs.map((x) => (
+                  <div key={x.id} data-tab={x.id} hidden={x.id !== tab} className="flex flex-col gap-4">
+                    {groups(visible.filter((c) => x.cols.includes(c))).map((g, i) => (
+                      <Panel key={i} title={g.title ?? x.id}>
                         <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">{g.cols.map((c) => <Field key={c.key} c={c} form={form} set={set} rows={rows} />)}</div>
                       </Panel>
                     ))}
@@ -274,8 +275,8 @@ function RecordBody({ title, singular, collection, cols, path, defaults, aside, 
       </div>
       {/* Stays in reach on a long form, without covering it. The form keeps its values while another tab is open. */}
       <footer className="sticky bottom-0 z-10 -mx-1 mt-4 flex flex-wrap items-center gap-3 border-t border-line bg-bg/95 px-1 py-3 backdrop-blur">
-        <Button variant="primary" type="submit" form={formId} disabled={busy}>{row ? "Save" : `Add ${singular}`}</Button>
-        <Button onClick={() => navigate(path)}>{row ? "Back" : "Cancel"}</Button>
+        <Button variant="primary" type="submit" form={formId} disabled={busy}>{row ? t("Save") : t(`Add ${singular}`)}</Button>
+        <Button onClick={() => navigate(path)}>{t(row ? "Back" : "Cancel")}</Button>
         <span role="status" className="text-fg2">{note}</span>
         <div className="ml-auto"><ErrorNote>{error}</ErrorNote></div>
       </footer>
@@ -284,9 +285,9 @@ function RecordBody({ title, singular, collection, cols, path, defaults, aside, 
 }
 
 const shown = (c: Col | undefined, v: any) => {
-  if (v === "" || v == null) return "empty"
+  if (v === "" || v == null) return t("empty")
   if (c?.type === "date") return fmt.date(v)
-  if (c?.type === "bool") return v ? "Yes" : "No"
+  if (c?.type === "bool") return t(v ? "Yes" : "No")
   return c?.choices?.find((o) => o.value === v)?.label ?? String(v)
 }
 
@@ -295,15 +296,15 @@ function History({ collection, id, cols }: { collection: string; id: string; col
   const { data, error } = useApi<any[]>(`/api/c/${collection}/${id}/history`, { poll: false })
   const col = (k: string) => cols.find((c) => c.key === k && !c.listOnly) ?? cols.find((c) => c.key === k)
   return (
-    <Panel title="History" flush>
+    <Panel title={t("History")} flush>
       <ErrorNote>{error}</ErrorNote>
-      {data && data.length === 0 ? <div className="px-4 pb-4"><Empty>No change recorded yet. Saves made here are recorded; imports and syncs are not.</Empty></div> : (
+      {data && data.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No change recorded yet. Saves made here are recorded; imports and syncs are not.")}</Empty></div> : (
         <Table head={["When", "Field", "Before", "After"]}>
           {(data ?? []).flatMap((h) => (h.action === "create" ? [{ k: "", from: "", to: "" }] : (h.changes ?? []).map((c: any) => ({ k: c.field, from: c.from, to: c.to }))).map((c: any, i: number) => (
             <tr key={`${h.id}${i}`}>
               <Td className="whitespace-nowrap text-fg2">{i === 0 ? <span title={new Date(h.created.replace(" ", "T")).toLocaleString()}>{fmt.ago(h.created)}</span> : ""}</Td>
-              {h.action === "create" ? <Td colSpan={3}>Created</Td> : <>
-                <Td className="font-medium">{col(c.k)?.label ?? c.k}</Td>
+              {h.action === "create" ? <Td colSpan={3}>{t("Created")}</Td> : <>
+                <Td className="font-medium">{t(col(c.k)?.label ?? c.k)}</Td>
                 <Td className="text-fg3 line-through decoration-fg3/50">{shown(col(c.k), c.from)}</Td>
                 <Td>{shown(col(c.k), c.to)}</Td>
               </>}
@@ -323,7 +324,7 @@ export function columnChoices(cols: Col[]) {
   return [...by.values()]
 }
 
-const cell = (c: Col, row: any) => c.render ? c.render(row) : c.type === "date" ? fmt.date(row[c.key]) : c.type === "bool" ? (row[c.key] ? "Yes" : "No") : row[c.key] || row[c.key] === 0 ? row[c.key] : "—"
+const cell = (c: Col, row: any) => c.render ? c.render(row) : c.type === "date" ? fmt.date(row[c.key]) : c.type === "bool" ? t(row[c.key] ? "Yes" : "No") : row[c.key] || row[c.key] === 0 ? row[c.key] : "—"
 
 /** List, add, edit and delete records of one collection. With `path`, a record opens on a page of its own rather than in the list. */
 export function CrudPage({ title, heading = title, variables, singular, collection, cols, sort = "name", crumbs, extra, onChanged, defaults, path, facet }: { title: string; heading?: string; variables?: ReactNode; singular: string; collection: string; cols: Col[]; sort?: string; crumbs?: { label: string; to?: string }[]; extra?: ReactNode; onChanged?: () => void; defaults?: any; path?: string; facet?: string }) {
@@ -349,42 +350,42 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
   const open = (row: any | null) => (path ? navigate(`${path}/${row ? row.id : "new"}`) : setEdit(row))
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const remove = async (row: any) => {
-    if (!await ask(`Delete ${recordName(row, "this record")}?`, { action: "Delete", danger: true })) return
+    if (!await ask(t("Delete {name}?", { name: recordName(row, t("this record")) }), { action: "Delete", danger: true })) return
     await api(`/api/c/${collection}/${row.id}`, { method: "DELETE" })
     done()
   }
   const sortCol = shown.findIndex((c) => c.key === order.key)
   return (
     <>
-      <PageHeader title={heading} variables={variables} crumbs={crumbs} actions={<Button variant="primary" disabled={edit === null} onClick={() => open(null)}><PlusIcon className="size-5" aria-hidden />Add {singular}</Button>} />
-      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit} collection={collection} onDone={done} title={edit ? `Edit ${recordName(edit, singular)}` : `Add ${singular}`} defaults={defaults} rows={all} />}
+      <PageHeader title={heading} variables={variables} crumbs={crumbs} actions={<Button variant="primary" disabled={edit === null} onClick={() => open(null)}><PlusIcon className="size-5" aria-hidden />{t(`Add ${singular}`)}</Button>} />
+      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit} collection={collection} onDone={done} title={edit ? t("Edit {name}", { name: recordName(edit, singular) }) : t(`Add ${singular}`)} defaults={defaults} rows={all} />}
       <Section>
         {facet && all.length > 0 && <Facets col={cols.find((c) => c.key === facet && c.icons) ?? cols.find((c) => c.key === facet)!} rows={all} value={picked[facet] ?? ""} onChange={(v) => setPicked({ ...picked, [facet]: v })} />}
         {extra}
         {all.length > 0 && (
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-64 max-sm:w-full"><Input label="Search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
-            {filters.map((c) => <Variable key={c.key} label={c.label} value={picked[c.key] ?? ""} onChange={(v) => setPicked({ ...picked, [c.key]: v })} options={[{ value: "", label: "All" }, ...[...new Set(all.map((r) => r[c.key]).filter(Boolean))].map((v) => ({ value: v, label: v }))]} />)}
+            {filters.map((c) => <Variable key={c.key} label={c.label} value={picked[c.key] ?? ""} onChange={(v) => setPicked({ ...picked, [c.key]: v })} options={[{ value: "", label: "All" }, ...[...new Set(all.map((r) => r[c.key]).filter(Boolean))].map((v) => ({ value: v, label: c.choices?.find((o) => o.value === v)?.label ?? v }))]} />)}
             {/* The table turns into a list on phones, without its headers. */}
             <div className="sm:hidden"><Variable label="Sort by" value={order.key} onChange={sortBy} options={[{ value: "", label: "Default" }, ...shown.map((c) => ({ value: c.key, label: c.label }))]} /></div>
             <details className="relative ml-auto max-sm:ml-0">
-              <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-control border border-line2 px-4 text-fg2 hover:text-fg max-sm:h-11"><ViewColumnsIcon className="size-5" aria-hidden />Columns</summary>
+              <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-control border border-line2 px-4 text-fg2 hover:text-fg max-sm:h-11"><ViewColumnsIcon className="size-5" aria-hidden />{t("Columns")}</summary>
               <fieldset className="absolute right-0 z-20 mt-1 flex max-h-96 w-64 flex-col overflow-y-auto rounded-panel border border-line2 bg-surface p-3 shadow-lg max-sm:left-0">
-                <legend className="sr-only">Columns shown</legend>
+                <legend className="sr-only">{t("Columns shown")}</legend>
                 {choices.map((c) => <Check key={c.key} label={c.label} checked={shown.includes(c)} disabled={c === lead} onChange={(e) => setPicks({ ...picks, [c.key]: e.target.checked })} />)}
               </fieldset>
             </details>
           </div>
         )}
         {chosen.length > 0 && <Bulk cols={cols} rows={chosen} all={all} collection={collection} onDone={done} onClear={() => setSelected(new Set())} />}
-        <Panel title={rows.length === all.length ? `${all.length} ${title}` : `${rows.length} of ${all.length} ${title}`} flush>
+        <Panel title={rows.length === all.length ? `${all.length} · ${t(title)}` : t("{n} of {total}", { n: rows.length, total: all.length }) + ` · ${t(title)}`} flush>
           <ErrorNote>{error}</ErrorNote>
-          {all.length === 0 && data ? <div className="px-4 pb-4"><Empty>Nothing here yet.</Empty></div> : rows.length === 0 && data ? <div className="px-4 pb-4"><Empty>Nothing matches.</Empty></div> : (
-            <Table head={[<input key="all" type="checkbox" aria-label="Select all shown" className="size-4 accent-accent" checked={chosen.length > 0 && chosen.length === rows.length} ref={(el) => { if (el) el.indeterminate = chosen.length > 0 && chosen.length < rows.length }} onChange={(e) => setSelected(new Set(e.target.checked ? rows.map((r) => r.id) : []))} />, ...shown.map((c) => c.label), ""]}
+          {all.length === 0 && data ? <div className="px-4 pb-4"><Empty>{t("Nothing here yet.")}</Empty></div> : rows.length === 0 && data ? <div className="px-4 pb-4"><Empty>{t("Nothing matches.")}</Empty></div> : (
+            <Table head={[<input key="all" type="checkbox" aria-label={t("Select all shown")} className="size-4 accent-accent" checked={chosen.length > 0 && chosen.length === rows.length} ref={(el) => { if (el) el.indeterminate = chosen.length > 0 && chosen.length < rows.length }} onChange={(e) => setSelected(new Set(e.target.checked ? rows.map((r) => r.id) : []))} />, ...shown.map((c) => t(c.label)), ""]}
               sort={sortCol >= 0 ? { col: sortCol + 1, desc: order.desc } : undefined} onSort={(i) => i > 0 && i <= shown.length && sortBy(shown[i - 1].key)}>
               {rows.map((row: any) => (
                 <tr key={row.id} className={`${path ? "cursor-pointer hover:bg-raised" : ""} ${selected.has(row.id) ? "bg-accent-soft/40" : ""}`} onClick={path ? (e) => { if (!(e.target as HTMLElement).closest("a, button, input, label")) open(row) } : undefined}>
-                  <Td className="w-10"><input type="checkbox" aria-label={`Select ${recordName(row, singular)}`} className="size-4 accent-accent" checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></Td>
+                  <Td className="w-10"><input type="checkbox" aria-label={t("Select {name}", { name: recordName(row, singular) })} className="size-4 accent-accent" checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></Td>
                   {shown.map((c, i) => (
                     <Td key={c.key} mono={c.mono} className={i === 0 ? "font-medium" : "text-fg2"}>
                       {i === 0 && path ? <Link to={`${path}/${row.id}`} className="hover:text-accent">{cell(c, row)}</Link> : cell(c, row)}
@@ -417,25 +418,25 @@ function Bulk({ cols, rows, all, collection, onDone, onClear }: { cols: Col[]; r
   const each = async (f: (r: any) => Promise<unknown>) => {
     setError("")
     const failed = (await Promise.allSettled(rows.map(f))).filter((r) => r.status === "rejected").length
-    if (failed) setError(`${failed} of ${rows.length} failed.`)
+    if (failed) setError(t("{n} of {total} failed.", { n: failed, total: rows.length }))
     else onDone()
   }
   const apply = (e: React.FormEvent) => { e.preventDefault(); if (c) each((r) => api(`/api/c/${collection}/${r.id}`, { method: "PATCH", body: { [c.key]: fromInput(c, value) } })) }
-  const removeAll = async () => (await ask(`Delete ${rows.length} records?`, { action: "Delete", danger: true })) && each((r) => api(`/api/c/${collection}/${r.id}`, { method: "DELETE" }))
+  const removeAll = async () => (await ask(t("Delete {n} records?", { n: rows.length }), { action: "Delete", danger: true })) && each((r) => api(`/api/c/${collection}/${r.id}`, { method: "DELETE" }))
   const known = [...new Set(all.map((r) => r[key]).filter(Boolean))] as string[]
   return (
-    <form onSubmit={apply} aria-label="Change the selected records" className="flex flex-wrap items-end gap-3 rounded-panel border border-accent/40 bg-surface p-3">
-      <span className="flex h-9 items-center font-medium max-sm:h-11">{rows.length} selected</span>
+    <form onSubmit={apply} aria-label={t("Change the selected records")} className="flex flex-wrap items-end gap-3 rounded-panel border border-accent/40 bg-surface p-3">
+      <span className="flex h-9 items-center font-medium max-sm:h-11">{t("{n} selected", { n: rows.length })}</span>
       {c && <>
         <Variable label="Set" value={key} onChange={(k) => { setKey(k); setValue("") }} options={fields.map((f) => ({ value: f.key, label: f.label }))} />
         <div className="w-56 max-sm:w-full">
           {c.type === "select" ? <Select label="To" value={value} onChange={(e) => setValue(e.target.value)} options={[c.choices ? { value: "", label: "None" } : "", ...(c.choices ?? c.options ?? [])]} />
             : <><Input label="To" list={`bulk-${key}`} type={c.type === "date" ? "date" : "text"} value={value} onChange={(e) => setValue(e.target.value)} /><datalist id={`bulk-${key}`}>{known.map((v) => <option key={v} value={v} />)}</datalist></>}
         </div>
-        <Button variant="primary" type="submit">Apply</Button>
+        <Button variant="primary" type="submit">{t("Apply")}</Button>
       </>}
-      <Button variant="danger" onClick={removeAll}><TrashIcon className="size-5" aria-hidden />Delete</Button>
-      <Button variant="ghost" onClick={onClear}>Clear selection</Button>
+      <Button variant="danger" onClick={removeAll}><TrashIcon className="size-5" aria-hidden />{t("Delete")}</Button>
+      <Button variant="ghost" onClick={onClear}>{t("Clear selection")}</Button>
       <ErrorNote>{error}</ErrorNote>
     </form>
   )
@@ -449,11 +450,11 @@ function Facets({ col, rows, value, onChange }: { col: Col; rows: any[]; value: 
     <button key={v || "all"} type="button" aria-pressed={value === v} onClick={() => onChange(value === v && v ? "" : v)}
       className={`flex h-16 min-w-32 items-center gap-3 rounded-panel border px-4 text-left ${value === v ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface text-fg2 hover:border-line2 hover:text-fg"}`}>
       {I && <I className="size-6 shrink-0" aria-hidden />}
-      <span className="flex flex-col"><span className="text-[20px] leading-6 font-medium text-fg">{n}</span><span className="text-xs">{label}</span></span>
+      <span className="flex flex-col"><span className="text-[20px] leading-6 font-medium text-fg">{n}</span><span className="text-xs">{t(label)}</span></span>
     </button>
   )
   return (
-    <nav aria-label={`Filter by ${col.label.toLowerCase()}`} className="flex gap-2 overflow-x-auto pb-1">
+    <nav aria-label={t("Filter by {what}", { what: t(col.label).toLowerCase() })} className="flex gap-2 overflow-x-auto pb-1">
       {tile("", "All", rows.length)}
       {values.map((v) => tile(v, v, count(v), col.icons?.[v]))}
     </nav>

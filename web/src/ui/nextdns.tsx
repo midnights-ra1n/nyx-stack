@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Empty, ErrorNote, Mono, Panel, Stat, TimeSeries, Variable } from "./components"
 import { useApi } from "./lib"
 import { SettingForm } from "./settings"
+import { t } from "./i18n"
 
 export const PERIODS = [["1", "24 hours"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]].map(([value, label]) => ({ value, label }))
 
@@ -15,11 +16,11 @@ export const niceMax = (v: number) => {
 export function NextDns() {
   const [days, setDays] = useState("7")
   const { data, error } = useApi(`/api/nextdns?days=${days}`)
-  const t: number[] = data?.times ?? []
-  const points = (vs: number[]) => t.map((at, i) => ({ t: at, v: vs[i] ?? 0 }))
+  const times: number[] = data?.times ?? []
+  const points = (vs: number[]) => times.map((at, i) => ({ t: at, v: vs[i] ?? 0 }))
   if (error) return <ErrorNote>{error}</ErrorNote>
-  if (!data) return <Empty>Loading…</Empty>
-  if (!data.configured) return <Empty>Add your NextDNS API key and profile ID in Settings.</Empty>
+  if (!data) return <Empty>{t("Loading…")}</Empty>
+  if (!data.configured) return <Empty>{t("Add your NextDNS API key and profile ID in Settings.")}</Empty>
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end"><Variable label="Period" value={days} onChange={setDays} options={PERIODS} /></div>
@@ -33,27 +34,27 @@ export function NextDns() {
         { name: "Blocked", color: "var(--color-crit)", values: points(data.series_blocked) },
       ]} />
       <div>
-        <h3 className="mb-1 text-[13px] text-fg2">Most blocked domains</h3>
+        <h3 className="mb-1 text-[13px] text-fg2">{t("Most blocked domains")}</h3>
         {data.top_blocked?.length ? (
           <ol className="divide-y divide-line border-t border-line">
             {data.top_blocked.map((d: { domain: string; queries: number }) => (
               <li key={d.domain} className="flex justify-between gap-3 py-1.5 text-[13px]"><Mono className="truncate">{d.domain}</Mono><span className="text-fg2">{d.queries.toLocaleString()}</span></li>
             ))}
           </ol>
-        ) : <Empty>Nothing blocked over this period.</Empty>}
+        ) : <Empty>{t("Nothing blocked over this period.")}</Empty>}
       </div>
     </div>
   )
 }
 
-export const NextDnsPanel = ({ edit }: { edit?: any }) => <Panel title="NextDNS" edit={edit}><NextDns /></Panel>
+export const NextDnsPanel = ({ edit }: { edit?: any }) => <Panel title={t("NextDNS")} edit={edit}><NextDns /></Panel>
 
 export function NextDnsSettings() {
   return (
-    <SettingForm title="NextDNS" setting="nextdns" needs={["api_key", "profile"]} fields={[
+    <SettingForm title={t("NextDNS")} setting="nextdns" needs={["api_key", "profile"]} fields={[
       { key: "api_key", label: "API key", type: "password", hint: "On my.nextdns.io, under Account, API." },
       { key: "profile", label: "Profile ID", hint: "The code in the address of the profile, for example abc123." }]}>
-      <p className="text-fg2">Shows the queries, the blocked queries and the most blocked domains of the profile. The calls come from this server, never from your browser.</p>
+      <p className="text-fg2">{t("Shows the queries, the blocked queries and the most blocked domains of the profile. The calls come from this server, never from your browser.")}</p>
     </SettingForm>
   )
 }

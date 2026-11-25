@@ -3,6 +3,7 @@ import { Board, CustomizeButton } from "../ui/board"
 import { BarGauge, Empty, Meter, Mono, Panel, Stat, StateCell, Status, Table, Td, Variable } from "../ui/components"
 import { fmt, type Level, levelBg, levelOf, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
+import { t } from "../ui/i18n"
 
 const LIFE_WARN = 20, LIFE_CRIT = 10
 const DEFAULT_TH = { warn: 75, crit: 90 }
@@ -62,7 +63,7 @@ export function DiskCards({ disks, hosts }: { disks: any[]; hosts?: boolean }) {
           {d.reason && <p className="text-[13px] text-fg2">{d.reason}</p>}
           {d.life_left_pct != null && (
             <div>
-              <div className="mb-1 flex justify-between text-xs text-fg2"><span>Life left</span><span>{d.life_left_pct} %</span></div>
+              <div className="mb-1 flex justify-between text-xs text-fg2"><span>{t("Life left")}</span><span>{d.life_left_pct} %</span></div>
               <div className="h-2 overflow-hidden rounded-full bg-surface"><div className={`h-full rounded-full ${levelBg[lifeLevel(d.life_left_pct)]}`} style={{ width: `${d.life_left_pct}%` }} /></div>
             </div>
           )}
@@ -89,7 +90,7 @@ function needsAttention(disks: any[], smart: any[], th: { warn: number; crit: nu
 
 function Attention({ disks, smart, th }: { disks: any[]; smart: any[]; th: { warn: number; crit: number } }) {
   const items = needsAttention(disks, smart, th)
-  if (!items.length) return <Empty>All disks and file systems look fine.</Empty>
+  if (!items.length) return <Empty>{t("All disks and file systems look fine.")}</Empty>
   return (
     <ul className="divide-y divide-line">
       {items.map((x) => <li key={x.key} className="flex items-center justify-between gap-3 py-2"><span className="min-w-0"><Link className="font-medium" to={x.to}>{x.what}</Link><span className="block text-xs text-fg3">{x.why}</span></span><Status level={x.level} /></li>)}
@@ -101,7 +102,7 @@ function Attention({ disks, smart, th }: { disks: any[]; smart: any[]; th: { war
 export function DiskHealth({ edit }: { edit: any }) {
   const { data } = useApi("/api/storage")
   return (
-    <Panel title="Disk health" edit={edit} actions={[{ label: "Storage", onClick: () => navigate("/storage") }]}>
+    <Panel title={t("Disk health")} edit={edit} actions={[{ label: "Storage", onClick: () => navigate("/storage") }]}>
       <Attention disks={data?.disks ?? []} smart={data?.smart ?? []} th={data?.thresholds ?? DEFAULT_TH} />
     </Panel>
   )
@@ -126,35 +127,35 @@ export function Storage() {
 
   const panels = [
     { id: "capacity", title: "Capacity", render: (edit: any) => (
-      <Panel title="Capacity" edit={edit}>
+      <Panel title={t("Capacity")} edit={edit}>
         <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
           <Stat label="Used" value={fmt.bytes(used)} sub={`of ${fmt.bytes(total)}`} />
-          <Stat label="Free" value={fmt.bytes(free)} sub={`on ${disks.length} file systems`} />
+          <Stat label="Free" value={fmt.bytes(free)} sub={t("on {n} file systems", { n: disks.length })} />
           <Stat label="Physical disks" value={smart.length ? `${smart.length - unhealthy} / ${smart.length}` : "—"} level={!smart.length ? undefined : unhealthy ? "warn" : "ok"} sub="healthy" />
           <Stat label="Hottest disk" value={fmt.temp(isFinite(hottest) ? hottest : null)} />
         </div>
         {total > 0 && <div className="mt-5"><Meter pct={(used / total) * 100} warn={th.warn} crit={th.crit} /></div>}
       </Panel>
     ) },
-    { id: "attention", title: "Needs attention", render: (edit: any) => <Panel title="Needs attention" edit={edit}><Attention disks={disks} smart={smart} th={th} /></Panel> },
+    { id: "attention", title: "Needs attention", render: (edit: any) => <Panel title={t("Needs attention")} edit={edit}><Attention disks={disks} smart={smart} th={th} /></Panel> },
     { id: "hosts", title: "Usage per host", render: (edit: any) => (
-      <Panel title="Usage per host" edit={edit}>{perHost.length ? <BarGauge warn={th.warn} crit={th.crit} rows={perHost} /> : <Empty>No file system reported yet.</Empty>}</Panel>
+      <Panel title={t("Usage per host")} edit={edit}>{perHost.length ? <BarGauge warn={th.warn} crit={th.crit} rows={perHost} /> : <Empty>{t("No file system reported yet.")}</Empty>}</Panel>
     ) },
     { id: "files", title: "File systems", render: (edit: any) => (
-      <Panel title="File systems" flush edit={edit}>
-        {disks.length ? <FileSystems rows={disks} th={th} hosts={!host} /> : <div className="px-4 pb-4"><Empty>No file system reported yet.</Empty></div>}
+      <Panel title={t("File systems")} flush edit={edit}>
+        {disks.length ? <FileSystems rows={disks} th={th} hosts={!host} /> : <div className="px-4 pb-4"><Empty>{t("No file system reported yet.")}</Empty></div>}
       </Panel>
     ) },
     { id: "smart", title: "Physical disks", render: (edit: any) => (
-      <Panel title="Physical disks" edit={edit} footer="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment. Refreshed every 30 minutes.">
-        {smart.length ? <DiskCards disks={smart} hosts={!host} /> : <Empty>SMART data comes from physical hosts.</Empty>}
+      <Panel title={t("Physical disks")} edit={edit} footer="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment. Refreshed every 30 minutes.">
+        {smart.length ? <DiskCards disks={smart} hosts={!host} /> : <Empty>{t("SMART data comes from physical hosts.")}</Empty>}
       </Panel>
     ) },
   ]
 
   return (
     <>
-      <PageHeader title="Storage" subtitle="Space on every file system and health of every physical disk" onRefresh={reload} actions={<CustomizeButton />}
+      <PageHeader title={t("Storage")} subtitle="Space on every file system and health of every physical disk" onRefresh={reload} actions={<CustomizeButton />}
         variables={<Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />} />
       <Board id="storage" panels={panels}
         desktop={{ cols: [["capacity", "attention", "files", "smart"]], hidden: ["hosts"] }}

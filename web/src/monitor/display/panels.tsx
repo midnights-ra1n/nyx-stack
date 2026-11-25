@@ -6,6 +6,7 @@ import { LiveMap } from "../map"
 import { PipelineView } from "../../ui/pipelines"
 import { TempoTiles } from "../../ui/tempo"
 import { nextScroll, uptimeBar } from "./model"
+import { t } from "../../ui/i18n"
 
 const OVERALL: Record<string, string> = {
   ok: "All systems operational", warn: "Degraded performance", crit: "Service disruption", off: "No services selected",
@@ -27,16 +28,16 @@ function Overall({ state }: { state: Level }) {
 function UptimeBars({ days, uptime, generated }: { days: (number | null)[]; uptime: number | null; generated: number }) {
   return (
     <div className="mt-1">
-      <div className="flex h-5 gap-px" role="img" aria-label={uptime == null ? "No uptime data yet" : `${uptime} percent uptime over 30 days`}>
+      <div className="flex h-5 gap-px" role="img" aria-label={uptime == null ? "No uptime data yet" : t("{uptime} percent uptime over 30 days", { uptime })}>
         {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-full ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? "no data" : `${d} %`}`} />)}
       </div>
-      <div className="mt-1 flex justify-between text-xs text-fg3"><span>30 days ago</span><span>{uptime == null ? "No data yet" : `${uptime} % uptime`}</span><span>Today</span></div>
+      <div className="mt-1 flex justify-between text-xs text-fg3"><span>{t("30 days ago")}</span><span>{uptime == null ? t("No data yet") : t("{n} % uptime", { n: uptime })}</span><span>{t("Today")}</span></div>
     </div>
   )
 }
 
 function Services({ rows, generated }: { rows: any[]; generated: number }) {
-  if (!rows?.length) return <Empty>No services selected.</Empty>
+  if (!rows?.length) return <Empty>{t("No services selected.")}</Empty>
   return (
     <ul className="flex flex-col divide-y divide-line">
       {rows.map((r, i) => (
@@ -50,7 +51,7 @@ function Services({ rows, generated }: { rows: any[]; generated: number }) {
 }
 
 function Tiles({ rows }: { rows: any[] }) {
-  if (!rows?.length) return <Empty>Nothing selected.</Empty>
+  if (!rows?.length) return <Empty>{t("Nothing selected.")}</Empty>
   return (
     <ul className="grid min-h-full auto-rows-fr grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
       {rows.map((r, i) => (
@@ -76,7 +77,7 @@ function Spark({ values, level }: { values: number[]; level: Level }) {
 }
 
 function BigNumber({ data }: { data: any }) {
-  if (data == null) return <div className="flex h-full items-center justify-center text-fg3">No data</div>
+  if (data == null) return <div className="flex h-full items-center justify-center text-fg3">{t("No data")}</div>
   const value = Number.isInteger(data.value) ? data.value : Number(data.value).toFixed(data.value >= 100 ? 0 : 1)
   return (
     <div className="fit relative flex h-full items-center justify-center">
@@ -105,13 +106,13 @@ function ScalingGauge({ label, value, unit, level }: { label: string; value: num
 }
 
 function Gauges({ rows }: { rows: any[] }) {
-  if (!rows?.length) return <Empty>No data.</Empty>
+  if (!rows?.length) return <Empty>{t("No data.")}</Empty>
   return <div className="grid h-full auto-cols-fr grid-flow-col items-center gap-2 max-sm:grid-flow-row max-sm:grid-cols-2">{rows.map((r, i) => <ScalingGauge key={i} {...r} />)}</div>
 }
 
 /** Totals over the curves; on a wall, the most blocked domains beside them. */
 function NextDns({ data }: { data: any }) {
-  if (data == null) return <div className="flex h-full items-center justify-center text-fg3">No NextDNS data</div>
+  if (data == null) return <div className="flex h-full items-center justify-center text-fg3">{t("No NextDNS data")}</div>
   const share = data.total ? ((data.blocked / data.total) * 100).toFixed(1) : "0.0"
   const top: { domain: string; queries: number }[] = data.top_blocked ?? []
   return (
@@ -136,7 +137,7 @@ function NextDns({ data }: { data: any }) {
 function Chart({ data }: { data: any }) {
   const series = (data?.series ?? []).filter((s: any) => s.values.length > 1)
   const all = series.flatMap((s: any) => s.values)
-  if (!all.length) return <div className="flex h-full items-center justify-center text-fg3">Not enough data yet</div>
+  if (!all.length) return <div className="flex h-full items-center justify-center text-fg3">{t("Not enough data yet")}</div>
   const W = 600, H = 200
   const t0 = Math.min(...all.map((p: any) => p.t)), t1 = Math.max(...all.map((p: any) => p.t))
   const top = data.unit === "%" ? 100 : Math.max(...all.map((p: any) => p.v)) * 1.15 || 1
@@ -164,7 +165,7 @@ function Chart({ data }: { data: any }) {
 }
 
 function Alerts({ rows }: { rows: any[] | null }) {
-  if (!rows?.length) return <div className="flex h-full items-center justify-center text-ok">No open alerts</div>
+  if (!rows?.length) return <div className="flex h-full items-center justify-center text-ok">{t("No open alerts")}</div>
   return (
     <ul className="flex flex-col gap-2">
       {rows.map((a, i) => (
@@ -195,7 +196,7 @@ function Body({ p, overall, generated, paged }: { p: any; overall: Level; genera
     case "tiles": return <Tiles rows={p.data} />
     case "stat": return <BigNumber data={p.data} />
     case "gauge": return <Gauges rows={p.data} />
-    case "bars": return p.data?.length ? <BarGauge rows={fixed(p.data)} /> : <Empty>No data.</Empty>
+    case "bars": return p.data?.length ? <BarGauge rows={fixed(p.data)} /> : <Empty>{t("No data.")}</Empty>
     case "timeseries": return <Chart data={p.data} />
     case "alerts": return <Alerts rows={p.data} />
     case "text": return <p className="whitespace-pre-wrap">{p.text}</p>
@@ -235,7 +236,7 @@ function useWallPaging(on: boolean) {
 /** A compact frame, like a Grafana panel, that fills its grid cell. */
 export function DashPanel({ p, overall, generated, paged, paused }: { p: any; overall: Level; generated: number; paged?: boolean; paused?: boolean }) {
   const { ref, label } = useWallPaging(!!paged && !paused && p.type !== "tempo" && p.type !== "map")
-  if (p.type === "tempo") return p.data ? <TempoTiles tempo={p.data} className="h-full auto-rows-fr" /> : <div className="flex h-full items-center justify-center rounded-panel border border-line bg-surface text-fg3">No EDF Tempo data</div>
+  if (p.type === "tempo") return p.data ? <TempoTiles tempo={p.data} className="h-full auto-rows-fr" /> : <div className="flex h-full items-center justify-center rounded-panel border border-line bg-surface text-fg3">{t("No EDF Tempo data")}</div>
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface" aria-label={p.title || p.type}>
       {p.title && <h2 className="flex h-8 shrink-0 items-center truncate px-3 text-[13px] font-medium text-fg2">{p.title}</h2>}

@@ -2,6 +2,7 @@ import { TrashIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Button, Empty, ErrorNote, IconButton, Input, Mono, Select, StateCell, Status, Table, Td, ask } from "../ui/components"
 import { api, type Level } from "../ui/lib"
+import { t } from "../ui/i18n"
 
 const DOCKER = "DOCKER-USER"
 const ACTIONS: Record<string, { label: string; level: Level }> = {
@@ -59,14 +60,14 @@ function Saving({ fw, send }: { fw: any; send: (op: string, rule: any, what: str
   if (fw.backend !== "iptables") return null
   if (fw.saved_by) {
     return fw.unsaved
-      ? <div className="flex flex-wrap items-center gap-3"><Status level="warn" label="Not saved" /><span className="text-fg2">The live rules differ from the file {fw.saved_by} loads at boot.</span><Button onClick={() => send("save", {}, "Saving sent.")}>Save rules</Button></div>
+      ? <div className="flex flex-wrap items-center gap-3"><Status level="warn" label="Not saved" /><span className="text-fg2">The live rules differ from the file {fw.saved_by} loads at boot.</span><Button onClick={() => send("save", {}, "Saving sent.")}>{t("Save rules")}</Button></div>
       : <p className="text-fg2">Saved by {fw.saved_by}: the rules come back after a restart.</p>
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
       <Status level="warn" label="Not saved" />
-      <span className="text-fg2">Rules made outside Nyx are lost at the next restart. Nyx puts its own back.</span>
-      {fw.installable && <Button onClick={async () => { if (await ask(`Install ${fw.installable} on this host, then save the current rules for the next boot?`, { action: "Install" })) send("persist", {}, `Installing ${fw.installable}.`) }}>Install {fw.installable}</Button>}
+      <span className="text-fg2">{t("Rules made outside Nyx are lost at the next restart. Nyx puts its own back.")}</span>
+      {fw.installable && <Button onClick={async () => { if (await ask(t("Install {installable} on this host, then save the current rules for the next boot?", { installable: fw.installable }), { action: "Install" })) send("persist", {}, `Installing ${fw.installable}.`) }}>Install {fw.installable}</Button>}
     </div>
   )
 }
@@ -80,7 +81,7 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
     setError("")
     try {
       await api(`/api/hosts/${id}/command`, { body: { action: "firewall", op, rule } })
-      setNote(`${what} Queued: the agent applies it with its next report${op === "add" || op === "delete" ? ", and undoes it if it then cannot reach Nyx" : ""}.`)
+      setNote(`${t(what)} ${t(op === "add" || op === "delete" ? "Queued: the agent applies it with its next report, and undoes it if it then cannot reach Nyx." : "Queued: the agent applies it with its next report.")}`)
       onSent()
     } catch (e) { setError((e as Error).message) }
   }
@@ -89,25 +90,25 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
     const rule = { ...form, chain: published ? DOCKER : "" }
-    if (!published && form.action !== "allow" && (!form.port || portMatches(form.port, 22)) && !await ask(`This can block SSH to ${name}. Nyx can still undo it, as the agent does not need SSH. Continue?`, { action: "Add rule", danger: true })) return
-    send("add", rule, published ? `Rule for ${published.process} sent.` : "Rule sent.").then(() => setForm(empty))
+    if (!published && form.action !== "allow" && (!form.port || portMatches(form.port, 22)) && !await ask(t("This can block SSH to {name}. Nyx can still undo it, as the agent does not need SSH. Continue?", { name }), { action: "Add rule", danger: true })) return
+    send("add", rule, published ? t("Rule for {process} sent.", { process: published.process }) : "Rule sent.").then(() => setForm(empty))
   }
   const remove = async (r: any) => {
     const ssh = r.chain !== DOCKER && r.action === "allow" && r.port && portMatches(r.port, 22)
-    if (!await ask(ssh ? `This rule lets SSH in. Removing it can lock you out of ${name} over SSH. Remove it?` : `Remove this rule from ${name}?`, { action: "Remove", danger: true })) return
+    if (!await ask(ssh ? t("This rule lets SSH in. Removing it can lock you out of {name} over SSH. Remove it?", { name }) : t("Remove this rule from {name}?", { name }), { action: "Remove", danger: true })) return
     send("delete", r, "Removal sent.")
   }
   const field = (k: "port" | "source", label: string, p: any = {}) => <Input label={label} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} {...p} />
   const canAdd = editable && (fw.active || fw.docker)
 
-  if (!fw.backend && !fw.docker) return <div className="px-4 pb-4"><Empty>No firewall found on this host. Install ufw, firewalld or iptables to manage its rules here.</Empty></div>
+  if (!fw.backend && !fw.docker) return <div className="px-4 pb-4"><Empty>{t("No firewall found on this host. Install ufw, firewalld or iptables to manage its rules here.")}</Empty></div>
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 px-4">
         <div className="flex flex-wrap items-center gap-3">
           {fw.backend && <Status level={fw.active ? "ok" : "warn"} label={`${fw.backend} ${fw.active ? "on" : "off"}`} />}
           {fw.docker && <Status level="info" label="Docker" />}
-          {fw.default_in && <span className="text-fg2">Other incoming traffic: <b>{fw.default_in === "accept" ? "let in" : fw.default_in === "reject" ? "rejected" : "dropped"}</b></span>}
+          {fw.default_in && <span className="text-fg2">{t("Other incoming traffic:")} <b>{fw.default_in === "accept" ? "let in" : fw.default_in === "reject" ? "rejected" : "dropped"}</b></span>}
         </div>
         <Saving fw={fw} send={send} />
       </div>
@@ -119,7 +120,7 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
               <Td>
                 <Mono>{r.port || "any"}{r.proto && `/${r.proto}`}</Mono>
                 {r.iface && <span className="ml-2 text-fg3">on {r.iface}</span>}
-                {r.chain === DOCKER ? <span className="ml-2 text-fg3">Docker</span> : r.chain && r.chain !== "INPUT" && <span className="ml-2 text-fg3" title="iptables chain">{r.chain}</span>}
+                {r.chain === DOCKER ? <span className="ml-2 text-fg3">{t("Docker")}</span> : r.chain && r.chain !== "INPUT" && <span className="ml-2 text-fg3" title={t("iptables chain")}>{r.chain}</span>}
               </Td>
               <Td><Mono className="text-fg2">{r.source || "anywhere"}</Mono>{r.family && <span className="ml-2 text-fg3">IPv{r.family} only</span>}</Td>
               <Td className="max-w-48 truncate text-fg2" title={r.raw}>{r.comment}</Td>
@@ -135,16 +136,16 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
             <Select label="Protocol" value={form.proto} onChange={(e) => setForm({ ...form, proto: e.target.value })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }, { value: "", label: "Both" }]} />
             {field("port", "Port", { placeholder: "443 or 8000:8100", inputMode: "numeric", className: "font-mono" })}
             {field("source", "Source", { placeholder: "anywhere, or 192.168.1.0/24", className: "font-mono" })}
-            <Button type="submit" variant="primary" disabled={(!form.port && !form.source) || (!fw.active && !published)}>Add rule</Button>
+            <Button type="submit" variant="primary" disabled={(!form.port && !form.source) || (!fw.active && !published)}>{t("Add rule")}</Button>
           </div>
-          {published && <p className="text-[13px] text-fg2">Port published by Docker for <b>{published.process}</b>: Docker skips the host rules, so this one goes in DOCKER-USER. To let only some sources in, allow them, then drop the port for everyone.</p>}
+          {published && <p className="text-[13px] text-fg2">{t("Port published by Docker for")} <b>{published.process}</b>{t(": Docker skips the host rules, so this one goes in DOCKER-USER. To let only some sources in, allow them, then drop the port for everyone.")}</p>}
         </form>
       )}
-      {fw.backend === "nftables" && <p className="px-4 text-fg2">Nyx shows nftables rules but does not change them: edit <Mono>/etc/nftables.conf</Mono>, or switch to ufw or firewalld.</p>}
+      {fw.backend === "nftables" && <p className="px-4 text-fg2">{t("Nyx shows nftables rules but does not change them: edit")} <Mono>{"/etc/nftables.conf"}</Mono>{t(", or switch to ufw or firewalld.")}</p>}
       {editable && !fw.active && fw.backend !== "iptables" && <p className="px-4 text-fg2">{fw.backend} is installed but off. Turn it on from the host to add rules: <Mono>{fw.backend === "ufw" ? "ufw enable" : "systemctl enable --now firewalld"}</Mono></p>}
       <div className="px-4" role="status">{note && <p className="text-[13px] text-fg2">{note}</p>}<ErrorNote>{error}</ErrorNote></div>
       {fw.listening?.length > 0 && <>
-        <h3 className="px-4 font-medium">Ports open to the network</h3>
+        <h3 className="px-4 font-medium">{t("Ports open to the network")}</h3>
         <Table head={["Port", "Listens on", "Program", "Reachable", ""]}>
           {fw.listening.map((l: any) => {
             const state = reach(fw, l)
@@ -153,15 +154,15 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
               <tr key={`${l.proto}${l.port}`}>
                 <Td><Mono>{l.port}/{l.proto}</Mono></Td>
                 <Td><Mono className="text-fg2">{l.addr === "*" ? "all addresses" : l.addr}</Mono></Td>
-                <Td className="text-fg2">{l.process || "—"}{l.docker && <span className="ml-2 text-fg3">Docker</span>}</Td>
+                <Td className="text-fg2">{l.process || "—"}{l.docker && <span className="ml-2 text-fg3">{t("Docker")}</span>}</Td>
                 <StateCell level={REACH[state].level} label={REACH[state].label} />
-                <Td className="text-right">{canOpen && <Button variant="ghost" onClick={() => send("add", { ...empty, proto: l.proto, port: String(l.port), chain: l.docker ? DOCKER : "", comment: l.process.replace(/[^\w .-]/g, "").slice(0, 64) }, `Opening ${l.port}/${l.proto} sent.`)}>Allow</Button>}</Td>
+                <Td className="text-right">{canOpen && <Button variant="ghost" onClick={() => send("add", { ...empty, proto: l.proto, port: String(l.port), chain: l.docker ? DOCKER : "", comment: l.process.replace(/[^\w .-]/g, "").slice(0, 64) }, `Opening ${l.port}/${l.proto} sent.`)}>{t("Allow")}</Button>}</Td>
               </tr>
             )
           })}
         </Table>
       </>}
-      {fw.raw && <details className="px-4 pb-4"><summary className="cursor-pointer text-fg2">Full ruleset</summary><pre className="mt-2 max-h-80 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px]">{fw.raw}</pre></details>}
+      {fw.raw && <details className="px-4 pb-4"><summary className="cursor-pointer text-fg2">{t("Full ruleset")}</summary><pre className="mt-2 max-h-80 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px]">{fw.raw}</pre></details>}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Panel, Selec
 import { api, type Level, useApi } from "../ui/lib"
 import { PIPELINE_VIEWS, pipelineWord, PipelineView } from "../ui/pipelines"
 import { PageHeader } from "../ui/shell"
+import { t } from "../ui/i18n"
 
 const PROVIDERS = [{ value: "github", label: "GitHub" }, { value: "gitlab", label: "GitLab" }, { value: "forgejo", label: "Forgejo" }, { value: "gitea", label: "Gitea" }]
 const HINT: Record<string, string> = {
@@ -27,13 +28,13 @@ function PipelineForm({ row, onDone }: { row: any | null; onDone: () => void }) 
       <form className="flex flex-col gap-4" onSubmit={save}>
         <Input label="Name" required value={f.name} onChange={(e) => set("name", e.target.value)} />
         <Select label="Forge" value={f.provider} onChange={(e) => set("provider", e.target.value)} options={PROVIDERS} />
-        <Input label="Server address" required={selfHosted} placeholder={selfHosted ? "https://git.example.org" : "Empty for the public service"} value={f.url} hint="Only for a self-hosted server." onChange={(e) => set("url", e.target.value)} />
+        <Input label="Server address" required={selfHosted} placeholder={selfHosted ? "https://git.example.org" : t("Empty for the public service")} value={f.url} hint="Only for a self-hosted server." onChange={(e) => set("url", e.target.value)} />
         <Input label="Repository" required value={f.repo} hint={HINT[f.provider]} onChange={(e) => set("repo", e.target.value)} />
         <Input label="Branch" value={f.branch} hint="Empty follows the latest run of any branch." onChange={(e) => set("branch", e.target.value)} />
         <Input label="Access token" type="password" autoComplete="off" value={f.token} onChange={(e) => set("token", e.target.value)} />
         <Check label="Enabled" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
         <ErrorNote>{error}</ErrorNote>
-        <div><Button variant="primary" type="submit">Save</Button></div>
+        <div><Button variant="primary" type="submit">{t("Save")}</Button></div>
       </form>
     </Modal>
   )
@@ -53,7 +54,7 @@ export function Pipelines() {
   const manage = view === "manage"
   return (
     <>
-      <PageHeader title="Pipelines" subtitle="CI/CD runs on GitHub, GitLab, Forgejo and Gitea. A failed run raises an alert." onRefresh={live.reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add pipeline</Button>} />
+      <PageHeader title={t("Pipelines")} subtitle="CI/CD runs on GitHub, GitLab, Forgejo and Gitea. A failed run raises an alert." onRefresh={live.reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add pipeline")}</Button>} />
       <div className="mb-4 grid grid-cols-4 gap-4 max-sm:grid-cols-2">
         <Stat label="Passing" value={count("ok")} level="ok" />
         <Stat label="Failing" value={count("crit")} level={count("crit") ? "crit" : "ok"} />
@@ -63,8 +64,8 @@ export function Pipelines() {
       <div className="mb-4"><Tabs tabs={[...PIPELINE_VIEWS.filter((v) => v.id !== "list"), { id: "list", label: "List" }, { id: "manage", label: "Manage" }]} value={view} onChange={pick} /></div>
       {!manage && <Panel title={PIPELINE_VIEWS.find((v) => v.id === view)?.label ?? "Pipelines"}><PipelineView rows={rows} view={view} /></Panel>}
       {manage && (
-        <Panel title="Pipelines" flush>
-          {defs.data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>No pipelines yet.</Empty></div> : (
+        <Panel title={t("Pipelines")} flush>
+          {defs.data?.items.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No pipelines yet.")}</Empty></div> : (
             <Table head={["Name", "Forge", "Repository", "Branch", "Latest run", "Result", "State", ""]}>
               {defs.data?.items.map((d: any) => {
                 const p = live.data?.find((x) => x.id === d.id)
@@ -76,7 +77,7 @@ export function Pipelines() {
                     <Td mono>{d.repo}</Td>
                     <Td className="text-fg2">{d.branch || "any"}</Td>
                     <Td className="text-fg2">{p?.sha || "—"}</Td>
-                    <Td className="max-w-64 truncate text-fg2 max-sm:max-w-none max-sm:whitespace-normal">{!d.enabled ? "Disabled" : p?.error || p?.status || "Pending"}</Td>
+                    <Td className="max-w-64 truncate text-fg2 max-sm:max-w-none max-sm:whitespace-normal">{!d.enabled ? t("Disabled") : p?.error || p?.status || t("Pending")}</Td>
                     <StateCell level={level} label={!d.enabled ? "Disabled" : !p ? "Pending" : p.error && p.state === "off" ? "Unreachable" : pipelineWord(p)} />
                     <Td className="whitespace-nowrap">
                       <IconButton label="Edit" icon={PencilSquareIcon} onClick={() => setEdit(d)} />

@@ -21,6 +21,8 @@ Manager, **Settings, Integrations**. Tasks and calendar sync over CalDAV.
 - Task states and tags sync too: to do, in progress, done and cancelled are the
   `STATUS` values of a task, and tags are its `CATEGORIES`. A comma cannot be part of a
   tag: Nyx turns it into a space.
+- A checklist is kept in the task's description as Markdown `- [ ]` lines, so it syncs
+  as written. Nyx sends the share of ticked steps as `PERCENT-COMPLETE` (100 when done).
 - When a task changes on both sides between two syncs, the Nextcloud version wins.
 - Times with a time zone (`TZID`) are read as UTC for now, so a due time can be off by
   your UTC offset.

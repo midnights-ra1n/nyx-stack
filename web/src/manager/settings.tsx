@@ -4,6 +4,7 @@ import { Button, Mono, Panel } from "../ui/components"
 import { api } from "../ui/lib"
 import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSettings, NotificationSettings, PasskeySettings, ProxmoxSettings, SettingForm, SettingsPage, SystemUpdates } from "../ui/settings"
 import { NextDnsSettings } from "../ui/nextdns"
+import { t } from "../ui/i18n"
 
 const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
 
@@ -32,12 +33,12 @@ function Sync() {
     try { setNote(await f()) } catch (e) { setNote((e as Error).message) }
   }
   return (
-    <Panel title="Synchronisation">
+    <Panel title={t("Synchronisation")}>
       <div className="flex flex-col gap-3">
-        <p className="text-fg2">Nextcloud syncs every 30 seconds and the inventory every 5 minutes, without you doing anything.</p>
+        <p className="text-fg2">{t("Nextcloud syncs every 30 seconds and the inventory every 5 minutes, without you doing anything.")}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => run(async () => { const hosts = await api("/api/monitor/hosts"); return hosts ? `Connected: ${hosts.length} hosts.` : "No monitor linked." })}>Test the monitor link</Button>
-          <Button onClick={() => run(async () => { await api("/api/sync", { method: "POST" }); return "Synchronised." })}>Sync now</Button>
+          <Button onClick={() => run(async () => { const hosts = await api("/api/monitor/hosts"); return hosts ? `Connected: ${hosts.length} hosts.` : "No monitor linked." })}>{t("Test the monitor link")}</Button>
+          <Button onClick={() => run(async () => { await api("/api/sync", { method: "POST" }); return "Synchronised." })}>{t("Sync now")}</Button>
           <span className="text-[13px] text-fg2">{note}</span>
         </div>
       </div>
@@ -50,14 +51,14 @@ function Data() {
   const save = async () => { setNote(""); try { await exportInventory() } catch (e) { setNote((e as Error).message) } }
   return (
     <>
-      <Panel title="Export the inventory">
+      <Panel title={t("Export the inventory")}>
         <div className="flex flex-col gap-3">
-          <p className="text-fg2">Hardware, virtual assets, IPAM, deployments and the network map as one JSON file. Nothing secret is included. This is for reading or for another tool: restoring goes through a backup.</p>
-          <div className="flex items-center gap-3"><Button onClick={save}>Download JSON</Button><span className="text-[13px] text-fg2">{note}</span></div>
+          <p className="text-fg2">{t("Hardware, virtual assets, IPAM, deployments and the network map as one JSON file. Nothing secret is included. This is for reading or for another tool: restoring goes through a backup.")}</p>
+          <div className="flex items-center gap-3"><Button onClick={save}>{t("Download JSON")}</Button><span className="text-[13px] text-fg2">{note}</span></div>
         </div>
       </Panel>
-      <Panel title="Backups">
-        <p className="text-fg2">Everything durable is in the data directory: <Mono>/var/lib/nyx/manager</Mono> with packages, the <Mono>manager-data</Mono> volume with Docker. Stop the server before copying it, or use a tool that can copy a live SQLite database.</p>
+      <Panel title={t("Backups")}>
+        <p className="text-fg2">{t("Everything durable is in the data directory:")} <Mono>{"/var/lib/nyx/manager"}</Mono> {t("with packages, the")} <Mono>{"manager-data"}</Mono> {t("volume with Docker. Stop the server before copying it, or use a tool that can copy a live SQLite database.")}</p>
       </Panel>
     </>
   )
@@ -69,18 +70,18 @@ export function Settings() {
       { id: "general", label: "General", icon: Cog6ToothIcon, description: "This server, its look on this device, and when it reminds you.", body: <>
         <AboutPanel />
         <AppearanceSettings />
-        <SettingForm title="Reminders" setting="reminders" fields={[
+        <SettingForm title={t("Reminders")} setting="reminders" fields={[
           { key: "task_days", label: "Remind tasks and planned deployments, days before", type: "number", hint: "1 by default. The reminder is one notification of type task." },
           { key: "warranty_days", label: "Show ending warranties, days before", type: "number", hint: "60 by default. They appear on the overview." }]} />
       </> },
       { id: "integrations", label: "Integrations", icon: PuzzlePieceIcon, description: "Optional links to the services around the manager.", body: <>
-        <SettingForm title="Nyx Monitor" setting="link" needs={["url", "token"]} fields={[
+        <SettingForm title={t("Nyx Monitor")} setting="link" needs={["url", "token"]} fields={[
           { key: "url", label: "Monitor URL", hint: "For example https://monitor.lan:8081." },
           { key: "token", label: "Link token", type: "password", hint: "Create it in the monitor, under Settings, Integrations." },
           { key: "relay_key", label: "Monitor's relay key", type: "password", hint: "Only when the URL above is the monitor's Cloudflare relay: the part after #relay= of the link in the monitor's Settings, This server. Calls are then sealed, so Cloudflare cannot read them." }]}>
-          <p className="text-fg2">Fills the inventory and IPAM from agents, and deploys sites through them.</p>
+          <p className="text-fg2">{t("Fills the inventory and IPAM from agents, and deploys sites through them.")}</p>
         </SettingForm>
-        <SettingForm title="Nextcloud tasks" setting="nextcloud" needs={["url", "user", "password", "calendar"]} fields={[
+        <SettingForm title={t("Nextcloud tasks")} setting="nextcloud" needs={["url", "user", "password", "calendar"]} fields={[
           { key: "url", label: "Nextcloud URL" }, { key: "user", label: "User" },
           { key: "password", label: "App password", type: "password" },
           { key: "calendar", label: "Calendar", hint: "The name in the calendar's link, for example personal." }]} />

@@ -48,7 +48,12 @@ and report what breaks. You can also [build it from source](docs/development.md)
   from Git with a deploy key, and redeploys on push through a signed webhook.
 - **VPN links:** agents report Tailscale, NetBird, WireGuard and other tunnels and alert
   when one drops. The manager keeps them on their page and on the network map.
-- **Tasks and deployments:** Kanban board or list, with states, tags and due dates.
+- **Tasks and deployments:** Kanban board or list, with states, tags, due dates,
+  checklists synced with Nextcloud, and progress overall and per tag.
+- **Racks and network map:** drag devices into racks drawn to scale, plug cables between
+  ports, and draw your infrastructure (Internet, routers, switches, servers, VMs, VPS,
+  cloud) with typed links: Ethernet, fibre, Wi-Fi, VLAN, VPN.
+- **English and French:** the interface follows the browser's language, or the one you pick.
 - **Integrations:** Nextcloud tasks and calendar, EDF Tempo (RTE), Proxmox noVNC
   console, Meross power plugs, Prometheus metrics for Grafana, an MCP server for AI
   assistants, and passkeys.

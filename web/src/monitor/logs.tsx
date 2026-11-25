@@ -4,6 +4,7 @@ import { Board, CustomizeButton } from "../ui/board"
 import { Button, Empty, Mono, Panel, Stat, Status, Table, Td, Variable } from "../ui/components"
 import { api, type Level, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
+import { t } from "../ui/i18n"
 
 export interface LogRow { t?: number; level: Level; service: string; message: string; host?: string; count: number }
 
@@ -119,7 +120,7 @@ export function HostLogs({ id, lines, edit }: { id: string; lines: string[]; edi
   const tail = useLiveLogs(live ? id : null)
   const rows = logRows((live ? tail.lines : lines ?? []).map((line) => ({ line })))
   return (
-    <Panel title="Logs" flush edit={edit} footer={live ? liveNote(tail.connected) : "Warnings and errors from journald, kept in memory."}>
+    <Panel title={t("Logs")} flush edit={edit} footer={live ? liveNote(tail.connected) : "Warnings and errors from journald, kept in memory."}>
       <div className="flex justify-end px-4 pb-4"><LiveButton live={live} onClick={() => setLive(!live)} /></div>
       {rows.length ? <div className="max-h-96 overflow-y-auto"><LogTable rows={rows} /></div> : <div className="px-4 pb-4"><Empty>{live ? "No new lines yet." : "No warnings."}</Empty></div>}
     </Panel>
@@ -131,8 +132,8 @@ export function RecentLogs({ edit }: { edit: any }) {
   const { data } = useApi<any[]>("/api/logs?host=&q=")
   const rows = logRows(data ?? []).slice(0, 6)
   return (
-    <Panel title="Recent logs" flush edit={edit} actions={[{ label: "All logs", onClick: () => navigate("/logs") }]}>
-      {rows.length ? <LogTable rows={rows} hosts /> : <div className="px-4 pb-4"><Empty>No warnings.</Empty></div>}
+    <Panel title={t("Recent logs")} flush edit={edit} actions={[{ label: "All logs", onClick: () => navigate("/logs") }]}>
+      {rows.length ? <LogTable rows={rows} hosts /> : <div className="px-4 pb-4"><Empty>{t("No warnings.")}</Empty></div>}
     </Panel>
   )
 }
@@ -160,7 +161,7 @@ export function Logs() {
 
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
-      <Panel title="Summary" edit={edit}>
+      <Panel title={t("Summary")} edit={edit}>
         <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
           <Stat label="Errors" value={sum("crit")} level={sum("crit") ? "crit" : "ok"} />
           <Stat label="Warnings" value={sum("warn")} level={sum("warn") ? "warn" : "ok"} />
@@ -170,21 +171,21 @@ export function Logs() {
       </Panel>
     ) },
     { id: "services", title: "Noisiest services", render: (edit: any) => (
-      <Panel title="Noisiest services" edit={edit}>
+      <Panel title={t("Noisiest services")} edit={edit}>
         {services.length ? (
           <div className="flex flex-wrap gap-2">
             {services.slice(0, 12).map(([s, count]) => <Button key={s} variant={service === s ? "primary" : undefined} aria-pressed={service === s} onClick={() => setService(service === s ? "" : s)}>{s} <span className="opacity-70">{count}</span></Button>)}
           </div>
-        ) : <Empty>Nothing yet.</Empty>}
+        ) : <Empty>{t("Nothing yet.")}</Empty>}
       </Panel>
     ) },
     { id: "hosts", title: "Noisiest hosts", render: (edit: any) => (
-      <Panel title="Noisiest hosts" edit={edit}>
-        {noisy.length ? <ul className="divide-y divide-line">{noisy.slice(0, 8).map(([h, count]) => <li key={h} className="flex justify-between py-2"><span>{h}</span><Mono className="text-fg2">{count}</Mono></li>)}</ul> : <Empty>Nothing yet.</Empty>}
+      <Panel title={t("Noisiest hosts")} edit={edit}>
+        {noisy.length ? <ul className="divide-y divide-line">{noisy.slice(0, 8).map(([h, count]) => <li key={h} className="flex justify-between py-2"><span>{h}</span><Mono className="text-fg2">{count}</Mono></li>)}</ul> : <Empty>{t("Nothing yet.")}</Empty>}
       </Panel>
     ) },
     { id: "journal", title: "Journal", render: (edit: any) => (
-      <Panel title="Journal" flush edit={edit} footer={live ? liveNote(tail.connected) : "Identical messages are folded, with the number of repeats."}>
+      <Panel title={t("Journal")} flush edit={edit} footer={live ? liveNote(tail.connected) : "Identical messages are folded, with the number of repeats."}>
         {rows.length ? <LogTable rows={rows} hosts={!host} /> : <div className="px-4 pb-4"><Empty>{live ? "No new lines yet." : "No matching lines."}</Empty></div>}
       </Panel>
     ) },
@@ -192,13 +193,13 @@ export function Logs() {
 
   return (
     <>
-      <PageHeader title="Logs" subtitle={host ? <>{live ? "Everything" : "Warnings and errors"} from <Link to={`/hosts/${host}`}>{name}</Link></> : "Warnings and errors, the last 500 lines per host. Pick a host to follow it live."} onRefresh={saved.reload}
+      <PageHeader title={t("Logs")} subtitle={host ? <>{live ? "Everything" : "Warnings and errors"} from <Link to={`/hosts/${host}`}>{name}</Link></> : "Warnings and errors, the last 500 lines per host. Pick a host to follow it live."} onRefresh={saved.reload}
         actions={<><CustomizeButton /><LiveButton live={live} disabled={!host} onClick={() => setLive(!liveOn)} /></>}
         variables={<>
           <Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />
           <Variable label="Level" value={level} onChange={setLevel} options={[{ value: "", label: "All" }, { value: "crit", label: "Errors" }, { value: "warn", label: "Warnings" }, ...(live ? [{ value: "info", label: "Info" }] : [])]} />
           <label className="flex h-9 items-stretch overflow-hidden rounded-control border border-line2 max-sm:h-11 max-sm:w-full">
-            <span className="flex items-center bg-raised pr-3 pl-4 text-fg2">Filter</span>
+            <span className="flex items-center bg-raised pr-3 pl-4 text-fg2">{t("Filter")}</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} className="w-56 min-w-0 flex-1 bg-surface px-3 text-fg outline-none" />
           </label>
         </>} />

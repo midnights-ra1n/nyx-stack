@@ -1,5 +1,15 @@
 # Manager
 
+## Navigation and language
+
+The menu follows GLPI's: **Assets** (overview, hardware, racks, virtual), **Network**
+(IPAM, network map, VPN links) and **Management** (tasks, deployments, Node.js sites).
+Every page starts with its path, such as *Home › Assets › Hardware*.
+
+The interface is in English and French. It follows the browser's language at first;
+the language menu at the bottom of the sidebar, under **More** on a phone, or on the
+sign-in screen changes it. The choice is kept on this device.
+
 ## Inventory
 
 **Hardware** tracks physical equipment, with serial numbers, locations and warranty
@@ -78,9 +88,10 @@ button. You sign in to Proxmox itself.
 
 ## Overview
 
-The overview sums up the inventory: every figure opens its page. Panels show hardware
-per category, the fullest subnets, addressing conflicts, tasks due within seven days,
-recent deployments and warranties ending soon. **Customize** moves and hides them;
+The overview sums up the inventory: every figure opens its page. Panels show the
+progress of tasks and deployments, hardware per category, the fullest subnets,
+addressing conflicts, tasks due within seven days, recent deployments and warranties
+ending soon. **Customize** moves and hides them;
 the layout is kept per device.
 
 **Add widget** puts your own panels next to them. Widgets are kept on the server, so
@@ -177,6 +188,30 @@ connected subnet are reached without a route. It reports loops and black holes.
 
 It reads your records, not your network, so firewalls and NAT are not considered.
 
+## Racks
+
+**Racks** draws each rack from the front, to scale, one unit per row with its number,
+1 at the bottom. **Add rack** asks for a name, a location and a height in units (42 by
+default). With several racks, tabs above pick one; the choice is remembered on this
+device.
+
+- Drag a device from **Not in a rack** onto the rack, or press **Place** to put it in the
+  highest free spot. Racks fill from the top, as in a real cabinet.
+- Drag a device inside the rack to move it. A spot it would overlap shows red and the
+  move is refused. Focused with the keyboard, the up and down arrows move it one unit.
+- Click a device to set its **Position (U)**, the lowest unit it fills, and its
+  **Height (U)**, or to take it out of the rack.
+- **Cables** lists its ports and what each one is plugged into. **Plug into** picks
+  another device and the port on each side by name; a port that does not exist yet is
+  created. A port holds one cable, so plugging it elsewhere unplugs it first. These are
+  the same [network ports](#network-ports) as on the hardware page, and they are drawn on
+  the [network map](#network-map) too. Cables between two devices of the same rack are
+  drawn as blue curves on its right side.
+
+The hardware form shows the same fields under **Where it is**: **Rack**, **Position (U)**
+and **Height (U)**, and the summary links to the Racks page. Deleting a rack keeps its
+devices, out of any rack. **Patch panel** and **PDU** are hardware categories of their own.
+
 ## Network map
 
 Switch between the **diagram**, a **tree** (guests under their host) and **by type** above the map.
@@ -197,6 +232,37 @@ press **Arrange** when you want them tidied.
 Drag a device to move it; its place is saved when you let go. Double-click one to edit
 it, or use the list below the map, which is the easier way on a phone. The type of a
 device sets its icon and decides whether it is a host or a guest.
+
+The row of buttons above the map adds a device of one type in one click: Internet, router,
+firewall, switch, access point, server, Proxmox, NAS, VM, LXC container, Docker, VPS,
+cloud service or IoT device. To link two devices, drag from the dot on the right edge of
+one onto the other. **New links** sets the kind of the links you draw, and each kind has
+its own line, shown in the legend:
+
+| Kind | Line |
+| --- | --- |
+| Ethernet | Solid blue |
+| Fibre | Thick solid green |
+| Wi-Fi | Dotted amber |
+| VLAN | Dash-dot blue |
+| VPN | Dashed orange |
+| Virtual | Faint dotted grey |
+
+**Add link** does the same from a form, with a label. Click a link on the map to delete
+it. Exports keep the links, without their kind.
+
+The map is a canvas: drag its dotted background to move around, scroll or pinch to zoom,
+or use the buttons at its top left to zoom, fit everything and go full screen (`+`, `-`
+and `0` from the keyboard once the map has focus). Cards snap to an 8 px grid as you drag
+them, so they line up. **Find on the map** outlines the devices whose name, address or
+type holds every word typed, fades the others, and Enter centres the first one. Hovering
+a device keeps it, what it is linked to and their links lit, and fades the rest.
+
+With a [linked monitor](deployment.md#linking-manager-and-monitor), a device named like a
+monitored host, or with its address, shows the host's state: a coloured bar on its
+left, a dot in its corner, and a count per state at the bottom of the map. The tree and
+by-type views use the same states. Other devices stay neutral, since nothing says they
+are up.
 
 A VPN link whose **From** and **To** are both device names of the map is drawn there as
 a dashed orange line, and exported the same way.
@@ -306,6 +372,22 @@ Tasks can stand alone or sync with Nextcloud: see
 cancelled; a cancelled task gets no reminder. Calendar events only appear in the list.
 A reminder goes out a day before a task is due. Change the delay, and how early ending
 warranties appear on the overview, in **Settings, General, Reminders**.
+
+Type a title in the field above the board and press Enter to add a task at once; open it
+later for the rest. A task can hold a **Checklist** of steps: tick them as you go, and
+its card shows a bar with the steps done. Press Enter in a step to add the next one. The
+steps are kept in the description as a Markdown checklist (`- [ ] step`, `- [x] step`),
+so Nextcloud shows them too and ticks made there come back. Nyx also sends the share of
+steps done to Nextcloud as the task's percent complete.
+
+**Progress**, beside the board, sums up where everything stands:
+
+- the overall share of work done. A closed task counts whole, an open one by its ticked
+  steps, and one in progress without steps counts half. Cancelled tasks and calendar
+  events do not count.
+- tasks done out of the total, those in progress and those late
+- one bar per tag, so a tag such as `rack-2026` reads as a project
+- deployments that succeeded out of all of them, with those running or failed
 
 ## Boards and lists
 

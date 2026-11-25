@@ -1,7 +1,9 @@
-import { ArrowPathIcon, ArrowsRightLeftIcon, PencilSquareIcon, TrashIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
+import { ArrowPathIcon, ArrowsRightLeftIcon, Bars4Icon, PencilSquareIcon, PowerIcon, TrashIcon, XMarkIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Select, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
+import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Progress, Select, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
+import { t } from "../ui/i18n"
+import { type Item, joinChecklist, ProgressSummary, splitChecklist } from "./progress"
 import { type Col, CrudPage, Editor, EditorGroup, RecordForm, RecordPage } from "../ui/crud"
 import { api, fmt, type Level, levelText, sortRows, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../ui/shell"
@@ -9,10 +11,10 @@ import { deployLevel } from "./overview"
 import { parseTags, type WorkItem, WorkView } from "./work"
 
 const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
-const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, Printer: PrinterIcon, Other: CubeIcon }
+const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, "Patch panel": Bars4Icon, PDU: PowerIcon, Printer: PrinterIcon, Other: CubeIcon }
 const categoryCell = (h: any) => {
   const I = CATEGORIES[h.category]
-  return h.category ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{h.category}</span> : "—"
+  return h.category ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{t(h.category)}</span> : "—"
 }
 
 // Which details each category has. Plain text, so that "32 GB DDR4 ECC" fits as typed.
@@ -54,16 +56,33 @@ const HARDWARE: Col[] = [
   { key: "warranty_until", label: "Warranty until", type: "date", render: (h) => { const w = warranty(h.warranty_until); return w ? <span className={levelText[w.level]}>{w.label}</span> : "—" } },
 ]
 const HW_DEFAULTS = { category: "Server", status: "In service" }
-export const Hardware = () => <CrudPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+
+/** The hardware fields, with where the device sits among the racks of the Racks page. */
+function useHardwareCols() {
+  const { data } = useApi("/api/c/racks?sort=name&perPage=200", { poll: false })
+  const racks: any[] = data?.items ?? []
+  const where = (h: any) => { const r = racks.find((x) => x.id === h.rack); return r ? `${r.name}${h.rack_u ? ` · U${h.rack_u}` : ""}` : "" }
+  const cols = HARDWARE.flatMap((c): Col[] => c.key !== "location" ? [c] : [c,
+    { key: "rack", label: "Rack", type: "select", choices: racks.map((x) => ({ value: x.id, label: x.name })), render: (h) => where(h) || "—", hint: "Drag it into place on the Racks page." },
+    { key: "rack_u", label: "Position (U)", type: "number", formOnly: true, hint: "The lowest unit it fills, 1 at the bottom." },
+    { key: "rack_units", label: "Height (U)", type: "number", formOnly: true },
+  ])
+  return { cols, where }
+}
+
+export function Hardware() {
+  const { cols } = useHardwareCols()
+  return <CrudPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+}
 
 /** What the warranty of a device says today: gone, ending within 60 days, or running. */
 export function warranty(until: string | undefined, now = Date.now()): { level: Level; label: string } | null {
   const end = until ? Date.parse(until.slice(0, 10)) : NaN
   if (Number.isNaN(end)) return null
   const days = Math.ceil((end - now) / 86_400_000)
-  if (days < 0) return { level: "crit", label: "Expired" }
-  if (days <= 60) return { level: "warn", label: days === 0 ? "Ends today" : `Ends in ${days} days` }
-  return { level: "ok", label: `Until ${fmt.date(until)}` }
+  if (days < 0) return { level: "crit", label: t("Expired") }
+  if (days <= 60) return { level: "warn", label: days === 0 ? t("Ends today") : t("Ends in {n} days", { n: days }) }
+  return { level: "ok", label: t("Until {date}", { date: fmt.date(until) }) }
 }
 
 const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -73,7 +92,7 @@ function LinkedAddresses({ device }: { device: string }) {
   const { data } = useApi("/api/c/ip_addresses?perPage=500", { poll: false })
   const rows = (data?.items ?? []).filter((a: any) => same(a.device, device) || same(a.hostname, device))
   return (
-    <Panel title="Network addresses" actions={[{ label: "Open IPAM", onClick: () => navigate("/ipam") }]}>
+    <Panel title={t("Network addresses")} actions={[{ label: "Open IPAM", onClick: () => navigate("/ipam") }]}>
       {rows.length ? (
         <ul className="divide-y divide-line">{rows.map((a: any) => <li key={a.id} className="flex justify-between gap-3 py-1.5"><Mono>{a.address}</Mono><span className="truncate text-fg3">{a.hostname || a.kind || ""}</span></li>)}</ul>
       ) : <Empty>{device ? "No address in the IPAM names this device." : "Name the device to find its addresses."}</Empty>}
@@ -81,12 +100,12 @@ function LinkedAddresses({ device }: { device: string }) {
   )
 }
 
-function HardwareAside(form: any) {
+function HardwareAside(form: any, rack: string) {
   const I = CATEGORIES[form.category] ?? CubeIcon
   const w = warranty(form.warranty_until)
   const age = form.purchased_at ? Math.floor((Date.now() - Date.parse(form.purchased_at)) / (365.25 * 86_400_000)) : null
   return <>
-    <Panel title="Summary">
+    <Panel title={t("Summary")}>
       <div className="flex items-center gap-4">
         <span className="flex size-14 shrink-0 items-center justify-center rounded-panel bg-raised text-fg2"><I className="size-8" aria-hidden /></span>
         <div className="min-w-0">
@@ -95,11 +114,12 @@ function HardwareAside(form: any) {
         </div>
       </div>
       <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
-        <dt className="text-fg2">Status</dt><dd>{form.status ? <Status cell level={STATUS_LEVEL[form.status] ?? "off"} label={form.status} /> : "—"}</dd>
-        <dt className="text-fg2">Warranty</dt><dd className={w ? levelText[w.level] : "text-fg3"}>{w?.label ?? "Not set"}</dd>
-        <dt className="text-fg2">Age</dt><dd>{age == null || Number.isNaN(age) ? "—" : age < 1 ? "Under a year" : `${age} ${age > 1 ? "years" : "year"}`}</dd>
-        <dt className="text-fg2">Location</dt><dd className="truncate">{form.location || "—"}</dd>
-        {form.mgmt_ip && <><dt className="text-fg2">Management</dt><dd><a className="font-mono text-accent" href={/^https?:\/\//.test(form.mgmt_ip) ? form.mgmt_ip : `https://${form.mgmt_ip}`} target="_blank" rel="noreferrer noopener">{form.mgmt_ip}</a></dd></>}
+        <dt className="text-fg2">{t("Status")}</dt><dd>{form.status ? <Status cell level={STATUS_LEVEL[form.status] ?? "off"} label={form.status} /> : "—"}</dd>
+        <dt className="text-fg2">{t("Warranty")}</dt><dd className={w ? levelText[w.level] : "text-fg3"}>{w?.label ?? "Not set"}</dd>
+        <dt className="text-fg2">{t("Age")}</dt><dd>{age == null || Number.isNaN(age) ? "—" : age < 1 ? t("Under a year") : t(age > 1 ? "{n} years" : "{n} year", { n: age })}</dd>
+        <dt className="text-fg2">{t("Location")}</dt><dd className="truncate">{form.location || "—"}</dd>
+        <dt className="text-fg2">{t("Rack")}</dt><dd className="truncate">{rack ? <Link to="/racks" className="text-accent">{rack}</Link> : "—"}</dd>
+        {form.mgmt_ip && <><dt className="text-fg2">{t("Management")}</dt><dd><a className="font-mono text-accent" href={/^https?:\/\//.test(form.mgmt_ip) ? form.mgmt_ip : `https://${form.mgmt_ip}`} target="_blank" rel="noreferrer noopener">{form.mgmt_ip}</a></dd></>}
       </dl>
     </Panel>
   </>
@@ -110,9 +130,9 @@ function RunsHere({ host }: { host: string }) {
   const { data } = useApi("/api/c/virtual_assets?perPage=500", { poll: false })
   const rows = (data?.items ?? []).filter((a: any) => same(a.parent, host))
   return (
-    <Panel title={`Runs here (${rows.length})`}>
+    <Panel title={t("Runs here ({n})", { n: rows.length })}>
       {rows.length ? <ul className="divide-y divide-line">{rows.map((a: any) => <li key={a.id} className="flex justify-between gap-3 py-1.5"><Link to={`/virtual/${a.id}`} className="truncate hover:text-accent">{a.name}</Link><span className="text-fg3">{a.type}</span></li>)}</ul>
-        : <Empty>No virtual asset names this device under Runs on.</Empty>}
+        : <Empty>{t("No virtual asset names this device under Runs on.")}</Empty>}
     </Panel>
   )
 }
@@ -147,13 +167,13 @@ function Ports({ device, onChange }: { device: any; onChange: () => void }) {
     changed()
   }
   const changed = () => { ports.reload(); onChange() }
-  const remove = async (p: any) => { if (await ask(`Delete port ${p.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/ports/${p.id}`, { method: "DELETE" }); changed() } }
+  const remove = async (p: any) => { if (await ask(t("Delete port {name}?", { name: p.name }), { action: "Delete", danger: true })) { await api(`/api/c/ports/${p.id}`, { method: "DELETE" }); changed() } }
   return <>
-    {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit && { ...edit, peer: peerOf(edit, all)?.id ?? "" }} collection="ports" title={edit ? `Edit port ${edit.name}` : "Add port"}
+    {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit && { ...edit, peer: peerOf(edit, all)?.id ?? "" }} collection="ports" title={edit ? t("Edit port {name}", { name: edit.name }) : "Add port"}
       defaults={{ device: device.id }} rows={all} onSaved={tidy} onDone={() => { setEdit(undefined); changed() }} />}
     <Panel title={`${mine.length} ${mine.length === 1 ? "port" : "ports"}`} flush actions={[{ label: "Add port", onClick: () => setEdit(null) }]}>
       <ErrorNote>{ports.error}</ErrorNote>
-      {mine.length === 0 ? <div className="px-4 pb-4"><Empty>No port yet. Add them to cable this device to others; cables show on the network map.</Empty></div> : (
+      {mine.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No port yet. Add them to cable this device to others; cables show on the network map.")}</Empty></div> : (
         <Table head={["Port", "Speed", "MAC", "VLAN", "Cabled to", ""]}>
           {mine.map((p) => {
             const q = peerOf(p, all)
@@ -163,10 +183,10 @@ function Ports({ device, onChange }: { device: any; onChange: () => void }) {
                 <Td className="text-fg2">{p.speed || "—"}</Td>
                 <Td mono>{p.mac || "—"}</Td>
                 <Td className="text-fg2">{p.vlan || "—"}</Td>
-                <Td>{q ? <Link className="text-accent" to={`/hardware/${q.device}#${encodeURIComponent(PORT_TAB)}`}>{deviceName(q.device)} · {q.name}</Link> : <span className="text-fg3">Not cabled</span>}</Td>
+                <Td>{q ? <Link className="text-accent" to={`/hardware/${q.device}#${encodeURIComponent(PORT_TAB)}`}>{deviceName(q.device)} · {q.name}</Link> : <span className="text-fg3">{t("Not cabled")}</span>}</Td>
                 <Td className="w-24 whitespace-nowrap text-right">
-                  <IconButton label={`Edit port ${p.name}`} icon={PencilSquareIcon} onClick={() => setEdit(p)} />
-                  <IconButton label={`Delete port ${p.name}`} icon={TrashIcon} onClick={() => remove(p)} />
+                  <IconButton label={t("Edit port {name}", { name: p.name })} icon={PencilSquareIcon} onClick={() => setEdit(p)} />
+                  <IconButton label={t("Delete port {name}", { name: p.name })} icon={TrashIcon} onClick={() => remove(p)} />
                 </Td>
               </tr>
             )
@@ -183,7 +203,8 @@ export function HardwareRecord({ id }: { id: string }) {
     { id: PORT_TAB, label: PORT_TAB, count: ports.data?.totalItems, render: (_: any, row: any) => <Ports device={row} onChange={ports.reload} /> },
     { id: "Links", label: "Links", render: (form: any) => <><LinkedAddresses device={form.name} /><RunsHere host={form.name} /></> },
   ]
-  return <RecordPage title="Hardware" singular="hardware" collection="hardware" cols={HARDWARE} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={HardwareAside} tabs={tabs} history />
+  const { cols, where } = useHardwareCols()
+  return <RecordPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={(form) => HardwareAside(form, where(form))} tabs={tabs} history />
 }
 
 function consoleUrl(pve: string, a: any) {
@@ -211,8 +232,8 @@ const VIRTUAL: Col[] = [
 
 export function Virtual() {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const cols: Col[] = [...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>Console</a> : "—" } }]
-  return <CrudPage title="Virtual" singular="asset" collection="virtual_assets" cols={cols} path="/virtual" facet="type" defaults={{ type: "vm" }} />
+  const cols: Col[] = [...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>{t("Console")}</a> : "—" } }]
+  return <CrudPage title={t("Virtual")} singular="asset" collection="virtual_assets" cols={cols} path="/virtual" facet="type" defaults={{ type: "vm" }} />
 }
 
 export function VirtualRecord({ id }: { id: string }) {
@@ -223,18 +244,18 @@ export function VirtualRecord({ id }: { id: string }) {
     const host = devices.data?.items.find((h: any) => same(h.name, form.parent))
     const hw = form.parent && <Link to={host ? `/hardware/${host.id}` : `/search?q=${encodeURIComponent(form.parent)}`} className="text-accent">{form.parent}</Link>
     return <>
-      <Panel title="Summary">
+      <Panel title={t("Summary")}>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
-          <dt className="text-fg2">Runs on</dt><dd className="truncate">{hw || "—"}</dd>
-          <dt className="text-fg2">Resources</dt><dd>{[form.vcpu && `${form.vcpu} vCPU`, form.ram_mb && `${form.ram_mb} MB`, form.disk_gb && `${form.disk_gb} GB`].filter(Boolean).join(" · ") || "—"}</dd>
-          <dt className="text-fg2">Address</dt><dd className="font-mono">{form.ip || "—"}</dd>
+          <dt className="text-fg2">{t("Runs on")}</dt><dd className="truncate">{hw || "—"}</dd>
+          <dt className="text-fg2">{t("Resources")}</dt><dd>{[form.vcpu && `${form.vcpu} vCPU`, form.ram_mb && `${form.ram_mb} MB`, form.disk_gb && `${form.disk_gb} GB`].filter(Boolean).join(" · ") || "—"}</dd>
+          <dt className="text-fg2">{t("Address")}</dt><dd className="font-mono">{form.ip || "—"}</dd>
         </dl>
-        {url && <a href={url} target="_blank" rel="noreferrer" className="mt-4 inline-block"><Button><CommandLineIcon className="size-5" aria-hidden />Console</Button></a>}
+        {url && <a href={url} target="_blank" rel="noreferrer" className="mt-4 inline-block"><Button><CommandLineIcon className="size-5" aria-hidden />{t("Console")}</Button></a>}
       </Panel>
     </>
   }
   const tabs = [{ id: "Links", label: "Links", render: (form: any) => <LinkedAddresses device={form.name} /> }]
-  return <RecordPage title="Virtual" singular="asset" collection="virtual_assets" cols={VIRTUAL} path="/virtual" id={id} defaults={{ type: "vm" }} aside={aside} tabs={tabs} history />
+  return <RecordPage title={t("Virtual")} singular="asset" collection="virtual_assets" cols={VIRTUAL} path="/virtual" id={id} defaults={{ type: "vm" }} aside={aside} tabs={tabs} history />
 }
 
 const DEPLOYMENTS: Col[] = [
@@ -266,9 +287,9 @@ export function Deployments() {
   }))
   return (
     <>
-      <PageHeader title="Deployments" onRefresh={reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add deployment</Button>} />
-      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? `Edit ${edit.name}` : "Add deployment"} defaults={{ status: "planned" }} />}
-      <Panel title="Deployments">
+      <PageHeader title={t("Deployments")} onRefresh={reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add deployment")}</Button>} />
+      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? t("Edit {name}", { name: edit.name }) : "Add deployment"} defaults={{ status: "planned" }} />}
+      <Panel title={t("Deployments")}>
         <ErrorNote>{error}</ErrorNote>
         <WorkView id="deployments" states={DEPLOY_STATES} items={items} empty="No deployments yet." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "Target", value: (w) => w.row.target }, { label: "Version", value: (w) => w.row.version }]} />
       </Panel>
@@ -280,23 +301,43 @@ const TASK_STATES = [{ id: "todo", label: "To do", level: "off" as const }, { id
 const taskState = (t: any) => t.status || (t.done ? "done" : "todo")
 
 function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
-  const [f, setF] = useState({ title: row?.title ?? "", description: row?.description ?? "", due: row?.due?.slice(0, 10) ?? "", status: row ? taskState(row) : "todo", tags: row?.tags?.replaceAll(",", ", ") ?? "" })
+  const split = splitChecklist(row?.description)
+  const [f, setF] = useState({ title: row?.title ?? "", notes: split.notes, due: row?.due?.slice(0, 10) ?? "", status: row ? taskState(row) : "todo", tags: row?.tags?.replaceAll(",", ", ") ?? "" })
+  const [items, setItems] = useState<Item[]>(split.items)
   const [error, setError] = useState("")
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
-    const body = { ...f, due: f.due ? `${f.due} 00:00:00.000Z` : "" }
+    const { notes, ...rest } = f
+    const body = { ...rest, description: joinChecklist(notes, items), due: f.due ? `${f.due} 00:00:00.000Z` : "" }
     try { await api(row ? `/api/tasks/${row.id}` : "/api/tasks", { method: row ? "PATCH" : "POST", body }); onDone() } catch (err) { setError((err as Error).message) }
   }
+  const setItem = (i: number, patch: Partial<Item>) => setItems(items.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  const done = items.filter((i) => i.done && i.text.trim()).length, total = items.filter((i) => i.text.trim()).length
   return (
-    <Editor title={row ? `Edit ${row.title}` : "Add task"} onCancel={onDone} onSubmit={save} error={error}>
-      <EditorGroup title="Task">
+    <Editor title={row ? t("Edit {name}", { name: row.title }) : "Add task"} onCancel={onDone} onSubmit={save} error={error}>
+      <EditorGroup title={t("Task")}>
         <div className="col-span-full"><Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-        <div className="col-span-full"><TextArea label="Description" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
-      </EditorGroup>
-      <EditorGroup title="Planning">
         <Select label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} options={TASK_STATES.map((s) => ({ value: s.id, label: s.label }))} />
         <Input label="Due date" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
-        <div className="col-span-full"><Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} hint="Separated by commas. They sync with Nextcloud as categories." /></div>
+        <div className="col-span-full"><Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} hint="Separated by commas. They sync with Nextcloud as categories, and the progress is shown per tag." /></div>
+      </EditorGroup>
+      <EditorGroup title={t("Checklist")}>
+        <div className="col-span-full flex flex-col gap-2">
+          {total > 0 && <div className="flex items-center gap-3 text-[13px] text-fg2"><div className="flex-1"><Progress thin pct={Math.round((done / total) * 100)} label={t("Checklist")} /></div>{done}/{total}</div>}
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input type="checkbox" aria-label={t("Done")} checked={it.done} onChange={(e) => setItem(i, { done: e.target.checked })} className="size-5 shrink-0 accent-[var(--color-accent)]" />
+              <input aria-label={t("Step {n}", { n: i + 1 })} value={it.text} onChange={(e) => setItem(i, { text: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setItems([...items.slice(0, i + 1), { text: "", done: false }, ...items.slice(i + 1)]) } }}
+                className={`field h-9 max-sm:h-11 flex-1 rounded-control border border-line2 bg-raised px-3 ${it.done ? "text-fg3 line-through" : "text-fg"}`} />
+              <IconButton label="Remove" icon={XMarkIcon} onClick={() => setItems(items.filter((_, j) => j !== i))} />
+            </div>
+          ))}
+          <div><Button onClick={() => setItems([...items, { text: "", done: false }])}><PlusIcon className="size-5" aria-hidden />{t("Add a step")}</Button></div>
+          <p className="text-xs text-fg3">{t("Steps are saved in the description as a Markdown checklist, so Nextcloud shows them too.")}</p>
+        </div>
+      </EditorGroup>
+      <EditorGroup title={t("Notes")}>
+        <div className="col-span-full"><TextArea label="Description" rows={4} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
       </EditorGroup>
     </Editor>
   )
@@ -306,33 +347,41 @@ export function Tasks() {
   const { data, reload, error } = useApi<any[]>("/api/tasks")
   const [edit, setEdit] = useState<any | null | undefined>()
   const [note, setNote] = useState("")
+  const [quick, setQuick] = useState("")
   const done = () => { setEdit(undefined); reload() }
-  const move = async (t: any, status: string) => { await api(`/api/tasks/${t.id}`, { method: "PATCH", body: { ...t, status } }); reload() }
-  const remove = async (t: any) => { if (await ask(`Delete ${t.title}?`, { action: "Delete", danger: true })) { await api(`/api/tasks/${t.id}`, { method: "DELETE" }); reload() } }
-  const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote("Synced."); reload() } catch (e) { setNote((e as Error).message) } }
-  const open = data?.filter((t) => !t.done).length ?? 0
-  const items: WorkItem[] = (data ?? []).map((t) => ({
-    id: t.id, title: t.title, state: taskState(t), tags: parseTags(t.tags), due: t.due, open: !t.done, readOnly: t.kind === "event", row: t,
-    detail: t.kind === "event" ? "Calendar" : t.uid ? "Nextcloud" : "",
-  }))
-  const panels = [
-    { id: "open", title: "Open", render: (edit: any) => <Panel title="Open" edit={edit}><Stat label="Tasks" value={open} /></Panel> },
-    { id: "tasks", title: "Tasks and events", render: (edit: any) => (
-        <Panel title="Tasks and events" edit={edit}>
-          <ErrorNote>{error}</ErrorNote>
-          <WorkView id="tasks" states={TASK_STATES} items={items} empty="No tasks. Add one, or link Nextcloud in Settings to sync them." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "From", value: (w) => w.detail || "Nyx" }]} />
-        </Panel>
-    ) },
-  ]
+  const move = async (task: any, status: string) => { await api(`/api/tasks/${task.id}`, { method: "PATCH", body: { ...task, status } }); reload() }
+  const remove = async (task: any) => { if (await ask(t("Delete {name}?", { name: task.title }), { action: "Delete", danger: true })) { await api(`/api/tasks/${task.id}`, { method: "DELETE" }); reload() } }
+  const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote(t("Synced.")); reload() } catch (e) { setNote((e as Error).message) } }
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!quick.trim()) return
+    try { await api("/api/tasks", { body: { title: quick.trim(), status: "todo", description: "", due: "", tags: "" } }); setQuick(""); reload() } catch (err) { setNote((err as Error).message) }
+  }
+  const items: WorkItem[] = (data ?? []).map((task) => {
+    const list = splitChecklist(task.description).items
+    return {
+      id: task.id, title: task.title, state: taskState(task), tags: parseTags(task.tags), due: task.due, open: !task.done, readOnly: task.kind === "event", row: task,
+      detail: task.kind === "event" ? t("Calendar") : task.uid ? "Nextcloud" : "", checklist: { done: list.filter((i) => i.done).length, total: list.length },
+    }
+  })
   return (
     <>
-      <PageHeader title="Tasks" subtitle={note} actions={<>
-        <CustomizeButton />
-        <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />Sync</Button>
-        <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add task</Button>
+      <PageHeader title={t("Tasks")} subtitle={note} actions={<>
+        <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />{t("Sync")}</Button>
+        <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add task")}</Button>
       </>} />
       {edit !== undefined && <TaskForm key={edit?.id ?? "new"} row={edit} onDone={done} />}
-      <Board id="tasks" panels={panels} desktop={{ cols: [["open", "tasks"]], hidden: [] }} phone={{ cols: [["open", "tasks"]], hidden: [] }} />
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] items-start gap-4 max-lg:grid-cols-1">
+        <Panel title={t("Tasks and events")}>
+          <ErrorNote>{error}</ErrorNote>
+          <form onSubmit={add} className="mb-4 flex gap-2">
+            <input aria-label={t("New task")} placeholder={t("Add a task and press Enter…")} value={quick} onChange={(e) => setQuick(e.target.value)} className="field h-9 max-sm:h-11 flex-1 rounded-control border border-line2 bg-raised px-4 placeholder:text-fg3 max-sm:text-base" />
+            <Button type="submit" disabled={!quick.trim()}>{t("Add")}</Button>
+          </form>
+          <WorkView id="tasks" states={TASK_STATES} items={items} empty="No tasks. Add one, or link Nextcloud in Settings to sync them." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "From", value: (w) => w.detail || "Nyx" }]} />
+        </Panel>
+        <Panel title={t("Progress")}><ProgressSummary /></Panel>
+      </div>
     </>
   )
 }
@@ -358,7 +407,7 @@ export function Vpn() {
   const tracked = (host: string, v: any) => known.data?.items.some((l: any) => l.side_a === host && l.kind === v.kind)
   const seen = (monitor.data ?? []).flatMap((h) => (h.vpn ?? []).map((v: any) => ({ ...v, host: h.name, hostId: h.id })))
   const detected = (
-    <Panel title="Detected on your hosts" flush>
+    <Panel title={t("Detected on your hosts")} flush>
       {seen.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No agent reports a tunnel." : "Link a monitor in Settings to detect VPN tunnels."}</Empty></div> : (
         <Table head={["Host", "Interface", "Type", "Address", "State", ""]}>
           {seen.map((v) => (
@@ -368,7 +417,7 @@ export function Vpn() {
               <Td className="text-fg2">{v.kind}</Td>
               <Td mono>{v.ip || "—"}</Td>
               <Td><Status level={v.up ? "ok" : "crit"} label={v.up ? "Up" : "Down"} /></Td>
-              <Td className="text-right">{tracked(v.host, v) ? <span className="text-fg3">Tracked</span> : <Button variant="ghost" onClick={() => setTrack({ name: `${v.host} ${v.kind}`, kind: v.kind, side_a: v.host, status: "Active" })}>Track</Button>}</Td>
+              <Td className="text-right">{tracked(v.host, v) ? <span className="text-fg3">{t("Tracked")}</span> : <Button variant="ghost" onClick={() => setTrack({ name: `${v.host} ${v.kind}`, kind: v.kind, side_a: v.host, status: "Active" })}>{t("Track")}</Button>}</Td>
             </tr>
           ))}
         </Table>
@@ -377,8 +426,8 @@ export function Vpn() {
   )
   return (
     <>
-      <CrudPage key={version} title="VPN links" singular="VPN link" collection="vpn_links" cols={VPN} defaults={{ status: "Active" }} onChanged={known.reload} extra={<>
-        {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title="Track VPN link" defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
+      <CrudPage key={version} title={t("VPN links")} singular="VPN link" collection="vpn_links" cols={VPN} defaults={{ status: "Active" }} onChanged={known.reload} extra={<>
+        {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title={t("Track VPN link")} defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
         {detected}
       </>} />
     </>
@@ -407,11 +456,11 @@ export function SearchPage() {
   const n = q.trim().toLowerCase()
   return (
     <>
-      <PageHeader title="Search" />
+      <PageHeader title={t("Search")} />
       <Section>
         <Input label="Search" autoFocus value={q} onChange={(e) => setQ(e.target.value)} />
-        <Panel title="Results">
-          {n ? <ul className="flex flex-col gap-2">{SEARCHED.map((s) => <Hits key={s.coll} q={n} {...s} />)}</ul> : <Empty>Type a name, address, serial number or repository.</Empty>}
+        <Panel title={t("Results")}>
+          {n ? <ul className="flex flex-col gap-2">{SEARCHED.map((s) => <Hits key={s.coll} q={n} {...s} />)}</ul> : <Empty>{t("Type a name, address, serial number or repository.")}</Empty>}
         </Panel>
       </Section>
     </>

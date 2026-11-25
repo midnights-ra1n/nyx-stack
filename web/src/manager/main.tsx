@@ -1,11 +1,13 @@
 import "../ui/tokens.css"
-import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, ServerStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { t } from "../ui/i18n"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
 import { Deployments, Hardware, HardwareRecord, SearchPage, Tasks, Virtual, VirtualRecord, Vpn } from "./inventory"
 import { Ipam, SubnetPage } from "./ipam"
 import { NetworkMap } from "./map"
 import { Overview } from "./overview"
+import { Racks } from "./racks"
 import { Settings } from "./settings"
 import { Sites } from "./sites"
 
@@ -13,6 +15,7 @@ function route(path: string) {
   if (path === "/") return <Overview />
   if (path === "/hardware") return <Hardware />
   if (path.startsWith("/hardware/")) return <HardwareRecord key={path} id={path.slice(10)} />
+  if (path === "/racks") return <Racks />
   if (path === "/virtual") return <Virtual />
   if (path.startsWith("/virtual/")) return <VirtualRecord key={path} id={path.slice(9)} />
   if (path === "/ipam") return <Ipam />
@@ -24,7 +27,7 @@ function route(path: string) {
   if (path === "/tasks") return <Tasks />
   if (path === "/settings") return <Settings />
   if (path === "/search") return <SearchPage />
-  return <p className="text-fg2">Page not found.</p>
+  return <p className="text-fg2">{t("Page not found.")}</p>
 }
 
 function useNav(): NavConfig {
@@ -35,9 +38,11 @@ function useNav(): NavConfig {
     role: "Manager",
     tabs: ["/", "/hardware", "/ipam", "/tasks"],
     groups: [
-      { label: "Inventory", items: [
+      // GLPI's menus: the assets, the network they sit on, then the work done on them.
+      { label: "Assets", items: [
         { to: "/", label: "Overview", icon: Squares2X2Icon },
         { to: "/hardware", label: "Hardware", icon: ServerIcon },
+        { to: "/racks", label: "Racks", icon: ServerStackIcon },
         { to: "/virtual", label: "Virtual", icon: RectangleStackIcon },
       ] },
       { label: "Network", items: [
@@ -45,16 +50,16 @@ function useNav(): NavConfig {
         { to: "/map", label: "Network map", icon: MapIcon },
         { to: "/vpn", label: "VPN links", icon: LockClosedIcon },
       ] },
-      { label: "Operations", items: [
+      { label: "Management", items: [
+        { to: "/tasks", label: "Tasks", icon: CalendarDaysIcon, badge: data?.open_tasks },
         { to: "/deployments", label: "Deployments", icon: RocketLaunchIcon },
         { to: "/sites", label: "Node.js sites", icon: CodeBracketIcon },
-        { to: "/tasks", label: "Tasks", icon: CalendarDaysIcon, badge: data?.open_tasks },
       ] },
     ],
     footer: data && (
       <div className={`flex items-center gap-2 text-xs ${conflicts ? "text-warn" : "text-fg3"}`}>
         {conflicts > 0 ? <ExclamationTriangleIcon className="size-4" aria-hidden /> : <CpuChipIcon className="size-4" aria-hidden />}
-        {conflicts ? `${conflicts} addressing ${conflicts > 1 ? "conflicts" : "conflict"}` : data.linked ? "Linked to monitoring" : "Standalone"}
+        {conflicts ? t(conflicts > 1 ? "{n} addressing conflicts" : "{n} addressing conflict", { n: conflicts }) : t(data.linked ? "Linked to monitoring" : "Standalone")}
       </div>
     ),
   }

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Button, Input, Select, TextArea, ask, tell } from "../ui/components"
+import { t } from "../ui/i18n"
 
 type RepoFile = { path: string; content: string }
 type Send = (body: any, msg: string) => void
@@ -79,19 +80,19 @@ export function ReposPanel({ files, send }: { files: RepoFile[]; send: Send }) {
       {current && (
         <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); applyMirror() }}>
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <Input label="Debian mirror" value={mirror} onChange={(e) => setMirrorText(e.target.value)} placeholder="deb.debian.org/debian" hint="Server and path, such as ftp.fr.debian.org/debian. Security sources keep their server and take the protocol." />
+            <Input label="Debian mirror" value={mirror} onChange={(e) => setMirrorText(e.target.value)} placeholder={t("deb.debian.org/debian")} hint="Server and path, such as ftp.fr.debian.org/debian. Security sources keep their server and take the protocol." />
             <Select label="Protocol" value={scheme} onChange={(e) => setScheme(e.target.value)} options={[{ value: "https", label: "HTTPS" }, { value: "http", label: "HTTP" }]} />
           </div>
-          <div><Button type="submit" disabled={!mirror.trim()}>Apply to Debian sources</Button></div>
+          <div><Button type="submit" disabled={!mirror.trim()}>{t("Apply to Debian sources")}</Button></div>
         </form>
       )}
       <div className="flex flex-col gap-3">
         <Select label="Source file" value={path} onChange={(e) => pick(e.target.value)} options={[...files.map((f) => f.path), { value: NEW, label: "New file…" }]} />
-        {path === NEW && <Input label="File name" value={name} onChange={(e) => setName(e.target.value)} placeholder={dir.includes("yum") ? "example.repo" : "example.list or example.sources"} hint={`Created in ${dir}. A signing key it names must already be on the host.`} />}
+        {path === NEW && <Input label="File name" value={name} onChange={(e) => setName(e.target.value)} placeholder={dir.includes("yum") ? "example.repo" : "example.list or example.sources"} hint={t("Created in {dir}. A signing key it names must already be on the host.", { dir })} />}
         <TextArea label="Content" value={text} onChange={(e) => setText(e.target.value)} rows={10} spellCheck={false} hint="Saved, then the package index is refreshed. If the refresh fails, every file is put back as it was." />
         <div className="flex flex-wrap gap-3">
-          <Button variant="primary" onClick={save} disabled={!text.trim() || (path === NEW && !name.trim()) || text === file?.content}>Save</Button>
-          {file && <Button variant="danger" onClick={async () => { if (await ask(`Delete ${file.path}?`, { action: "Delete", danger: true })) send({ action: "repos", files: [{ path: file.path, content: "" }] }, "Deletion requested.") }}>Delete file</Button>}
+          <Button variant="primary" onClick={save} disabled={!text.trim() || (path === NEW && !name.trim()) || text === file?.content}>{t("Save")}</Button>
+          {file && <Button variant="danger" onClick={async () => { if (await ask(`Delete ${file.path}?`, { action: "Delete", danger: true })) send({ action: "repos", files: [{ path: file.path, content: "" }] }, "Deletion requested.") }}>{t("Delete file")}</Button>}
         </div>
       </div>
     </div>

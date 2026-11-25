@@ -10,6 +10,7 @@ import { StoragePanel } from "./storage-tree"
 import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
 import { NextDnsPanel } from "../ui/nextdns"
+import { t } from "../ui/i18n"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
@@ -51,8 +52,8 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
 function Probes({ edit }: { edit: any }) {
   const { data } = useApi<any[]>("/api/probes")
   return (
-    <Panel title="Probes" edit={edit} actions={[{ label: "Network", onClick: () => navigate("/network") }]}>
-      {data?.length ? <ul className="divide-y divide-line">{data.map((p) => <li key={p.id} className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 truncate">{p.name}</span><Status cell level={p.up == null ? "off" : p.up ? "ok" : "crit"} label={p.up ? `${p.latency_ms.toFixed(0)} ms` : p.up == null ? "Pending" : "Down"} /></li>)}</ul> : <Empty>No probes yet.</Empty>}
+    <Panel title={t("Probes")} edit={edit} actions={[{ label: "Network", onClick: () => navigate("/network") }]}>
+      {data?.length ? <ul className="divide-y divide-line">{data.map((p) => <li key={p.id} className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 truncate">{p.name}</span><Status cell level={p.up == null ? "off" : p.up ? "ok" : "crit"} label={p.up ? `${p.latency_ms.toFixed(0)} ms` : p.up == null ? "Pending" : "Down"} /></li>)}</ul> : <Empty>{t("No probes yet.")}</Empty>}
     </Panel>
   )
 }
@@ -60,7 +61,7 @@ function Probes({ edit }: { edit: any }) {
 function PipelinesPanel({ edit }: { edit: any }) {
   const { data } = useApi<any[]>("/api/pipelines")
   return (
-    <Panel title="Pipelines" edit={edit} actions={[{ label: "Pipelines", onClick: () => navigate("/pipelines") }]}>
+    <Panel title={t("Pipelines")} edit={edit} actions={[{ label: "Pipelines", onClick: () => navigate("/pipelines") }]}>
       <PipelineList rows={data ?? []} />
     </Panel>
   )
@@ -70,8 +71,8 @@ function StoppedContainers({ edit }: { edit: any }) {
   const { data } = useApi<any[]>("/api/containers")
   const stopped = data?.filter((c) => c.state !== "running") ?? []
   return (
-    <Panel title="Stopped containers" edit={edit} actions={[{ label: "All containers", onClick: () => navigate("/containers") }]}>
-      {stopped.length ? <ul className="divide-y divide-line">{stopped.map((c) => <li key={c.host_id + c.name} className="flex justify-between gap-3 py-2"><Mono>{c.name}</Mono><span className="text-fg3">{c.host}</span></li>)}</ul> : <Empty>Everything is running.</Empty>}
+    <Panel title={t("Stopped containers")} edit={edit} actions={[{ label: "All containers", onClick: () => navigate("/containers") }]}>
+      {stopped.length ? <ul className="divide-y divide-line">{stopped.map((c) => <li key={c.host_id + c.name} className="flex justify-between gap-3 py-2"><Mono>{c.name}</Mono><span className="text-fg3">{c.host}</span></li>)}</ul> : <Empty>{t("Everything is running.")}</Empty>}
     </Panel>
   )
 }
@@ -99,7 +100,7 @@ export function Overview() {
 
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
-      <Panel title="Summary" edit={edit}>
+      <Panel title={t("Summary")} edit={edit}>
         <div className="grid grid-cols-2 gap-x-5 gap-y-5 [&>*:nth-child(even)]:border-l [&>*:nth-child(even)]:border-line [&>*:nth-child(even)]:pl-5">
           <Stat label="Hosts online" value={o ? `${o.hosts_online} / ${o.hosts_total}` : "—"} level={offline ? "warn" : "ok"} sub={`${offline} offline`} />
           <Stat label="Active alerts" value={o?.alerts ?? "—"} level={o?.alerts_crit ? "crit" : o?.alerts ? "warn" : "ok"} sub={`${o?.alerts_crit ?? 0} critical`} />
@@ -109,12 +110,12 @@ export function Overview() {
       </Panel>
     ) },
     { id: "usage", title: "Average usage", render: (edit: any) => (
-      <Panel title="Average usage" edit={edit}>
+      <Panel title={t("Average usage")} edit={edit}>
         <div className="flex justify-around gap-4"><Gauge label="CPU" value={cpu} warn={th.warn} crit={th.crit} /><Gauge label="Memory" value={mem} warn={th.warn} crit={th.crit} /></div>
       </Panel>
     ) },
     { id: "load", title: "Load", render: (edit: any) => (
-      <Panel title={`Load over ${range}`} edit={edit}>
+      <Panel title={t("Load over {range}", { range })} edit={edit}>
         <TimeSeries series={[
           { name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) },
           { name: "Memory", color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) },
@@ -122,25 +123,25 @@ export function Overview() {
       </Panel>
     ) },
     { id: "alerts", title: "Recent alerts", render: (edit: any) => (
-      <Panel title="Recent alerts" edit={edit} actions={[{ label: "All alerts", onClick: () => navigate("/alerts") }]}>
+      <Panel title={t("Recent alerts")} edit={edit} actions={[{ label: "All alerts", onClick: () => navigate("/alerts") }]}>
         {alerts.data?.items.length ? (
           <ul className="divide-y divide-line border-t border-line">
             {alerts.data.items.map((a: any) => (
               <li key={a.id} className="flex items-start gap-3 py-3">
                 <Status cell level={sevLevel(a.severity)} label="" />
-                <div><div>{a.message}</div><div className="text-xs text-fg3">{a.severity === "crit" ? "Critical" : "Warning"} · {fmt.ago(a.created)}</div></div>
+                <div><div>{a.message}</div><div className="text-xs text-fg3">{t(a.severity === "crit" ? "Critical" : "Warning")} · {fmt.ago(a.created)}</div></div>
               </li>
             ))}
           </ul>
-        ) : <Empty>No open alerts.</Empty>}
+        ) : <Empty>{t("No open alerts.")}</Empty>}
       </Panel>
     ) },
     { id: "hosts", title: "Hosts", render: (edit: any) => (
-      <Panel title="Hosts" edit={edit} flush actions={[{ label: "All hosts", onClick: () => navigate("/hosts") }]}><HostList hosts={visible} th={th} /></Panel>
+      <Panel title={t("Hosts")} edit={edit} flush actions={[{ label: "All hosts", onClick: () => navigate("/hosts") }]}><HostList hosts={visible} th={th} /></Panel>
     ) },
     { id: "storage", title: "Storage", render: (edit: any) => <StoragePanel edit={edit} hosts={visible} allHosts={hosts.data ?? []} storage={o?.storage ?? []} th={th} /> },
     { id: "power", title: "Power", render: (edit: any) => (
-      <Panel title="Power" edit={edit}>
+      <Panel title={t("Power")} edit={edit}>
         <Stat label="Total draw" value={`${(power.data?.total ?? 0).toFixed(0)} W`} sub={`${power.data?.plugs.length ?? 0} plugs`} />
       </Panel>
     ) },
@@ -152,8 +153,8 @@ export function Overview() {
     { id: "pipelines", title: "Pipelines", render: (edit: any) => <PipelinesPanel edit={edit} /> },
     { id: "containers", title: "Stopped containers", render: (edit: any) => <StoppedContainers edit={edit} /> },
     { id: "updates", title: "Pending updates", render: (edit: any) => (
-      <Panel title="Pending updates" edit={edit}>
-        {pending.length ? <ul className="divide-y divide-line">{pending.map((h) => <li key={h.id} className="flex justify-between gap-3 py-2"><Link to={`/hosts/${h.id}`}>{h.name}</Link><span className="text-fg2">{h.updates}</span></li>)}</ul> : <Empty>Every host is up to date.</Empty>}
+      <Panel title={t("Pending updates")} edit={edit}>
+        {pending.length ? <ul className="divide-y divide-line">{pending.map((h) => <li key={h.id} className="flex justify-between gap-3 py-2"><Link to={`/hosts/${h.id}`}>{h.name}</Link><span className="text-fg2">{h.updates}</span></li>)}</ul> : <Empty>{t("Every host is up to date.")}</Empty>}
       </Panel>
     ) },
   ]
@@ -161,9 +162,9 @@ export function Overview() {
   return (
     <>
       <PageHeader
-        title="Overview"
+        title={t("Overview")}
         crumbs={[{ label: "Dashboards" }, { label: "Homelab" }]}
-        subtitle={`Updated at ${fmt.time(over.updated)}`}
+        subtitle={t("Updated at {v0}", { v0: fmt.time(over.updated) })}
         onRefresh={reload}
         actions={<><CustomizeButton /><RangeSelect value={range} onChange={setRange} /></>}
         variables={<Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />}
@@ -180,8 +181,8 @@ export function Overview() {
 
 function TempoPanel({ tempo, error, edit }: { tempo: any; error?: string; edit: any }) {
   return (
-    <Panel title="EDF Tempo" edit={edit}>
-      {error ? <ErrorNote>{error}</ErrorNote> : !tempo ? <Empty>Loading…</Empty> : !tempo.configured ? <Empty>Add your RTE API keys in Settings.</Empty> : <TempoTiles tempo={tempo} className="auto-rows-[112px]" />}
+    <Panel title={t("EDF Tempo")} edit={edit}>
+      {error ? <ErrorNote>{error}</ErrorNote> : !tempo ? <Empty>{t("Loading…")}</Empty> : !tempo.configured ? <Empty>{t("Add your RTE API keys in Settings.")}</Empty> : <TempoTiles tempo={tempo} className="auto-rows-[112px]" />}
     </Panel>
   )
 }

@@ -54,14 +54,20 @@ interface: Proxmox and physical servers first, with their VMs and containers beh
 them, then the probes. A node takes the colour of its state, and so does its link when
 something is wrong. The hub takes the worst state, a stopped guest counting as a warning.
 
-Three views switch at the top of the map: the **map** itself, a **tree** (each Proxmox host
+Three views switch at the top right of the map: the **map** itself, a **tree** (each Proxmox host
 with its VMs and containers under it) and **by type**, one card per kind of device with the
 worst state in its header. Status pages show the same switch to their visitors; a wall
 display stays on the map.
 
-- Scroll to zoom, and drag the background to move around.
+- Scroll or pinch to zoom, and drag the background to move around. The buttons at the
+  top left zoom in, zoom out, fit the whole map and go full screen; with the map
+  focused, `+`, `-` and `0` do the same. On a status page, the wheel keeps scrolling the
+  page: zoom there with the buttons or two fingers.
+- **Find on the map** outlines the nodes whose name or details hold every word typed
+  and fades the rest; Enter centres the first one.
 - Hover or focus a node for its address, CPU, memory and temperature, or its target and
-  latency for a probe.
+  latency for a probe, shown at the bottom right. Its hosts above it and its guests
+  below it stay lit, with their links, and the rest fades.
 - Click a node, or press Enter on it, to open its page. Guests that are watched from
   Proxmox without a host of their own have no page.
 - Drag a node to place it. Places are saved on the monitor, so every browser sees the

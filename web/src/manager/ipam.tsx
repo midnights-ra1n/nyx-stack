@@ -5,6 +5,7 @@ import { Button, Empty, ErrorNote, IconButton, Input, Meter, Mono, Panel, Stat, 
 import { type Col, CrudPage, RecordForm } from "../ui/crud"
 import { api, fmt, useApi, useStored } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
+import { t } from "../ui/i18n"
 
 export const STATES = ["Active", "Reserved", "DHCP", "Offline"]
 
@@ -100,8 +101,8 @@ const usageCell = (s: any) => (
 
 function Conflicts({ data, edit }: { data: any; edit?: any }) {
   return (
-    <Panel title="Conflicts" edit={edit} badge={data?.conflicts.length ? <Status level="warn" label={String(data.conflicts.length)} /> : undefined}>
-      {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>No conflicts.</Empty>}
+    <Panel title={t("Conflicts")} edit={edit} badge={data?.conflicts.length ? <Status level="warn" label={String(data.conflicts.length)} /> : undefined}>
+      {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>{t("No conflicts.")}</Empty>}
     </Panel>
   )
 }
@@ -117,11 +118,11 @@ function Simulator({ edit }: { edit: any }) {
   }
   const level = result?.status === "reached" ? "ok" : result?.status === "loop" ? "warn" : "crit"
   return (
-    <Panel title="Routing simulation" edit={edit}>
+    <Panel title={t("Routing simulation")} edit={edit}>
       <form className="grid grid-cols-[1fr_1fr_auto] items-end gap-4 max-sm:grid-cols-1" onSubmit={run}>
         <Input label="From device" required value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input label="To address" required value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="10.0.2.20" />
-        <Button type="submit" variant="primary">Trace</Button>
+        <Button type="submit" variant="primary">{t("Trace")}</Button>
       </form>
       <div className="mt-4 flex flex-col gap-3">
         <ErrorNote>{error}</ErrorNote>
@@ -153,10 +154,10 @@ function Calculator({ edit }: { edit: any }) {
     try { setCalc(await api(`/api/ipam/calc?cidr=${encodeURIComponent(cidr)}`)); setError("") } catch (err) { setError((err as Error).message); setCalc(undefined) }
   }
   return (
-    <Panel title="Subnet calculator" edit={edit}>
+    <Panel title={t("Subnet calculator")} edit={edit}>
       <form className="grid grid-cols-[1fr_auto] items-end gap-4" onSubmit={run}>
         <Input label="Prefix" required placeholder="192.168.1.0/24" value={cidr} onChange={(e) => setCidr(e.target.value)} />
-        <Button type="submit">Calculate</Button>
+        <Button type="submit">{t("Calculate")}</Button>
       </form>
       <div className="mt-4"><ErrorNote>{error}</ErrorNote>{calc && <CalcTable calc={calc} />}</div>
     </Panel>
@@ -166,12 +167,12 @@ function Calculator({ edit }: { edit: any }) {
 function Usage({ report, edit }: { report: any; edit: any }) {
   const top = [...(report?.subnets ?? [])].sort((a, b) => b.pct - a.pct).slice(0, 8)
   return (
-    <Panel title="Fullest subnets" flush edit={edit}>
+    <Panel title={t("Fullest subnets")} flush edit={edit}>
       {top.length ? (
         <Table head={["Subnet", "Prefix", "Usage"]}>
           {top.map((s) => <tr key={s.id}><Td className="font-medium"><Link to={`/ipam/subnet/${s.id}`} className="hover:text-accent">{s.name}</Link></Td><Td mono>{s.cidr}</Td><Td>{usageCell(s)}</Td></tr>)}
         </Table>
-      ) : <div className="px-4 pb-4"><Empty>Add a subnet to see its usage.</Empty></div>}
+      ) : <div className="px-4 pb-4"><Empty>{t("Add a subnet to see its usage.")}</Empty></div>}
     </Panel>
   )
 }
@@ -191,11 +192,11 @@ function Subnets({ report, reload, tabs }: { report: any; reload: () => void; ta
   const shown = all.filter((s) => (!section || (s.section || "") === section) && (!n || [s.name, s.cidr, s.description, s.vrf, String(s.vlan || "")].some((v) => v?.toLowerCase().includes(n))))
   const vlanName = (num: number) => vlans.data?.items.find((v: any) => v.number === num)?.name
   const done = () => { setEdit(undefined); reload(); rows.reload() }
-  const remove = async (s: any) => { if (await ask(`Delete ${s.name}? Its addresses stay.`, { action: "Delete", danger: true })) { await api(`/api/c/subnets/${s.id}`, { method: "DELETE" }); done() } }
+  const remove = async (s: any) => { if (await ask(t("Delete {name}? Its addresses stay.", { name: s.name }), { action: "Delete", danger: true })) { await api(`/api/c/subnets/${s.id}`, { method: "DELETE" }); done() } }
   return (
     <>
-      <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<Button variant="primary" disabled={edit === null} onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add subnet</Button>} />
-      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={SUBNET_COLS((vrfs.data?.items ?? []).map((v: any) => v.name))} row={edit} collection="subnets" onDone={done} title={edit ? `Edit ${edit.name}` : "Add subnet"} rows={rows.data?.items} />}
+      <PageHeader title={t("IPAM")} variables={tabs} onRefresh={reload} actions={<Button variant="primary" disabled={edit === null} onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add subnet")}</Button>} />
+      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={SUBNET_COLS((vrfs.data?.items ?? []).map((v: any) => v.name))} row={edit} collection="subnets" onDone={done} title={edit ? t("Edit {name}", { name: edit.name }) : "Add subnet"} rows={rows.data?.items} />}
       <Section>
         {all.length > 0 && (
           <div className="flex flex-wrap items-end gap-3">
@@ -203,7 +204,7 @@ function Subnets({ report, reload, tabs }: { report: any; reload: () => void; ta
             {sections.length > 1 && <Variable label="Section" value={section} onChange={setSection} options={[{ value: "", label: "All" }, ...sections.map((s) => ({ value: s, label: s || "No section" }))]} />}
           </div>
         )}
-        {all.length === 0 && report && <Panel title="Subnets"><Empty>No subnets yet. Add the networks you use, the largest first: smaller ones nest under them.</Empty></Panel>}
+        {all.length === 0 && report && <Panel title={t("Subnets")}><Empty>{t("No subnets yet. Add the networks you use, the largest first: smaller ones nest under them.")}</Empty></Panel>}
         {sections.filter((sec) => shown.some((s) => (s.section || "") === sec)).map((sec) => (
           <Panel key={sec} title={sec || (sections.length > 1 ? "No section" : "Subnets")} flush>
             <Table head={["Subnet", "Prefix", "VLAN", "VRF", "Gateway", "Usage", ""]}>
@@ -238,7 +239,7 @@ function Vlans({ report, tabs }: { report: any; tabs: React.ReactNode }) {
     { key: "description", label: "Description" },
     { key: "subnets", label: "Subnets", listOnly: true, render: (v) => subnetsOf(v).map((s: any) => <Link key={s.id} to={`/ipam/subnet/${s.id}`} className="mr-3 text-accent">{s.cidr}</Link>) },
   ]
-  return <CrudPage heading="IPAM" variables={tabs} title="VLANs" singular="VLAN" collection="vlans" cols={cols} sort="number" />
+  return <CrudPage heading="IPAM" variables={tabs} title={t("VLANs")} singular="VLAN" collection="vlans" cols={cols} sort="number" />
 }
 
 const IPAM_TABS = [{ id: "overview", label: "Overview" }, { id: "subnets", label: "Subnets" }, { id: "addresses", label: "Addresses" }, { id: "vlans", label: "VLANs" }, { id: "vrfs", label: "VRFs" }, { id: "routes", label: "Routes" }]
@@ -248,19 +249,19 @@ export function Ipam() {
   const { data, reload } = useApi("/api/ipam/report", { poll: false })
   const tabs = <Tabs tabs={IPAM_TABS} value={tab} onChange={setTab} />
   if (tab === "subnets") return <Subnets report={data} reload={reload} tabs={tabs} />
-  if (tab === "addresses") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Addresses" singular="address" collection="ip_addresses" cols={ADDRESS_COLS} sort="address" onChanged={reload} defaults={{ state: "Active" }} />
+  if (tab === "addresses") return <CrudPage key={tab} heading="IPAM" variables={tabs} title={t("Addresses")} singular="address" collection="ip_addresses" cols={ADDRESS_COLS} sort="address" onChanged={reload} defaults={{ state: "Active" }} />
   if (tab === "vlans") return <Vlans report={data} tabs={tabs} />
-  if (tab === "vrfs") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="VRFs" singular="VRF" collection="vrfs" cols={VRF_COLS} />
-  if (tab === "routes") return <CrudPage key={tab} heading="IPAM" variables={tabs} title="Routes" singular="route" collection="routes" cols={ROUTES} sort="device" />
+  if (tab === "vrfs") return <CrudPage key={tab} heading="IPAM" variables={tabs} title={t("VRFs")} singular="VRF" collection="vrfs" cols={VRF_COLS} />
+  if (tab === "routes") return <CrudPage key={tab} heading="IPAM" variables={tabs} title={t("Routes")} singular="route" collection="routes" cols={ROUTES} sort="device" />
   const subnets = data?.subnets ?? []
   return (
     <>
-      <PageHeader title="IPAM" variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />
+      <PageHeader title={t("IPAM")} variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />
       <div className="mb-4 grid grid-cols-4 gap-4 max-sm:grid-cols-2">
-        <Panel title="Subnets"><Stat label="Recorded" value={subnets.length} /></Panel>
-        <Panel title="Addresses"><Stat label="Used" value={subnets.filter((s: any) => s.depth === 0).reduce((n: number, s: any) => n + s.used, 0)} /></Panel>
-        <Panel title="Sections"><Stat label="Groups" value={new Set(subnets.map((s: any) => s.section || "")).size} /></Panel>
-        <Panel title="Conflicts"><Stat label="To fix" value={data?.conflicts.length ?? "—"} level={data?.conflicts.length ? "warn" : "ok"} /></Panel>
+        <Panel title={t("Subnets")}><Stat label="Recorded" value={subnets.length} /></Panel>
+        <Panel title={t("Addresses")}><Stat label="Used" value={subnets.filter((s: any) => s.depth === 0).reduce((n: number, s: any) => n + s.used, 0)} /></Panel>
+        <Panel title={t("Sections")}><Stat label="Groups" value={new Set(subnets.map((s: any) => s.section || "")).size} /></Panel>
+        <Panel title={t("Conflicts")}><Stat label="To fix" value={data?.conflicts.length ?? "—"} level={data?.conflicts.length ? "warn" : "ok"} /></Panel>
       </div>
       <Board id="ipam" desktop={{ cols: [["conflicts", "usage"], ["calculator", "simulator"]], hidden: [] }} phone={{ cols: [["conflicts", "usage", "calculator", "simulator"]], hidden: [] }} panels={[
         { id: "conflicts", title: "Conflicts", render: (edit: any) => <Conflicts data={data} edit={edit} /> },
@@ -300,7 +301,7 @@ export function SubnetPage({ id }: { id: string }) {
   const used = addresses.length, usable = Number(d.calc.usable)
   const panels = [
     { id: "details", title: "Details", render: (e: any) => (
-      <Panel title="Details" edit={e}>
+      <Panel title={t("Details")} edit={e}>
         <div className="mb-4 grid grid-cols-3 gap-4">
           <Stat label="Used" value={used} sub={usable < 1e9 ? `of ${usable}` : undefined} />
           <Stat label="Usage" value={usable < 1e9 ? fmt.pct((used * 100) / Math.max(usable, 1)) : "—"} />
@@ -311,11 +312,11 @@ export function SubnetPage({ id }: { id: string }) {
       </Panel>
     ) },
     { id: "map", title: "Address map", absent: !cells, render: (e: any) => (
-      <Panel title="Address map" edit={e} footer={scan ? `Scanned ${fmt.ago(scan.at)}: ${alive.length} addresses answered.` : "Press a free address to record it."}>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(18px,1fr))] gap-1" role="list" aria-label="Addresses">
+      <Panel title={t("Address map")} edit={e} footer={scan ? t("Scanned {v0}: {n} addresses answered.", { v0: fmt.ago(scan.at), n: alive.length }) : "Press a free address to record it."}>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(18px,1fr))] gap-1" role="list" aria-label={t("Addresses")}>
           {cells?.map((c) => {
             const [bg, label] = CELL[c.kind]
-            const title = `${c.ip} · ${c.row ? [c.row.device || c.row.hostname, c.kind].filter(Boolean).join(" · ") : label || "Broadcast"}${alive.includes(c.ip) ? " · answers ping" : ""}`
+            const title = `${c.ip} · ${c.row ? [c.row.device || c.row.hostname, c.kind].filter(Boolean).join(" · ") : t(label || "Broadcast")}${alive.includes(c.ip) ? ` · ${t("answers ping")}` : ""}`
             const clickable = c.row || ["free", "alive", "seen"].includes(c.kind)
             return (
               <button key={c.ip} role="listitem" type="button" title={title} aria-label={title} disabled={!clickable}
@@ -328,13 +329,13 @@ export function SubnetPage({ id }: { id: string }) {
         </div>
         <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-fg2">
           {Object.entries(CELL).filter(([, [, l]]) => l).map(([k, [bg, l]]) => <li key={k} className="flex items-center gap-1.5"><span aria-hidden className={`size-3 rounded-[2px] ${bg}`} />{l}</li>)}
-          {scan && <li className="flex items-center gap-1.5"><span aria-hidden className="relative size-3 rounded-[2px] bg-accent"><span className="absolute inset-[3px] rounded-full bg-ok" /></span>Answers ping</li>}
+          {scan && <li className="flex items-center gap-1.5"><span aria-hidden className="relative size-3 rounded-[2px] bg-accent"><span className="absolute inset-[3px] rounded-full bg-ok" /></span>{t("Answers ping")}</li>}
         </ul>
       </Panel>
     ) },
     { id: "addresses", title: "Addresses", render: (e: any) => (
       <Panel title={`${used} addresses`} flush edit={e}>
-        {used === 0 ? <div className="px-4 pb-4"><Empty>No address recorded in this subnet.</Empty></div> : (
+        {used === 0 ? <div className="px-4 pb-4"><Empty>{t("No address recorded in this subnet.")}</Empty></div> : (
           <Table head={["Address", "State", "Device", "Hostname", "MAC", "Owner", "Last seen", ""]}>
             {addresses.map((a) => (
               <tr key={a.id}>
@@ -356,16 +357,16 @@ export function SubnetPage({ id }: { id: string }) {
       </Panel>
     ) },
     { id: "found", title: "Not recorded", absent: !unknown.length && !d.seen.length, render: (e: any) => (
-      <Panel title="Not recorded" flush edit={e}>
+      <Panel title={t("Not recorded")} flush edit={e}>
         <Table head={["Address", "Found by", ""]}>
-          {unknown.map((ip) => <tr key={ip}><Td mono>{ip}</Td><Td className="text-fg2">Answered the scan</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(ip)}>Record</Button></Td></tr>)}
-          {d.seen.filter((x: any) => !unknown.includes(x.address)).map((x: any) => <tr key={x.address}><Td mono>{x.address}</Td><Td className="text-fg2">{x.device} ({x.from === "map_nodes" ? "network map" : "virtual inventory"})</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(x.address, { device: x.device })}>Record</Button></Td></tr>)}
+          {unknown.map((ip) => <tr key={ip}><Td mono>{ip}</Td><Td className="text-fg2">{t("Answered the scan")}</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(ip)}>{t("Record")}</Button></Td></tr>)}
+          {d.seen.filter((x: any) => !unknown.includes(x.address)).map((x: any) => <tr key={x.address}><Td mono>{x.address}</Td><Td className="text-fg2">{x.device} ({x.from === "map_nodes" ? "network map" : "virtual inventory"})</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(x.address, { device: x.device })}>{t("Record")}</Button></Td></tr>)}
         </Table>
       </Panel>
     ) },
     { id: "free", title: "Free ranges", render: (e: any) => (
-      <Panel title="Free ranges" flush edit={e}>
-        {d.free.length === 0 ? <div className="px-4 pb-4"><Empty>No free address left.</Empty></div> : (
+      <Panel title={t("Free ranges")} flush edit={e}>
+        {d.free.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No free address left.")}</Empty></div> : (
           <Table head={["From", "To", "Size", ""]}>
             {d.free.slice(0, 50).map((r: any) => <tr key={r.start}><Td mono>{r.start}</Td><Td mono>{r.end}</Td><Td className="text-fg2">{Number(r.size) > 1e9 ? "a lot" : r.size}</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(r.start)}>Use {r.start}</Button></Td></tr>)}
           </Table>
@@ -373,7 +374,7 @@ export function SubnetPage({ id }: { id: string }) {
       </Panel>
     ) },
     { id: "children", title: "Nested subnets", absent: !d.children.length, render: (e: any) => (
-      <Panel title="Nested subnets" edit={e}>
+      <Panel title={t("Nested subnets")} edit={e}>
         <ul className="flex flex-col gap-2">{d.children.map((c: any) => <li key={c.id} className="flex justify-between gap-3"><Link to={`/ipam/subnet/${c.id}`} className="text-accent">{c.name}</Link><Mono className="text-fg2">{c.cidr}</Mono></li>)}</ul>
       </Panel>
     ) },
@@ -385,14 +386,14 @@ export function SubnetPage({ id }: { id: string }) {
         subtitle={<><Mono>{s.cidr}</Mono>{s.vlan ? ` · VLAN ${s.vlan}` : ""}{s.vrf ? ` · VRF ${s.vrf}` : ""}{s.section ? ` · ${s.section}` : ""}{s.gateway ? <> · gateway <Mono>{s.gateway}</Mono></> : ""}</>}
         actions={<>
           <CustomizeButton />
-          {v4 && <Button disabled={scanning} onClick={runScan} title="Pings every address once, from the manager"><SignalIcon className="size-5" aria-hidden />{scanning ? "Scanning…" : "Scan"}</Button>}
-          <Button onClick={() => setEditSubnet(true)}><PencilSquareIcon className="size-5" aria-hidden />Edit subnet</Button>
-          <Button variant="primary" onClick={() => add(d.free[0]?.start ?? "")}><PlusIcon className="size-5" aria-hidden />Add address</Button>
+          {v4 && <Button disabled={scanning} onClick={runScan} title={t("Pings every address once, from the manager")}><SignalIcon className="size-5" aria-hidden />{scanning ? "Scanning…" : "Scan"}</Button>}
+          <Button onClick={() => setEditSubnet(true)}><PencilSquareIcon className="size-5" aria-hidden />{t("Edit subnet")}</Button>
+          <Button variant="primary" onClick={() => add(d.free[0]?.start ?? "")}><PlusIcon className="size-5" aria-hidden />{t("Add address")}</Button>
         </>} />
       <ErrorNote>{note}</ErrorNote>
-      {editSubnet && <RecordForm cols={SUBNET_COLS((vrfs.data?.items ?? []).map((v: any) => v.name))} row={s} collection="subnets" title={`Edit ${s.name}`} onDone={() => { setEditSubnet(false); reload() }} />}
+      {editSubnet && <RecordForm cols={SUBNET_COLS((vrfs.data?.items ?? []).map((v: any) => v.name))} row={s} collection="subnets" title={t("Edit {name}", { name: s.name })} onDone={() => { setEditSubnet(false); reload() }} />}
       {edit !== undefined && <RecordForm key={edit?.id ?? edit?.address ?? "new"} cols={ADDRESS_COLS} row={edit?._new ? null : edit} defaults={edit?._new ? edit : undefined} collection="ip_addresses" rows={all.data?.items} onDone={done}
-        title={edit?._new ? `Record ${edit.address || "an address"}` : `Edit ${edit.address}`} />}
+        title={edit?._new ? `Record ${edit.address || "an address"}` : t("Edit {name}", { name: edit.address })} />}
       <Board id="subnet" panels={panels}
         desktop={{ cols: [["details", "free", "children"], ["map", "found", "addresses"]], hidden: [] }}
         phone={{ cols: [["details", "map", "found", "addresses", "free", "children"]], hidden: [] }} />

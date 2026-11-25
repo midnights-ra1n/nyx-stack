@@ -1,5 +1,6 @@
 import "../ui/tokens.css"
 import { BellIcon, CircleStackIcon, CodeBracketSquareIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, MapIcon, PresentationChartBarIcon, ServerStackIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { t } from "../ui/i18n"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
 import { PageEditor, PagesList } from "./display/editor"
@@ -29,7 +30,7 @@ function route(path: string) {
   if (path.startsWith("/pages/")) return <PageEditor key={path} id={path.slice(7)} />
   if (path === "/settings") return <Settings />
   if (path === "/search") return <SearchPage />
-  return <p className="text-fg2">Page not found.</p>
+  return <p className="text-fg2">{t("Page not found.")}</p>
 }
 
 function useNav(): NavConfig {
@@ -58,7 +59,7 @@ function useNav(): NavConfig {
     footer: data && (
       <div className={`flex items-center gap-2 text-xs ${off ? "text-warn" : "text-fg3"}`}>
         {off > 0 && <ExclamationTriangleIcon className="size-4" aria-hidden />}
-        {data.hosts_online} of {data.hosts_total} agents online
+        {t("{online} of {total} agents online", { online: data.hosts_online, total: data.hosts_total })}
       </div>
     ),
   }

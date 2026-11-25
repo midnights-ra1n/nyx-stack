@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Button, IconButton, Variable } from "./components"
 import { useMedia, useStored } from "./lib"
 import { useCustomize } from "./shell"
+import { t } from "./i18n"
 
 export interface Layout { cols: string[][]; hidden: string[] }
 
@@ -163,16 +164,16 @@ export function Board({ id, panels, desktop, phone }: { id: string; panels: Boar
     <>
       {editing && (
         <div className="mb-4 rounded-panel border border-dashed border-line2 bg-surface p-5">
-          <p className="text-fg2">{mobile ? "Slide a panel by its handle, or hide it." : "Slide panels where you want them and hide the ones you do not need."} The arrows do the same from the keyboard. Each panel keeps the height of its content.</p>
+          <p className="text-fg2">{t(mobile ? "Slide a panel by its handle, or hide it." : "Slide panels where you want them and hide the ones you do not need.")} The arrows do the same from the keyboard. Each panel keeps the height of its content.</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {layout.hidden.length === 0 && <span className="text-[13px] text-fg3">No hidden panels</span>}
+            {layout.hidden.length === 0 && <span className="text-[13px] text-fg3">{t("No hidden panels")}</span>}
             {layout.hidden.map((p) => <Button key={p} onClick={() => save(show(layout, p))}><PlusIcon className="size-4" aria-hidden />{byId(p).title}</Button>)}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             {!mobile && <Variable label="Columns" value={String(layout.cols.length)} onChange={(n) => save(columns(layout, Number(n)))} options={["1", "2", "3", "4"].map((n) => ({ value: n, label: n }))} />}
-            <Button onClick={() => (mobile ? setP(phone) : setD(desktop))}><ArrowPathIcon className="size-4" aria-hidden />Reset this page</Button>
+            <Button onClick={() => (mobile ? setP(phone) : setD(desktop))}><ArrowPathIcon className="size-4" aria-hidden />{t("Reset this page")}</Button>
           </div>
-          {mobile && <Button variant="primary" className="mt-3 w-full" onClick={() => setEditing(false)}>Done</Button>}
+          {mobile && <Button variant="primary" className="mt-3 w-full" onClick={() => setEditing(false)}>{t("Done")}</Button>}
         </div>
       )}
       {/* While editing, columns stretch so that the whole height of a short one accepts a drop. */}
@@ -194,6 +195,6 @@ export function Board({ id, panels, desktop, phone }: { id: string; panels: Boar
 export function CustomizeButton() {
   const { editing, setEditing } = useCustomize()
   return editing
-    ? <Button variant="primary" onClick={() => setEditing(false)}><CheckIcon className="size-5" aria-hidden />Done</Button>
-    : <Button className="max-sm:hidden" onClick={() => setEditing(true)}><PencilSquareIcon className="size-5" aria-hidden />Customize</Button>
+    ? <Button variant="primary" onClick={() => setEditing(false)}><CheckIcon className="size-5" aria-hidden />{t("Done")}</Button>
+    : <Button className="max-sm:hidden" onClick={() => setEditing(true)}><PencilSquareIcon className="size-5" aria-hidden />{t("Customize")}</Button>
 }

@@ -3,6 +3,7 @@ import {
   InformationCircleIcon, MinusCircleIcon, XCircleIcon, XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { Children, cloneElement, type ComponentType, isValidElement, type ReactElement, type ReactNode, type SVGProps, useEffect, useId, useRef, useState } from "react"
+import { t, t as tr, tx } from "./i18n"
 import { type Level, levelBg, levelOf, levelSoft, levelText, samplesAt } from "./lib"
 
 export type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -21,24 +22,24 @@ export function Status({ level, label, cell }: { level: Level; label?: string; c
   return (
     <span className={`inline-flex items-center gap-2 font-medium whitespace-nowrap ${levelText[level]} ${cell ? "" : `rounded-full px-3 py-1 text-[13px] ${levelSoft[level]}`}`}>
       <I className="size-4" aria-hidden />
-      {label ?? word}
+      {tx(label ?? word)}
     </span>
   )
 }
 
-export function Button({ variant = "secondary", className = "", ...p }: { variant?: "primary" | "secondary" | "ghost" | "danger" } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export function Button({ variant = "secondary", className = "", children, ...p }: { variant?: "primary" | "secondary" | "ghost" | "danger" } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const look = {
     primary: "bg-accent text-accent-ink hover:bg-accent-hover",
     secondary: "bg-raised text-fg border border-line2 hover:border-fg3",
     ghost: "text-accent hover:text-accent-hover",
     danger: "text-crit border border-crit hover:bg-crit-soft",
   }[variant]
-  return <button type="button" {...p} className={`inline-flex h-9 max-sm:h-11 items-center justify-center gap-2 rounded-control px-4 font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${look} ${className}`} />
+  return <button type="button" {...p} className={`inline-flex h-9 max-sm:h-11 items-center justify-center gap-2 rounded-control px-4 font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${look} ${className}`}>{Children.map(children, tx)}</button>
 }
 
 export function IconButton({ label, icon: I, className = "", ...p }: { label: string; icon: Icon } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button type="button" aria-label={label} title={label} {...p} className={`inline-flex size-9 max-sm:size-11 items-center justify-center rounded-control text-fg2 hover:text-fg disabled:opacity-30 ${className}`}>
+    <button type="button" aria-label={t(label)} title={t(label)} {...p} className={`inline-flex size-9 max-sm:size-11 items-center justify-center rounded-control text-fg2 hover:text-fg disabled:opacity-30 ${className}`}>
       <I className="size-5" aria-hidden />
     </button>
   )
@@ -50,17 +51,17 @@ export interface PanelAction { label: string; onClick: () => void }
 export function Panel({ title, badge, actions, children, footer, flush, edit }: { title: string; badge?: ReactNode; actions?: PanelAction[]; children: ReactNode; footer?: ReactNode; flush?: boolean; edit?: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
-    <section className={`rounded-panel border bg-surface ${edit ? "border-dashed border-line2" : "border-line"}`} aria-label={title}>
+    <section className={`rounded-panel border bg-surface ${edit ? "border-dashed border-line2" : "border-line"}`} aria-label={t(title)}>
       <header className="flex h-11 items-center justify-between gap-3 pl-4 pr-2">
-        <h2 className="text-[15px] leading-[22px] font-medium">{title}</h2>
+        <h2 className="text-[15px] leading-[22px] font-medium">{t(title)}</h2>
         {badge && <span className="mr-3">{badge}</span>}
         {actions?.length ? (
           <div className="relative">
-            <IconButton label={`${title} menu`} icon={EllipsisVerticalIcon} aria-expanded={open} onClick={() => setOpen(!open)} />
+            <IconButton label={t("{title} menu", { title: t(title) })} icon={EllipsisVerticalIcon} aria-expanded={open} onClick={() => setOpen(!open)} />
             {open && (
               <div className="absolute right-0 top-11 z-20 min-w-44 rounded-panel border border-line2 bg-surface p-2" role="menu">
                 {actions.map((a) => (
-                  <button key={a.label} role="menuitem" className="block h-9 max-sm:h-11 w-full rounded-control px-3 text-left text-fg2 hover:bg-raised hover:text-fg" onClick={() => { setOpen(false); a.onClick() }}>{a.label}</button>
+                  <button key={a.label} role="menuitem" className="block h-9 max-sm:h-11 w-full rounded-control px-3 text-left text-fg2 hover:bg-raised hover:text-fg" onClick={() => { setOpen(false); a.onClick() }}>{t(a.label)}</button>
                 ))}
               </div>
             )}
@@ -69,7 +70,7 @@ export function Panel({ title, badge, actions, children, footer, flush, edit }: 
       </header>
       {edit && <div className="flex justify-end border-b border-line px-2">{edit}</div>}
       <div className={flush ? "" : "px-4 pb-4"}>{children}</div>
-      {footer && <footer className="border-t border-line px-4 py-2.5 text-[13px] text-fg3">{footer}</footer>}
+      {footer && <footer className="border-t border-line px-4 py-2.5 text-[13px] text-fg3">{tx(footer)}</footer>}
     </section>
   )
 }
@@ -77,9 +78,9 @@ export function Panel({ title, badge, actions, children, footer, flush, edit }: 
 export function Stat({ label, value, sub, level }: { label: string; value: ReactNode; sub?: ReactNode; level?: Level }) {
   return (
     <div>
-      <div className="text-[13px] text-fg2">{label}</div>
+      <div className="text-[13px] text-fg2">{t(label)}</div>
       <div className={`mt-1 text-[26px] leading-[32px] font-medium ${level ? levelText[level] : ""}`}>{value}</div>
-      {sub && <div className="text-xs text-fg3">{sub}</div>}
+      {sub && <div className="text-xs text-fg3">{tx(sub)}</div>}
     </div>
   )
 }
@@ -91,7 +92,7 @@ export function Gauge({ label, value, warn = 75, crit = 90 }: { label: string; v
   return (
     <figure className="flex flex-col items-center">
       <div className="relative">
-        <svg viewBox="0 0 140 84" className="w-36" role="img" aria-label={`${label} ${v.toFixed(0)} percent`}>
+        <svg viewBox="0 0 140 84" className="w-36" role="img" aria-label={`${t(label)} ${v.toFixed(0)} %`}>
           <path d={arc} fill="none" stroke="var(--color-line)" strokeWidth="9" strokeLinecap="round" />
           {v > 0 && <path d={arc} fill="none" stroke={`var(--color-${levelOf(v, warn, crit)})`} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${(v / 100) * len} ${len}`} />}
           <text x="11" y="82" fontSize="9" fill="var(--color-fg3)" textAnchor="middle">0</text>
@@ -99,7 +100,7 @@ export function Gauge({ label, value, warn = 75, crit = 90 }: { label: string; v
         </svg>
         <div className="absolute inset-x-0 top-[38px] text-center text-[26px] leading-8 font-medium">{v.toFixed(0)} %</div>
       </div>
-      <figcaption className="mt-1 text-[13px] text-fg2">{label}</figcaption>
+      <figcaption className="mt-1 text-[13px] text-fg2">{t(label)}</figcaption>
     </figure>
   )
 }
@@ -127,7 +128,7 @@ export function BarGauge({ rows, warn = 75, crit = 90 }: { rows: { label: string
           <div key={r.label} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_auto] items-center gap-3 text-[13px]">
             <span className="truncate text-fg2" title={r.label}>{r.label}</span>
             <Meter pct={r.pct} warn={warn} crit={crit} />
-            <span className={`w-28 text-right font-medium whitespace-nowrap ${levelText[l]}`}>{r.pct.toFixed(0)} % · {stateMeta[l].label === "Operational" ? "OK" : stateMeta[l].label}</span>
+            <span className={`w-28 text-right font-medium whitespace-nowrap ${levelText[l]}`}>{r.pct.toFixed(0)} % · {stateMeta[l].label === "Operational" ? "OK" : t(stateMeta[l].label)}</span>
           </div>
         )
       })}
@@ -160,7 +161,7 @@ export function ChartHover({ series, top, unit, colors }: { series: { name: stri
   const label = (at: number) => new Date(at * 1000).toLocaleString([], { ...(t1 - t0 > 86400 ? { day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })
   const flip = t != null && share(t) > 55
   return (
-    <div tabIndex={0} role="group" aria-label="Chart values. Use the arrow keys to move in time." className="absolute inset-0 touch-pan-y" onPointerMove={follow} onPointerDown={follow} onPointerLeave={(e) => { if (e.pointerType === "mouse") setT(undefined) }} onBlur={() => setT(undefined)} onKeyDown={step}>
+    <div tabIndex={0} role="group" aria-label={tr("Chart values. Use the arrow keys to move in time.")} className="absolute inset-0 touch-pan-y" onPointerMove={follow} onPointerDown={follow} onPointerLeave={(e) => { if (e.pointerType === "mouse") setT(undefined) }} onBlur={() => setT(undefined)} onKeyDown={step}>
       {t != null && (
         <>
           <div className="pointer-events-none absolute inset-y-0 w-px bg-fg3" style={{ left: `${share(t)}%` }} />
@@ -186,7 +187,7 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
   const W = 600, H = 180
   const all = series.flatMap((s) => s.values)
   const drawn = series.filter((s) => s.values.length)
-  if (all.length < 2) return <Empty>Not enough data yet.</Empty>
+  if (all.length < 2) return <Empty>{t("Not enough data yet.")}</Empty>
   const t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W, y = (v: number) => H - (Math.min(v, max) / max) * H
   const clock = (t: number) => t1 - t0 > 2 * 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" }) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -195,7 +196,7 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
       <div className="grid grid-cols-[32px_1fr] gap-2">
         <div className="flex h-44 flex-col justify-between text-right text-xs text-fg3" aria-hidden><span>{max}</span><span>{max / 2}</span><span>0</span></div>
         <div className="relative h-44">
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={`Chart of ${series.map((s) => s.name).join(" and ")}`}>
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={t("Chart of {names}", { names: series.map((s) => s.name).join(", ") })}>
             {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
             {series.map((s) => {
               const line = s.values.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")
@@ -211,9 +212,9 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
           <ChartHover series={drawn} top={max} unit={unit} colors={drawn.map((s) => s.color)} />
         </div>
       </div>
-      <div className="mt-2 ml-10 flex justify-between text-xs text-fg3"><span>{clock(t0)}</span><span>{clock((t0 + t1) / 2)}</span><span>Now</span></div>
+      <div className="mt-2 ml-10 flex justify-between text-xs text-fg3"><span>{clock(t0)}</span><span>{clock((t0 + t1) / 2)}</span><span>{t("Now")}</span></div>
       <table className="mt-3 w-full border-t border-line text-[13px]">
-        <thead className="text-xs text-fg3"><tr><th className="py-2 text-left font-normal">Series</th><th className="text-right font-normal">Mean</th><th className="text-right font-normal">Max</th><th className="text-right font-normal">Last</th></tr></thead>
+        <thead className="text-xs text-fg3"><tr><th className="py-2 text-left font-normal">{t("Series")}</th><th className="text-right font-normal">{t("Mean")}</th><th className="text-right font-normal">{t("Max")}</th><th className="text-right font-normal">{t("Last")}</th></tr></thead>
         <tbody>
           {series.map((s) => {
             const vs = s.values.map((p) => p.v)
@@ -233,7 +234,8 @@ export function TimeSeries({ series, max = 100, unit = " %" }: { series: Series[
 }
 
 /** Below 640 px the CSS turns rows into touch lists, using `data-label` for headers. */
-export function Table({ head, children, sort, onSort }: { head: ReactNode[]; children: ReactNode; sort?: { col: number; desc: boolean }; onSort?: (col: number) => void }) {
+export function Table({ head: raw, children, sort, onSort }: { head: ReactNode[]; children: ReactNode; sort?: { col: number; desc: boolean }; onSort?: (col: number) => void }) {
+  const head = raw.map(tx)
   const rows = Children.map(children, (row) => {
     if (!isValidElement(row)) return row
     const r = row as ReactElement<{ children?: ReactNode }>
@@ -266,9 +268,9 @@ export const StateCell = ({ level, label, ...p }: { level: Level; label?: string
   <td {...p} className={`h-9 px-3 ${levelSoft[level]}`}><Status cell level={level} label={label} /></td>
 )
 
-export const Empty = ({ children }: { children: ReactNode }) => <p className="py-2 text-fg3">{children}</p>
+export const Empty = ({ children }: { children: ReactNode }) => <p className="py-2 text-fg3">{tx(children)}</p>
 export const Mono = ({ children, className = "" }: { children: ReactNode; className?: string }) => <span className={`font-mono text-[13px] ${className}`}>{children}</span>
-export const ErrorNote = ({ children }: { children: ReactNode }) => (children ? <p role="alert" className="text-crit">{children}</p> : null)
+export const ErrorNote = ({ children }: { children: ReactNode }) => (children ? <p role="alert" className="text-crit">{tx(children)}</p> : null)
 
 // 16 px on phones: iOS zooms the page into any smaller input.
 const fieldBase = "max-sm:text-base w-full border border-line2 bg-raised px-4 text-fg placeholder:text-fg3 hover:border-fg3"
@@ -278,9 +280,9 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
   const id = useId()
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-[13px] text-fg2">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-[13px] text-fg2">{t(label)}</label>
       {children(id)}
-      {hint && <p className="mt-1 text-xs text-fg3">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-fg3">{tx(hint)}</p>}
     </div>
   )
 }
@@ -298,7 +300,7 @@ export function Select({ label, options, hint, ...p }: { label: string; hint?: R
     <Field label={label} hint={hint}>
       {(id) => (
         <select id={id} {...p} className={fieldClass}>
-          {options.map((o) => { const { value, label } = typeof o === "string" ? { value: o, label: o } : o; return <option key={value} value={value}>{label}</option> })}
+          {options.map((o) => { const { value, label } = typeof o === "string" ? { value: o, label: o } : o; return <option key={value} value={value}>{t(label)}</option> })}
         </select>
       )}
     </Field>
@@ -306,7 +308,7 @@ export function Select({ label, options, hint, ...p }: { label: string; hint?: R
 }
 
 export function Check({ label, hint, ...p }: { label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch shrink-0" {...p} /><span>{label}{hint && <span className="block text-xs text-fg3">{hint}</span>}</span></label>
+  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch shrink-0" {...p} /><span>{t(label)}{hint && <span className="block text-xs text-fg3">{t(hint)}</span>}</span></label>
 }
 
 /** The guide's variable control: label on raised, value on surface. */
@@ -314,10 +316,10 @@ export function Variable({ label, value, onChange, options }: { label: string; v
   const id = useId()
   return (
     <div className="flex h-9 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2">
-      <label htmlFor={id} className="flex items-center bg-raised pl-4 pr-3 text-fg2">{label}</label>
+      <label htmlFor={id} className="flex items-center bg-raised pl-4 pr-3 text-fg2">{t(label)}</label>
       <div className="relative flex items-center bg-surface">
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-3 pr-8 text-fg">
-          {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{o.label}</option>)}
+          {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{t(o.label)}</option>)}
         </select>
         <ChevronUpDownIcon className="pointer-events-none absolute right-2 size-4 text-fg2" aria-hidden />
       </div>
@@ -330,9 +332,9 @@ export function RangeSelect({ value, onChange }: { value: string; onChange: (v: 
   return (
     <div className="relative flex h-9 max-sm:h-11 items-center rounded-control border border-line2 bg-surface">
       <ClockIcon className="pointer-events-none absolute left-3 size-5 text-fg2" aria-hidden />
-      <label htmlFor={id} className="sr-only">Period</label>
+      <label htmlFor={id} className="sr-only">{t("Period")}</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-10 pr-9 text-fg">
-        {[["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["180d", "Last 180 days"], ["365d", "Last year"]].map(([v, l]) => <option key={v} value={v} className="bg-surface">{l}</option>)}
+        {[["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["180d", "Last 180 days"], ["365d", "Last year"]].map(([v, l]) => <option key={v} value={v} className="bg-surface">{t(l)}</option>)}
       </select>
       <ChevronDownIcon className="pointer-events-none absolute right-3 size-4 text-fg2" aria-hidden />
     </div>
@@ -343,9 +345,9 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => { ref.current?.showModal() }, [])
   return (
-    <dialog ref={ref} onClose={onClose} aria-label={title} className={`m-auto max-h-[calc(100dvh-40px)] w-[calc(100vw-40px)] overflow-y-auto ${wide ? "max-w-5xl" : "max-w-xl"} rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60`}>
+    <dialog ref={ref} onClose={onClose} aria-label={t(title)} className={`m-auto max-h-[calc(100dvh-40px)] w-[calc(100vw-40px)] overflow-y-auto ${wide ? "max-w-5xl" : "max-w-xl"} rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60`}>
       <header className="flex h-11 items-center justify-between border-b border-line pl-4 pr-2">
-        <h2 className="text-[15px] font-medium">{title}</h2>
+        <h2 className="text-[15px] font-medium">{t(title)}</h2>
         <IconButton label="Close" icon={XMarkIcon} onClick={() => ref.current?.close()} />
       </header>
       <div className="flex flex-col gap-4 p-5">{children}</div>
@@ -358,11 +360,11 @@ let showAsk: ((a: Asked) => void) | null = null
 
 /** Styled stand-in for window.confirm; resolves true when confirmed. */
 export const ask = (message: string, opts: { action?: string; danger?: boolean } = {}) =>
-  new Promise<boolean>((done) => (showAsk ? showAsk({ message, action: opts.action ?? "Confirm", danger: opts.danger, done }) : done(window.confirm(message))))
+  new Promise<boolean>((done) => (showAsk ? showAsk({ message: t(message), action: t(opts.action ?? "Confirm"), danger: opts.danger, done }) : done(window.confirm(t(message)))))
 
 /** Styled stand-in for window.alert. */
 export const tell = (message: string) =>
-  new Promise<void>((done) => (showAsk ? showAsk({ message, action: "OK", info: true, done: () => done() }) : (window.alert(message), done())))
+  new Promise<void>((done) => (showAsk ? showAsk({ message: t(message), action: "OK", info: true, done: () => done() }) : (window.alert(t(message)), done())))
 
 /** Hosts the dialogs opened by ask() and tell(); mounted once next to the app. */
 export function Dialogs() {
@@ -375,13 +377,13 @@ export function Dialogs() {
   const close = (ok: boolean) => { answer.current = ok; ref.current?.close() }
   const Mark = a.danger ? ExclamationTriangleIcon : InformationCircleIcon
   return (
-    <dialog ref={ref} onClose={() => { a.done(answer.current); setA(null) }} aria-label={a.info ? "Notice" : "Confirm"} className="m-auto w-[calc(100vw-40px)] max-w-md rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60">
+    <dialog ref={ref} onClose={() => { a.done(answer.current); setA(null) }} aria-label={t(a.info ? "Notice" : "Confirm")} className="m-auto w-[calc(100vw-40px)] max-w-md rounded-panel border border-line2 bg-surface text-fg backdrop:bg-black/60">
       <div className="flex gap-3 p-5">
         <span className={`flex size-9 shrink-0 items-center justify-center rounded-full ${a.danger ? "bg-crit-soft text-crit" : "bg-accent-soft text-accent"}`}><Mark className="size-5" aria-hidden /></span>
         <p className="pt-1.5 whitespace-pre-wrap text-fg2">{a.message}</p>
       </div>
       <div className="flex justify-end gap-3 border-t border-line px-5 py-3">
-        {!a.info && <Button autoFocus={a.danger} onClick={() => close(false)}>Cancel</Button>}
+        {!a.info && <Button autoFocus={a.danger} onClick={() => close(false)}>{t("Cancel")}</Button>}
         <Button autoFocus={!a.danger} variant={a.danger ? "danger" : "primary"} onClick={() => close(true)}>{a.action}</Button>
       </div>
     </dialog>
@@ -393,7 +395,7 @@ export function Copy({ text }: { text: string }) {
   return (
     <div className="flex flex-col gap-2">
       <pre className="overflow-x-auto rounded-box border border-line2 bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap break-all text-fg2">{text}</pre>
-      <div><Button onClick={async () => { await navigator.clipboard.writeText(text); setDone(true) }}>{done ? "Copied" : "Copy"}</Button></div>
+      <div><Button onClick={async () => { await navigator.clipboard.writeText(text); setDone(true) }}>{t(done ? "Copied" : "Copy")}</Button></div>
     </div>
   )
 }
@@ -401,8 +403,8 @@ export function Copy({ text }: { text: string }) {
 export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void }) {
   return (
     <div role="tablist" className="flex flex-wrap gap-2">
-      {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" aria-selected={t.id === value} onClick={() => onChange(t.id)} className={`h-9 max-sm:h-11 rounded-control px-4 ${t.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t.label}</button>
+      {tabs.map((tab) => (
+        <button key={tab.id} type="button" role="tab" aria-selected={tab.id === value} onClick={() => onChange(tab.id)} className={`h-9 max-sm:h-11 rounded-control px-4 ${tab.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t(tab.label)}</button>
       ))}
     </div>
   )

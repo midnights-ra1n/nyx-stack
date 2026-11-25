@@ -133,8 +133,22 @@ pub fn build_vtodo(uid: &str, title: &str, description: &str, due: &str, status:
         lines.push(format!("CATEGORIES:{}", tags.split(',').map(escape).collect::<Vec<_>>().join(",")));
     }
     lines.push(format!("STATUS:{}", status_to_ics(status)));
+    if let Some(pct) = progress(description, status) {
+        lines.push(format!("PERCENT-COMPLETE:{pct}"));
+    }
     lines.extend(["END:VTODO".to_string(), "END:VCALENDAR".into(), String::new()]);
     lines.join("\r\n")
+}
+
+/// How far a task is: 100 when done, else the share of `- [x]` lines of its checklist.
+/// None for an open task without a checklist, so Nextcloud keeps whatever it shows.
+pub fn progress(description: &str, status: &str) -> Option<u8> {
+    if status == "done" {
+        return Some(100);
+    }
+    let items: Vec<&str> = description.lines().map(str::trim_start).filter(|l| l.starts_with("- [")).collect();
+    let done = items.iter().filter(|l| l.starts_with("- [x]") || l.starts_with("- [X]")).count();
+    (!items.is_empty()).then(|| (done * 100 / items.len()) as u8)
 }
 
 /// `(href, etag, calendar-data)` from a multistatus response.
@@ -298,5 +312,13 @@ mod tests {
         assert_eq!(parse_multistatus(xml).unwrap(), [("/dav/a.ics".into(), "\"1\"".into(), "BEGIN:VCALENDAR".into())]);
         let c = r#"<d:multistatus xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/"><d:response><d:propstat><d:prop><cs:getctag>7</cs:getctag></d:prop></d:propstat></d:response></d:multistatus>"#;
         assert_eq!(parse_ctag(c).as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn progress_counts_the_checklist() {
+        assert_eq!(progress("Plan\n- [x] order disks\n  - [ ] swap them\n- [X] rebuild", "doing"), Some(66));
+        assert_eq!(progress("no list", "todo"), None);
+        assert_eq!(progress("- [ ] a", "done"), Some(100));
+        assert!(build_vtodo("u", "t", "- [x] a\n- [ ] b", "", "doing", "").contains("PERCENT-COMPLETE:50"));
     }
 }

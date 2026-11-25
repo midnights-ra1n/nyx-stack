@@ -5,6 +5,7 @@ import { Button, Copy, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, 
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { PageHeader } from "../ui/shell"
 import { deployLevel } from "./overview"
+import { t } from "../ui/i18n"
 
 /** Sends an operation to the host of a site and waits for the agent to answer. */
 async function runOnSite(siteId: string, op: string) {
@@ -39,37 +40,37 @@ function Details({ site, onClose, onChange }: { site: any; onClose: () => void; 
     <Modal title={site.name} onClose={onClose} wide>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => run("restart")} disabled={!!busy}><ArrowPathIcon className="size-5" aria-hidden />Restart</Button>
-          <Button onClick={() => run("stop")} disabled={!!busy}><StopIcon className="size-5" aria-hidden />Stop</Button>
-          <Button onClick={() => run("start")} disabled={!!busy}><PlayIcon className="size-5" aria-hidden />Start</Button>
-          <Button variant="ghost" onClick={() => run("logs")} disabled={!!busy}>Refresh logs</Button>
-          {busy && <span className="text-fg2">Waiting for the agent…</span>}
+          <Button onClick={() => run("restart")} disabled={!!busy}><ArrowPathIcon className="size-5" aria-hidden />{t("Restart")}</Button>
+          <Button onClick={() => run("stop")} disabled={!!busy}><StopIcon className="size-5" aria-hidden />{t("Stop")}</Button>
+          <Button onClick={() => run("start")} disabled={!!busy}><PlayIcon className="size-5" aria-hidden />{t("Start")}</Button>
+          <Button variant="ghost" onClick={() => run("logs")} disabled={!!busy}>{t("Refresh logs")}</Button>
+          {busy && <span className="text-fg2">{t("Waiting for the agent…")}</span>}
         </div>
         {out && tab !== "logs" && <p role="status" className={out.ok ? "text-ok" : "text-crit"}>{out.text}</p>}
         <Tabs value={tab} onChange={setTab} tabs={[{ id: "setup", label: "Setup" }, { id: "logs", label: "Logs" }, { id: "history", label: "History" }]} />
         {tab === "setup" && <>
-          <p className="text-fg2">Add the public key to the repository as a read-only deploy key. Add the webhook for push events with content type JSON, and the secret below. Each push to the branch deploys the site again.</p>
+          <p className="text-fg2">{t("Add the public key to the repository as a read-only deploy key. Add the webhook for push events with content type JSON, and the secret below. Each push to the branch deploys the site again.")}</p>
           {data && <>
-            <div><div className="mb-1 text-[13px] text-fg2">Public deploy key</div><Copy text={data.ssh_public_key} /></div>
-            <div><div className="mb-1 text-[13px] text-fg2">Webhook URL</div><Copy text={data.webhook_url} /></div>
-            <div><div className="mb-1 text-[13px] text-fg2">Webhook secret</div><Copy text={data.webhook_secret} /></div>
+            <div><div className="mb-1 text-[13px] text-fg2">{t("Public deploy key")}</div><Copy text={data.ssh_public_key} /></div>
+            <div><div className="mb-1 text-[13px] text-fg2">{t("Webhook URL")}</div><Copy text={data.webhook_url} /></div>
+            <div><div className="mb-1 text-[13px] text-fg2">{t("Webhook secret")}</div><Copy text={data.webhook_secret} /></div>
           </>}
           <div>
-            <div className="mb-1 text-[13px] text-fg2">Last deploy output</div>
+            <div className="mb-1 text-[13px] text-fg2">{t("Last deploy output")}</div>
             <pre className="max-h-72 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap">{site.last_output || "No deploy yet."}</pre>
           </div>
         </>}
-        {tab === "logs" && <pre className="max-h-96 min-h-32 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap" aria-live="polite">{busy === "logs" ? "Waiting for the agent…" : out?.text || "No logs."}</pre>}
+        {tab === "logs" && <pre className="max-h-96 min-h-32 overflow-auto rounded-box bg-bg p-3 font-mono text-[13px] whitespace-pre-wrap" aria-live="polite">{busy === "logs" ? t("Waiting for the agent…") : out?.text || "No logs."}</pre>}
         {tab === "history" && (history.data?.items.length ? (
           <ul className="divide-y divide-line">
             {history.data.items.map((d: any) => (
               <li key={d.id} className="flex items-center justify-between gap-3 py-2">
                 <span className="min-w-0"><Mono>{d.version || "—"}</Mono><span className="ml-3 text-fg2">{fmt.date(d.done_at || d.created)}</span></span>
-                <span className="flex items-center gap-3"><Status cell level={deployLevel(d.status)} label={d.status} />{d.status === "ok" && fullCommit(d.notes).length === 40 && <Button variant="ghost" onClick={() => rollback(d)}>Deploy again</Button>}</span>
+                <span className="flex items-center gap-3"><Status cell level={deployLevel(d.status)} label={d.status} />{d.status === "ok" && fullCommit(d.notes).length === 40 && <Button variant="ghost" onClick={() => rollback(d)}>{t("Deploy again")}</Button>}</span>
               </li>
             ))}
           </ul>
-        ) : <Empty>No deploy yet.</Empty>)}
+        ) : <Empty>{t("No deploy yet.")}</Empty>)}
       </div>
     </Modal>
   )
@@ -103,7 +104,7 @@ function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone
     } catch (err) { setError((err as Error).message) }
   }
   return (
-    <Modal title={editing ? `Edit ${preset.name}` : "Add site"} onClose={() => onDone()} wide>
+    <Modal title={editing ? t("Edit {name}", { name: preset.name }) : "Add site"} onClose={() => onDone()} wide>
       <form className="grid grid-cols-2 gap-4 max-sm:grid-cols-1" onSubmit={save}>
         {input("name", "Name", { required: true, disabled: editing, hint: editing ? "Fixed: the service of the site is named after it." : "Letters, digits, - and _." })}
         {hosts.length
@@ -123,7 +124,7 @@ function SiteForm({ hosts, preset, onDone }: { hosts: any[]; preset: any; onDone
         <div className="col-span-full"><TextArea label="Environment variables" rows={4} className="font-mono" placeholder={"PORT=3000\nDATABASE_URL=..."} value={f.env} onChange={(e) => setF({ ...f, env: e.target.value })}
           hint={f.service.startsWith("pm2:") ? "Not applied to PM2 services: use PM2's own ecosystem file." : "One NAME=value per line, read by the site's service from the next deploy. Kept readable by root only on the host."} /></div>
         {!editing && <div className="col-span-full"><TextArea label="SSH private key" rows={3} className="font-mono" value={f.ssh_private_key} onChange={(e) => setF({ ...f, ssh_private_key: e.target.value })} hint="Leave empty to generate a new ed25519 deploy key." /></div>}
-        {f.path && !editing && preset.path && <p role="note" className="col-span-full rounded-panel bg-warn-soft px-4 py-2.5 text-warn">A deploy resets tracked files in this directory to the branch. Commit local changes first. Ignored files, such as .env, stay.</p>}
+        {f.path && !editing && preset.path && <p role="note" className="col-span-full rounded-panel bg-warn-soft px-4 py-2.5 text-warn">{t("A deploy resets tracked files in this directory to the branch. Commit local changes first. Ignored files, such as .env, stay.")}</p>}
         <div className="col-span-full flex flex-col gap-3"><ErrorNote>{error}</ErrorNote><div><Button variant="primary" type="submit">{editing ? "Save" : "Create site"}</Button></div></div>
       </form>
     </Modal>
@@ -163,14 +164,14 @@ export function Sites() {
   const managed = (data?.items ?? []).map(appOf).filter(Boolean)
   const down = (data?.items ?? []).filter((s: any) => s.health === "down").length
   const deploy = async (s: any) => {
-    try { await api(`/api/sites/${s.id}/deploy`, { method: "POST" }); setNote(`Deploy of ${s.name} queued.`); reload() } catch (e) { setNote((e as Error).message) }
+    try { await api(`/api/sites/${s.id}/deploy`, { method: "POST" }); setNote(t("Deploy of {name} queued.", { name: s.name })); reload() } catch (e) { setNote((e as Error).message) }
   }
-  const remove = async (s: any) => { if (await ask(`Stop tracking ${s.name}? Nothing is removed from the host.`, { action: "Stop", danger: true })) { await api(`/api/c/sites/${s.id}`, { method: "DELETE" }); reload() } }
+  const remove = async (s: any) => { if (await ask(t("Stop tracking {name}? Nothing is removed from the host.", { name: s.name }), { action: "Stop", danger: true })) { await api(`/api/c/sites/${s.id}`, { method: "DELETE" }); reload() } }
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
-        <Panel title="Summary" edit={edit}>
+        <Panel title={t("Summary")} edit={edit}>
           <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
-            <Stat label="Sites" value={data?.items.length ?? 0} sub={`${apps.length} Node.js apps detected`} />
+            <Stat label="Sites" value={data?.items.length ?? 0} sub={t("{n} Node.js apps detected", { n: apps.length })} />
             <Stat label="Running" value={`${managed.length} / ${data?.items.length ?? 0}`} level={managed.length === (data?.items.length ?? 0) ? "ok" : "warn"} />
             <Stat label="CPU used" value={fmt.pct(managed.reduce((t: number, a: any) => t + a.cpu_pct, 0))} sub="by managed sites" />
             <Stat label="Memory used" value={fmt.bytes(managed.reduce((t: number, a: any) => t + a.mem_bytes, 0))} sub={down ? `${down} site${down > 1 ? "s" : ""} down` : "all sites answering"} level={down ? "crit" : undefined} />
@@ -178,9 +179,9 @@ export function Sites() {
         </Panel>
     ) },
     { id: "sites", title: "Sites", render: (edit: any) => (
-        <Panel title="Sites" flush edit={edit}>
+        <Panel title={t("Sites")} flush edit={edit}>
           <ErrorNote>{error}</ErrorNote>
-          {sites.length === 0 ? <div className="px-4 pb-4"><Empty>No sites yet.</Empty></div> : (
+          {sites.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No sites yet.")}</Empty></div> : (
             <Table head={["Name", "Host", "Branch", "Process", "Resources", "Health", "Last deploy", "State", ""]}>
               {sites.map((s: any) => (
                 <tr key={s.id}>
@@ -204,7 +205,7 @@ export function Sites() {
         </Panel>
     ) },
     { id: "apps", title: "Detected Node.js apps", render: (edit: any) => (
-        <Panel title="Detected Node.js apps" flush edit={edit}>
+        <Panel title={t("Detected Node.js apps")} flush edit={edit}>
           {listed.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No Node.js apps detected on your hosts. Agents look every 5 minutes." : "Link a monitor in Settings to detect Node.js apps."}</Empty></div> : (
             <Table head={["App", "Host", "Node.js", "Resources", "Directory", "Git", "Runs under", ""]}>
               {listed.map((a) => (
@@ -214,10 +215,10 @@ export function Sites() {
                   <Td mono>{a.version || "—"}</Td>
                   <Td><Usage app={a} /></Td>
                   <Td><Mono>{a.path}</Mono></Td>
-                  <Td className="max-w-64 truncate" title={a.repo}>{a.repo ? <Mono className="text-fg2">{a.branch ? `${a.branch} · ` : ""}{a.repo}</Mono> : <span className="text-fg3">No Git origin</span>}</Td>
+                  <Td className="max-w-64 truncate" title={a.repo}>{a.repo ? <Mono className="text-fg2">{a.branch ? `${a.branch} · ` : ""}{a.repo}</Mono> : <span className="text-fg3">{t("No Git origin")}</span>}</Td>
                   <Td className="text-fg2">{runsUnder(a)}</Td>
                   <Td className="text-right">
-                    {siteOf(a) ? <span className="text-fg3">Managed</span> : a.manager === "docker" ? <span className="text-fg3" title="Nyx deploys on the host, not inside containers.">Not supported</span> : <Button variant="ghost" onClick={() => setForm(presetOf(a))}>Manage</Button>}
+                    {siteOf(a) ? <span className="text-fg3">{t("Managed")}</span> : a.manager === "docker" ? <span className="text-fg3" title={t("Nyx deploys on the host, not inside containers.")}>{t("Not supported")}</span> : <Button variant="ghost" onClick={() => setForm(presetOf(a))}>{t("Manage")}</Button>}
                   </Td>
                 </tr>
               ))}
@@ -228,7 +229,7 @@ export function Sites() {
   ]
   return (
     <>
-      <PageHeader title="Node.js sites" subtitle={note} actions={<><Select label="Show" value={where} onChange={(e) => setWhere(e.target.value)} options={WHERE} /><CustomizeButton /><Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />Add site</Button></>} />
+      <PageHeader title={t("Node.js sites")} subtitle={note} actions={<><Select label="Show" value={where} onChange={(e) => setWhere(e.target.value)} options={WHERE} /><CustomizeButton /><Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />{t("Add site")}</Button></>} />
       <Board id="sites" panels={panels} desktop={{ cols: [["summary", "sites", "apps"]], hidden: [] }} phone={{ cols: [["summary", "sites", "apps"]], hidden: [] }} />
       {form && <SiteForm hosts={hosts} preset={form} onDone={(site) => { setForm(undefined); reload(); if (site) setOpen(site) }} />}
       {open && <Details site={open} onClose={() => setOpen(undefined)} onChange={reload} />}

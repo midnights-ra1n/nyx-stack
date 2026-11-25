@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from "react"
 import { Empty, Status } from "./components"
 import { type Level, levelSoft, levelText } from "./lib"
 import { navigate } from "./shell"
+import { t } from "./i18n"
 
 export interface ViewNode { label: string; state: Level; type: string; /** Position of the parent in the list. */ parent: number | null; link?: string; sub?: string }
 export type TypeIcons = Record<string, { label: string; icon: ComponentType<SVGProps<SVGSVGElement>> }>
@@ -24,7 +25,7 @@ function Item({ n, icons }: { n: ViewNode; icons: TypeIcons }) {
 
 /** Hosts with their guests under them, as the indented outline of a file explorer. */
 export function TreeView({ nodes, icons }: { nodes: ViewNode[]; icons: TypeIcons }) {
-  if (!nodes.length) return <div className="p-4"><Empty>Nothing to show yet.</Empty></div>
+  if (!nodes.length) return <div className="p-4"><Empty>{t("Nothing to show yet.")}</Empty></div>
   const kids = (parent: number | null) => nodes.flatMap((n, i) => (n.parent === parent ? [i] : []))
   const branch = (i: number, depth: number): React.ReactNode => (
     <li key={i} className="flex flex-col gap-1.5">
@@ -37,16 +38,16 @@ export function TreeView({ nodes, icons }: { nodes: ViewNode[]; icons: TypeIcons
 
 /** One card per kind of device, with the worst state of its members in the header. */
 export function GroupedView({ nodes, icons }: { nodes: ViewNode[]; icons: TypeIcons }) {
-  if (!nodes.length) return <div className="p-4"><Empty>Nothing to show yet.</Empty></div>
+  if (!nodes.length) return <div className="p-4"><Empty>{t("Nothing to show yet.")}</Empty></div>
   const types = [...new Set(nodes.map((n) => n.type || "other"))].sort((a, b) => (icons[a]?.label ?? a).localeCompare(icons[b]?.label ?? b))
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] items-start gap-4 p-4">
-      {types.map((t) => {
-        const members = nodes.filter((n) => (n.type || "other") === t)
+      {types.map((type) => {
+        const members = nodes.filter((n) => (n.type || "other") === type)
         const level = worst(members)
         return (
-          <section key={t} className="flex flex-col gap-1.5 rounded-box border border-line p-3" aria-label={icons[t]?.label ?? t}>
-            <h3 className="mb-1 flex items-center justify-between text-[13px] font-medium text-fg2"><span>{icons[t]?.label ?? t} · {members.length}</span><Status cell level={level} label={members.filter((m) => m.state !== "ok" && m.state !== "info").length ? `${members.filter((m) => m.state !== "ok" && m.state !== "info").length} to check` : "All fine"} /></h3>
+          <section key={type} className="flex flex-col gap-1.5 rounded-box border border-line p-3" aria-label={icons[type]?.label ?? type}>
+            <h3 className="mb-1 flex items-center justify-between text-[13px] font-medium text-fg2"><span>{icons[type]?.label ?? type} · {members.length}</span><Status cell level={level} label={members.filter((m) => m.state !== "ok" && m.state !== "info").length ? t("{n} to check", { n: members.filter((m) => m.state !== "ok" && m.state !== "info").length }) : "All fine"} /></h3>
             {members.map((n, i) => <Item key={i} n={n} icons={icons} />)}
           </section>
         )

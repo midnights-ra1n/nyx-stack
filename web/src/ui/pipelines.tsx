@@ -1,5 +1,6 @@
 import { Empty, Status } from "./components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "./lib"
+import { t } from "./i18n"
 
 const WORD: Record<string, string> = { ok: "Passed", crit: "Failed", info: "Running", off: "Unknown" }
 /** Only web addresses become links: the address comes from a remote server. */
@@ -16,7 +17,7 @@ interface Row { name: string; repo?: string; branch?: string; state: Level; stat
 /** Signed-in rows and public ones differ: a public page only has names, verdicts and times. */
 const norm = (r: any): Row => ({ ...r, name: r.name ?? r.label, runs: (r.runs ?? []).map((x: any) => (typeof x === "string" ? { state: x } : x)) })
 
-const word = (r: Row) => (r.error && r.state === "off" ? "Unreachable" : pipelineWord(r))
+const word = (r: Row) => t(r.error && r.state === "off" ? "Unreachable" : pipelineWord(r))
 const rate = (r: Row) => {
   const done = r.runs.filter((x) => x.state === "ok" || x.state === "crit")
   return done.length ? Math.round((done.filter((x) => x.state === "ok").length / done.length) * 100) : null
@@ -25,9 +26,9 @@ const when = (x: Run) => [x.status?.replace(/_/g, " "), x.sha, x.at ? fmt.ago(x.
 
 /** Oldest on the left, newest on the right, like a heartbeat. */
 function Strip({ runs, tall, grow }: { runs: Run[]; tall?: boolean; grow?: boolean }) {
-  if (!runs.length) return <span className="text-fg3">No runs yet</span>
+  if (!runs.length) return <span className="text-fg3">{t("No runs yet")}</span>
   return (
-    <div className={`flex gap-1 ${grow ? "w-full" : ""}`} role="img" aria-label={`Last ${runs.length} runs, newest on the right: ${[...runs].reverse().map((x) => WORD[x.state]).join(", ")}`}>
+    <div className={`flex gap-1 ${grow ? "w-full" : ""}`} role="img" aria-label={t("Last {n} runs, newest on the right: {v1}", { n: runs.length, v1: [...runs].reverse().map((x) => WORD[x.state]).join(", ") })}>
       {[...runs].reverse().map((x, i) => <span key={i} title={`${WORD[x.state] ?? x.state}${when(x) ? ` · ${when(x)}` : ""}`} className={`rounded-full ${levelBg[x.state] ?? levelBg.off} ${tall ? "h-8" : "h-5"} ${grow ? "min-w-0 flex-1" : "w-2"} ${i === runs.length - 1 ? "" : "opacity-70"}`} />)}
     </div>
   )
@@ -63,7 +64,7 @@ function Cards({ rows }: { rows: Row[] }) {
 function Timeline({ rows }: { rows: Row[] }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="grid grid-cols-[minmax(110px,1fr)_minmax(0,3fr)_auto] gap-4 px-1 text-xs text-fg3"><span /><span className="flex justify-between"><span>Older</span><span>Latest</span></span><span className="w-24" /></div>
+      <div className="grid grid-cols-[minmax(110px,1fr)_minmax(0,3fr)_auto] gap-4 px-1 text-xs text-fg3"><span /><span className="flex justify-between"><span>{t("Older")}</span><span>{t("Latest")}</span></span><span className="w-24" /></div>
       {rows.map((r, i) => (
         <div key={i} className="grid min-h-12 grid-cols-[minmax(110px,1fr)_minmax(0,3fr)_auto] items-center gap-4 rounded-control px-1 py-1.5 hover:bg-raised max-sm:grid-cols-1 max-sm:gap-2">
           <span className="min-w-0"><Name r={r} className="block truncate font-medium" /><span className="block truncate text-xs text-fg3">{r.branch || "any branch"}</span></span>
@@ -115,7 +116,7 @@ function List({ rows }: { rows: Row[] }) {
 
 /** One set of pipelines, shown the way `view` says. */
 export function PipelineView({ rows, view = "list" }: { rows: any[] | null | undefined; view?: string }) {
-  if (!rows?.length) return <Empty>No pipelines followed yet.</Empty>
+  if (!rows?.length) return <Empty>{t("No pipelines followed yet.")}</Empty>
   const r = rows.map(norm)
   return view === "cards" ? <Cards rows={r} /> : view === "timeline" ? <Timeline rows={r} /> : view === "board" ? <Board rows={r} /> : <List rows={r} />
 }

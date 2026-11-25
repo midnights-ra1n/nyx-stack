@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Button, Check, Empty, Meter, Modal, Mono, Panel } from "../ui/components"
 import { levelOf, levelText, sortRows, useStored } from "../ui/lib"
 import { buildTree, HostIcon, hostType } from "./hosts"
+import { t } from "../ui/i18n"
 
 export interface StorageRow { key: string; depth: number; host?: any; mount?: string; pct?: number; expandable: boolean; open: boolean }
 
@@ -56,8 +57,8 @@ function Picker({ hosts, storage, hidden, onChange, onClose }: { hosts: any[]; s
   const set = (keys: string[], show: boolean) => onChange(show ? hidden.filter((k) => !keys.includes(k)) : [...new Set([...hidden, ...keys])])
   const groups = buildTree(hosts, () => [], new Set()).map((r) => ({ ...r, mounts: sortRows(storage.filter((d) => d.host_id === r.host.id), (d) => d.mount) })).filter((g) => g.mounts.length)
   return (
-    <Modal title="Mount points to show" onClose={onClose}>
-      <p className="text-fg2">Saved on this device. New mount points are shown until you hide them.</p>
+    <Modal title={t("Mount points to show")} onClose={onClose}>
+      <p className="text-fg2">{t("Saved on this device. New mount points are shown until you hide them.")}</p>
       <ul className="flex flex-col gap-3">
         {groups.map(({ host, depth, mounts }) => {
           const keys = mounts.map(mountKey)
@@ -72,7 +73,7 @@ function Picker({ hosts, storage, hidden, onChange, onClose }: { hosts: any[]; s
           )
         })}
       </ul>
-      <div><Button onClick={() => onChange([])}>Show all</Button></div>
+      <div><Button onClick={() => onChange([])}>{t("Show all")}</Button></div>
     </Modal>
   )
 }
@@ -87,10 +88,10 @@ export function StoragePanel({ hosts, allHosts, storage, th, edit }: { hosts: an
   const left = inScope.filter((d) => hidden.includes(mountKey(d))).length
   const toggle = (id: string) => setClosed(closed.includes(id) ? closed.filter((c) => c !== id) : [...closed, id])
   return (
-    <Panel title="Storage" edit={edit} actions={[{ label: "Choose mount points", onClick: () => setChoosing(true) }]} footer={left > 0 ? `${left} mount ${left > 1 ? "points" : "point"} hidden` : undefined}>
-      {!inScope.length ? <Empty>No disks reported.</Empty> : !rows.length ? <Empty>Every mount point is hidden.</Empty> : (
+    <Panel title={t("Storage")} edit={edit} actions={[{ label: "Choose mount points", onClick: () => setChoosing(true) }]} footer={left > 0 ? `${left} mount ${left > 1 ? "points" : "point"} hidden` : undefined}>
+      {!inScope.length ? <Empty>{t("No disks reported.")}</Empty> : !rows.length ? <Empty>{t("Every mount point is hidden.")}</Empty> : (
         // Focusable, so that the keyboard can scroll it too.
-        <ul tabIndex={0} aria-label="Mount points" className="flex max-h-96 flex-col overflow-y-auto pr-2">
+        <ul tabIndex={0} aria-label={t("Mount points")} className="flex max-h-96 flex-col overflow-y-auto pr-2">
           {rows.map((r) => <Row key={r.key} row={r} hosts={allHosts} th={th} onToggle={() => toggle(r.key)} />)}
         </ul>
       )}

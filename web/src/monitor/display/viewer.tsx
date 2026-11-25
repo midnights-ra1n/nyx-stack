@@ -4,6 +4,7 @@ import { IconButton, Status } from "../../ui/components"
 import { api, type Level, levelSoft, levelText, useMedia } from "../../ui/lib"
 import { bottom, themeVars } from "./model"
 import { DashPanel } from "./panels"
+import { t } from "../../ui/i18n"
 
 /** These grow with their content on a phone. Charts need a fixed height. */
 const FLOWING = ["services", "tiles", "alerts", "text"]
@@ -45,7 +46,7 @@ function usePage(path: string, key: string | null, seconds: number, paused: bool
 function Pages({ rotation, step, go }: { rotation: { count: number; titles?: string[] }; step: number; go: (s: number) => void }) {
   const at = (s: number) => (s + rotation.count) % rotation.count
   return (
-    <nav aria-label="Pages" className="flex items-center gap-1">
+    <nav aria-label={t("Pages")} className="flex items-center gap-1">
       <IconButton label="Previous page" icon={ChevronLeftIcon} onClick={() => go(at(step - 1))} />
       {Array.from({ length: rotation.count }, (_, i) => {
         const title = rotation.titles?.[i] || `Page ${i + 1}`
@@ -66,7 +67,7 @@ function Header({ page, updated, compact, step, paused, onPause, go }: { page: a
       </div>
       {compact && <Status level={page.overall} />}
       {page.rotation && <Pages rotation={page.rotation} step={step} go={go} />}
-      {updated && <span className="text-xs text-fg3">{paused ? "Paused at" : "Updated"} {updated.toLocaleTimeString()}</span>}
+      {updated && <span className="text-xs text-fg3">{t(paused ? "Paused at {time}" : "Updated {time}", { time: updated.toLocaleTimeString() })}</span>}
       {onPause && <IconButton label={paused ? "Resume" : "Pause"} icon={paused ? PlayIcon : PauseIcon} onClick={onPause} />}
       {compact && document.fullscreenEnabled && <IconButton label="Full screen" icon={ArrowsPointingOutIcon} onClick={() => document.documentElement.requestFullscreen()} />}
     </header>
@@ -133,7 +134,7 @@ export function DisplayPage({ slug }: { slug: string }) {
 
   if (!page) return status === "ok" ? null : (
     <main className="flex h-dvh items-center justify-center p-5 text-center text-fg2">
-      {status === "gone" ? "This page does not exist or is not published." : "Cannot reach this page. Retrying."}
+      {t(status === "gone" ? "This page does not exist or is not published." : "Cannot reach this page. Retrying.")}
     </main>
   )
   if (wall && !phone) {

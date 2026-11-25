@@ -27,6 +27,7 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "vrfs", hidden: &[], history: false },
     crud::Spec { name: "deployments", hidden: &[], history: false },
     crud::Spec { name: "ports", hidden: &[], history: false },
+    crud::Spec { name: "racks", hidden: &[], history: false },
     crud::Spec { name: "map_nodes", hidden: &[], history: false },
     crud::Spec { name: "map_links", hidden: &[], history: false },
     crud::Spec { name: "vpn_links", hidden: &[], history: false },

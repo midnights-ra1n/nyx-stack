@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { lang, t } from "./i18n"
 import { relayFetch, relayKey } from "./relay"
 
 export class ApiError extends Error {
@@ -35,7 +36,7 @@ export async function download(path: string) {
 /** The logo of this app: each page names its own in index.html. */
 export const markUrl = () => document.querySelector("link[rel=icon]")?.getAttribute("href") ?? "/nyx-mark.svg"
 
-export const REFRESH: [number, string][] = [[5000, "5 s"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [0, "Off"]]
+export const REFRESH: [number, string][] = [[5000, "5 s"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [0, t("Off")]]
 
 // Global auto-refresh, set by the control bar. 0 turns it off.
 let refreshMs = Number(globalThis.localStorage?.getItem("nyx.refresh") ?? 15000)
@@ -131,20 +132,20 @@ export const fmt = {
   uptime(s?: number | null) {
     if (s == null) return "—"
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
-    return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`
+    return d ? `${d} ${t("d")} ${h} h` : h ? `${h} h ${m} min` : `${m} min`
   },
-  ago(t?: string | number | null) {
-    if (!t) return "—"
-    const ms = typeof t === "number" ? t * 1000 : Date.parse(t.replace(" ", "T"))
+  ago(at?: string | number | null) {
+    if (!at) return "—"
+    const ms = typeof at === "number" ? at * 1000 : Date.parse(at.replace(" ", "T"))
     if (Number.isNaN(ms)) return "—"
     const s = Math.max(0, (Date.now() - ms) / 1000)
-    if (s < 60) return "just now"
-    if (s < 3600) return `${Math.floor(s / 60)} min ago`
-    if (s < 86400) return `${Math.floor(s / 3600)} h ago`
-    return `${Math.floor(s / 86400)} d ago`
+    if (s < 60) return t("just now")
+    if (s < 3600) return t("{n} min ago", { n: Math.floor(s / 60) })
+    if (s < 86400) return t("{n} h ago", { n: Math.floor(s / 3600) })
+    return t("{n} d ago", { n: Math.floor(s / 86400) })
   },
-  date: (t?: string | null) => (t ? new Date(t.replace(" ", "T")).toLocaleDateString() : "—"),
-  time: (d?: Date) => d?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "—",
+  date: (t?: string | null) => (t ? new Date(t.replace(" ", "T")).toLocaleDateString(lang) : "—"),
+  time: (d?: Date) => d?.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) ?? "—",
 }
 
 export type Level = "ok" | "warn" | "crit" | "info" | "off"

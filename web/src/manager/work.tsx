@@ -1,6 +1,7 @@
 import { ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useState } from "react"
-import { Empty, IconButton, Status, Table, Tabs, Td, Variable } from "../ui/components"
+import { Empty, IconButton, Progress, Status, Table, Tabs, Td, Variable } from "../ui/components"
+import { t } from "../ui/i18n"
 import { fmt, isOverdue, type Level, sortRows, useStored } from "../ui/lib"
 
 export interface WorkState { id: string; label: string; level: Level }
@@ -15,6 +16,8 @@ export interface WorkItem {
   detail?: string
   /** Shown in the list only, as calendar events have no state of ours. */
   readOnly?: boolean
+  /** Ticked and total items of its checklist. */
+  checklist?: { done: number; total: number }
   row: any
 }
 export interface WorkColumn { label: string; value: (w: WorkItem) => ReactNode }
@@ -24,20 +27,27 @@ export const parseTags = (tags?: string) => (tags ?? "").split(",").map((t) => t
 const VIEWS = [{ id: "board", label: "Board" }, { id: "list", label: "List" }]
 
 function Due({ item }: { item: WorkItem }) {
-  if (!item.due) return <span className="text-fg3">No due date</span>
+  if (!item.due) return <span className="text-fg3">{t("No due date")}</span>
   const late = item.open && isOverdue(item.due)
-  return <span className={`inline-flex items-center gap-1 whitespace-nowrap ${late ? "text-crit" : "text-fg2"}`}>{late && <ExclamationTriangleIcon className="size-4" aria-hidden />}{late ? "Late, " : ""}{fmt.date(item.due)}</span>
+  return <span className={`inline-flex items-center gap-1 whitespace-nowrap ${late ? "text-crit" : "text-fg2"}`}>{late && <ExclamationTriangleIcon className="size-4" aria-hidden />}{late ? t("Late, {date}", { date: fmt.date(item.due) }) : fmt.date(item.due)}</span>
+}
+
+function Checklist({ item }: { item: WorkItem }) {
+  const c = item.checklist
+  if (!c?.total) return null
+  const pct = Math.round((c.done / c.total) * 100)
+  return <span className="flex items-center gap-2 text-[13px] text-fg2"><span className="w-full max-w-40"><Progress thin pct={pct} label={t("Checklist of {title}", { title: item.title })} /></span><span className="whitespace-nowrap">{c.done}/{c.total}</span></span>
 }
 
 function Tags({ tags, onPick }: { tags: string[]; onPick: (t: string) => void }) {
-  return <span className="flex flex-wrap gap-1">{tags.map((t) => <button key={t} type="button" title={`Show only ${t}`} className="rounded-full bg-raised px-2 text-xs leading-6 text-fg2 hover:text-fg" onClick={() => onPick(t)}>{t}</button>)}</span>
+  return <span className="flex flex-wrap gap-1">{tags.map((tag) => <button key={tag} type="button" title={t("Show only {tag}", { tag })} className="rounded-full bg-raised px-2 text-xs leading-6 text-fg2 hover:text-fg" onClick={() => onPick(tag)}>{tag}</button>)}</span>
 }
 
 /** What moves an item by keyboard or on a phone, where dragging does not work. */
 function StateSelect({ item, states, onMove }: { item: WorkItem; states: WorkState[]; onMove: (state: string) => void }) {
   return (
-    <select aria-label={`State of ${item.title}`} value={item.state} onChange={(e) => onMove(e.target.value)} className="h-7 max-sm:h-9 max-w-28 rounded-control bg-raised px-1 text-[13px] text-fg2">
-      {states.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+    <select aria-label={t("State of {title}", { title: item.title })} value={item.state} onChange={(e) => onMove(e.target.value)} className="h-7 max-sm:h-9 max-w-28 rounded-control bg-raised px-1 text-[13px] text-fg2">
+      {states.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
     </select>
   )
 }
@@ -47,6 +57,7 @@ function Card({ item, states, onMove, onOpen, onPick }: { item: WorkItem; states
     <li draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", item.id)} className="flex cursor-grab flex-col gap-2 rounded-box border border-line bg-surface p-3 active:cursor-grabbing">
       <button type="button" className="text-left font-medium hover:text-accent" onClick={onOpen}>{item.title}</button>
       {item.detail && <span className="truncate font-mono text-[13px] text-fg3">{item.detail}</span>}
+      <Checklist item={item} />
       {item.tags.length > 0 && <Tags tags={item.tags} onPick={onPick} />}
       <div className="flex items-center justify-between gap-2 text-[13px]">
         <Due item={item} />
@@ -69,7 +80,7 @@ function Kanban({ items, states, onMove, onOpen, onPick }: { items: WorkItem[]; 
       {states.map((s) => {
         const cards = items.filter((w) => w.state === s.id)
         return (
-          <section key={s.id} aria-label={s.label} onDragOver={(e) => { e.preventDefault(); setOver(s.id) }} onDragLeave={() => setOver(undefined)} onDrop={(e) => drop(e, s.id)} className={`flex min-h-40 flex-col gap-2 rounded-box p-2 ${over === s.id ? "bg-accent-soft" : "bg-bg"}`}>
+          <section key={s.id} aria-label={t(s.label)} onDragOver={(e) => { e.preventDefault(); setOver(s.id) }} onDragLeave={() => setOver(undefined)} onDrop={(e) => drop(e, s.id)} className={`flex min-h-40 flex-col gap-2 rounded-box p-2 ${over === s.id ? "bg-accent-soft" : "bg-bg"}`}>
             <h3 className="flex items-center justify-between px-1"><Status cell level={s.level} label={s.label} /><span className="text-[13px] text-fg3">{cards.length}</span></h3>
             <ul className="flex flex-col gap-2">{cards.map((w) => <Card key={w.id} item={w} states={states} onMove={(state) => onMove(w, state)} onOpen={() => onOpen(w)} onPick={onPick} />)}</ul>
           </section>
@@ -93,7 +104,7 @@ export function WorkView({ id, states, items, empty, columns = [], onMove, onOpe
   const toolbar = (
     <div className="mb-3 flex flex-wrap items-center gap-3">
       <Tabs tabs={VIEWS} value={view} onChange={setView} />
-      {tags.length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...tags.map((t) => ({ value: t, label: t }))]} />}
+      {tags.length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...tags.map((x) => ({ value: x, label: x }))]} />}
     </div>
   )
   if (!items.length) return <Empty>{empty}</Empty>
@@ -105,8 +116,8 @@ export function WorkView({ id, states, items, empty, columns = [], onMove, onOpe
         <Table head={["Title", "State", "Tags", "Due", ...columns.map((c) => c.label), ""]} sort={order} onSort={(col) => setOrder({ col, desc: order.col === col && !order.desc })}>
           {sortRows(shown, value, order.desc).map((w) => (
             <tr key={w.id}>
-              <Td className={w.open ? "font-medium" : "text-fg3 line-through"}>{w.readOnly ? w.title : <button type="button" className="min-h-9 max-sm:min-h-11 text-left hover:text-accent" onClick={() => onOpen(w)}>{w.title}</button>}</Td>
-              <Td>{w.readOnly ? <span className="text-fg3">Event</span> : <StateSelect item={w} states={states} onMove={(state) => onMove(w, state)} />}</Td>
+              <Td className={w.open ? "font-medium" : "text-fg3 line-through"}>{w.readOnly ? w.title : <button type="button" className="min-h-9 max-sm:min-h-11 text-left hover:text-accent" onClick={() => onOpen(w)}>{w.title}</button>}<Checklist item={w} /></Td>
+              <Td>{w.readOnly ? <span className="text-fg3">{t("Event")}</span> : <StateSelect item={w} states={states} onMove={(state) => onMove(w, state)} />}</Td>
               <Td><Tags tags={w.tags} onPick={setTag} /></Td>
               <Td className="text-[13px]"><Due item={w} /></Td>
               {columns.map((c) => <Td key={c.label} className="text-fg2">{c.value(w) || "—"}</Td>)}

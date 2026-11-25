@@ -7,6 +7,7 @@ import { Link, PageHeader, Section } from "../ui/shell"
 import { uptimeBar } from "./display/model"
 import { PRESETS } from "./snmp-presets"
 import { VpnTable } from "./vpn"
+import { t } from "../ui/i18n"
 
 /** Sends a command to a host's agent and waits for its answer, which comes with the next report. */
 async function onHost(hostId: string, body: object) {
@@ -52,7 +53,7 @@ export function Containers() {
         <IconButton label={`Restart ${c.name}`} icon={ArrowPathIcon} onClick={() => act(c, "restart")} />
         <IconButton label={`Stop ${c.name}`} icon={StopIcon} onClick={() => act(c, "stop")} />
       </> : <IconButton label={`Start ${c.name}`} icon={PlayIcon} onClick={() => act(c, "start")} />}
-      <IconButton label={`Logs of ${c.name}`} icon={DocumentTextIcon} onClick={() => act(c, "logs")} />
+      <IconButton label={t("Logs of {name}", { name: c.name })} icon={DocumentTextIcon} onClick={() => act(c, "logs")} />
     </span>
   )
   const usage = (c: any) => (c.state === "running" ? <div className="flex min-w-28 flex-col gap-1 text-[13px]"><span>{fmt.pct(c.cpu_pct)} · {fmt.bytes(c.mem_used)}</span><Meter pct={c.mem_pct} /></div> : <span className="text-fg3">—</span>)
@@ -74,7 +75,7 @@ export function Containers() {
   const card = (c: any) => (
     <li key={c.host_id + c.name} className={`flex flex-col gap-2 rounded-box border border-line p-3 ${levelSoft[stateLevel(c)]}`}>
       <div className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-medium" title={c.name}>{c.name}</span><span className="block truncate font-mono text-xs text-fg3" title={c.image}>{c.image}</span></span><Status cell level={stateLevel(c)} label={c.state} /></div>
-      {c.state === "running" && <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-[13px]"><span className="text-fg2">CPU</span><Meter pct={Math.min(100, c.cpu_pct)} /><span className="text-fg2">Memory</span><Meter pct={c.mem_pct} /></div>}
+      {c.state === "running" && <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-[13px]"><span className="text-fg2">{t("CPU")}</span><Meter pct={Math.min(100, c.cpu_pct)} /><span className="text-fg2">{t("Memory")}</span><Meter pct={c.mem_pct} /></div>}
       <div className="flex items-center justify-between text-xs text-fg3"><span className="truncate">{c.status}</span>{actions(c)}</div>
     </li>
   )
@@ -85,7 +86,7 @@ export function Containers() {
     : table(shown, rows.length ? "Nothing matches." : "No containers reported.")
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
-      <Panel title="Summary" edit={edit}>
+      <Panel title={t("Summary")} edit={edit}>
         <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
           <Stat label="Running" value={running} level="ok" />
           <Stat label="Not running" value={rows.length - running} level={rows.length > running ? "warn" : "ok"} />
@@ -95,16 +96,16 @@ export function Containers() {
       </Panel>
     ) },
     { id: "top", title: "Biggest consumers", render: (edit: any) => (
-      <Panel title="Biggest consumers" edit={edit}>
+      <Panel title={t("Biggest consumers")} edit={edit}>
         <div className="grid grid-cols-2 gap-6 max-md:grid-cols-1">
-          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">CPU (one core is 100 %)</h3>{top("cpu", (c) => c.cpu_pct).length ? <BarGauge rows={top("cpu", (c) => Math.min(100, c.cpu_pct))} /> : <Empty>No load.</Empty>}</div>
-          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">Memory (of its limit)</h3>{top("mem", (c) => c.mem_pct).length ? <BarGauge rows={top("mem", (c) => c.mem_pct)} /> : <Empty>No data yet.</Empty>}</div>
+          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">{t("CPU (one core is 100 %)")}</h3>{top("cpu", (c) => c.cpu_pct).length ? <BarGauge rows={top("cpu", (c) => Math.min(100, c.cpu_pct))} /> : <Empty>{t("No load.")}</Empty>}</div>
+          <div><h3 className="mb-2 text-[13px] font-medium text-fg2">{t("Memory (of its limit)")}</h3>{top("mem", (c) => c.mem_pct).length ? <BarGauge rows={top("mem", (c) => c.mem_pct)} /> : <Empty>{t("No data yet.")}</Empty>}</div>
         </div>
       </Panel>
     ) },
-    { id: "stopped", title: "Not running", render: (edit: any) => <Panel title="Not running" flush edit={edit}>{table(rows.filter((c) => c.state !== "running"), "Everything is running.")}</Panel> },
+    { id: "stopped", title: "Not running", render: (edit: any) => <Panel title={t("Not running")} flush edit={edit}>{table(rows.filter((c) => c.state !== "running"), "Everything is running.")}</Panel> },
     { id: "all", title: "Docker containers", render: (edit: any) => (
-      <Panel title="Docker containers" flush edit={edit}>
+      <Panel title={t("Docker containers")} flush edit={edit}>
         <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
           <Tabs tabs={VIEWS} value={view} onChange={setView} />
           <Input label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -117,7 +118,7 @@ export function Containers() {
   ]
   return (
     <>
-      <PageHeader title="Containers" subtitle={`${running} of ${rows.length} running`} onRefresh={reload} actions={<CustomizeButton />} />
+      <PageHeader title={t("Containers")} subtitle={`${running} of ${rows.length} running`} onRefresh={reload} actions={<CustomizeButton />} />
       <Board id="containers" panels={panels} desktop={{ cols: [["summary", "top", "all"]], hidden: ["stopped"] }} phone={{ cols: [["summary", "all"]], hidden: ["stopped", "top"] }} />
       {logs && <ContainerLogs c={logs} onClose={() => setLogs(undefined)} />}
     </>
@@ -155,7 +156,7 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         <Input label="Target" required value={f.target} hint={TARGET_HINT[f.type]} onChange={(e) => set("target", e.target.value)} />
         <Input label="Interval (seconds)" type="number" min={10} value={f.interval_s} onChange={(e) => set("interval_s", Number(e.target.value))} />
         {f.type === "dns" && <Input label="DNS server" value={f.dns_server} hint="IP to query. Empty uses the DNS for probes from Settings, or the system's resolver." onChange={(e) => set("dns_server", e.target.value)} />}
-        {(f.type === "ping" || f.type === "http") && <Input label="DNS server" value={f.dns_server} placeholder="The DNS for probes from Settings" hint="IP that resolves the host name, for example 1.1.1.1 so the checks stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
+        {(f.type === "ping" || f.type === "http") && <Input label="DNS server" value={f.dns_server} placeholder={t("The DNS for probes from Settings")} hint="IP that resolves the host name, for example 1.1.1.1 so the checks stay out of a local NextDNS or Pi-hole log." onChange={(e) => set("dns_server", e.target.value)} />}
         {f.type === "http" && <Input label="Expected status" type="number" value={f.expect_status || ""} hint="Empty accepts any 2xx or 3xx." onChange={(e) => set("expect_status", Number(e.target.value))} />}
         {(f.type === "cert" || (f.type === "http" && f.target.startsWith("https://"))) && <Input label="Warn this many days before the certificate expires" type="number" value={f.warn_days} onChange={(e) => set("warn_days", Number(e.target.value))} />}
         {f.type === "snmp" && <>
@@ -172,7 +173,7 @@ function ProbeForm({ row, onDone }: { row: any | null; onDone: () => void }) {
         </>}
         <Check label="Enabled" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
         <ErrorNote>{error}</ErrorNote>
-        <div><Button variant="primary" type="submit">Save</Button></div>
+        <div><Button variant="primary" type="submit">{t("Save")}</Button></div>
       </form>
     </Modal>
   )
@@ -200,19 +201,19 @@ function ProbeDns({ defs, onDone }: { defs: any[]; onDone: () => void }) {
     catch (err) { setError((err as Error).message); setBusy(false) }
   }
   return (
-    <Modal title="Probe DNS" onClose={onDone} wide>
+    <Modal title={t("Probe DNS")} onClose={onDone} wide>
       <form className="flex flex-col gap-4" onSubmit={apply}>
-        <Input label="DNS server" value={dns} onChange={(e) => setDns(e.target.value)} placeholder={`DNS for probes: ${fallback}`} hint="One IP, for example 1.1.1.1. Empty goes back to the DNS for probes from Settings." />
+        <Input label="DNS server" value={dns} onChange={(e) => setDns(e.target.value)} placeholder={t("DNS for probes: {fallback}", { fallback })} hint="One IP, for example 1.1.1.1. Empty goes back to the DNS for probes from Settings." />
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-[13px] text-fg2">Ping and website probes · {picked.size} of {probes.length}</legend>
           <div className="flex gap-3 text-[13px]">
-            <button type="button" className="text-accent" onClick={() => setPicked(new Set(probes.map((d) => d.id)))}>All</button>
-            {DNS_TYPES.map((t) => <button key={t} type="button" className="text-accent" onClick={() => setPicked(new Set(probes.filter((d) => d.type === t).map((d) => d.id)))}>{TYPE_LABEL[t]} only</button>)}
-            <button type="button" className="text-accent" onClick={() => setPicked(new Set())}>None</button>
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set(probes.map((d) => d.id)))}>{t("All")}</button>
+            {DNS_TYPES.map((type) => <button key={type} type="button" className="text-accent" onClick={() => setPicked(new Set(probes.filter((d) => d.type === type).map((d) => d.id)))}>{t("{type} only", { type: TYPE_LABEL[type] })}</button>)}
+            <button type="button" className="text-accent" onClick={() => setPicked(new Set())}>{t("None")}</button>
           </div>
-          {probes.length === 0 ? <Empty>No ping or website probe yet.</Empty> : (
+          {probes.length === 0 ? <Empty>{t("No ping or website probe yet.")}</Empty> : (
             <div className="grid max-h-72 grid-cols-2 overflow-y-auto max-sm:grid-cols-1">
-              {probes.map((d) => <Check key={d.id} label={`${d.name} · ${TYPE_LABEL[d.type]}`} hint={d.dns_server || `DNS for probes (${fallback})`} checked={picked.has(d.id)} onChange={() => toggle(d.id)} />)}
+              {probes.map((d) => <Check key={d.id} label={`${d.name} · ${TYPE_LABEL[d.type]}`} hint={d.dns_server || t("DNS for probes ({fallback})", { fallback })} checked={picked.has(d.id)} onChange={() => toggle(d.id)} />)}
             </div>
           )}
         </fieldset>
@@ -244,8 +245,8 @@ function Heartbeats({ values = [], count = 40, tall }: { values?: boolean[]; cou
   const last = values.slice(-count)
   const slots = [...Array(count - last.length).fill(null), ...last]
   return (
-    <span className={`flex ${tall ? "h-8" : "h-5"} w-full items-stretch gap-[2px]`} role="img" aria-label={`${last.filter(Boolean).length} of ${last.length} recent checks up`}>
-      {slots.map((v, i) => <span key={i} title={v == null ? undefined : `${count - 1 - i === 0 ? "Latest check" : `${count - 1 - i} checks ago`}: ${v ? "up" : "down"}`} className={`min-w-0 flex-1 rounded-full ${v == null ? "bg-raised" : v ? "bg-ok" : "bg-crit"}`} />)}
+    <span className={`flex ${tall ? "h-8" : "h-5"} w-full items-stretch gap-[2px]`} role="img" aria-label={t("{v0} of {n} recent checks up", { v0: last.filter(Boolean).length, n: last.length })}>
+      {slots.map((v, i) => <span key={i} title={v == null ? undefined : `${count - 1 - i === 0 ? t("Latest check") : t("{n} checks ago", { n: count - 1 - i })}: ${t(v ? "up" : "down")}`} className={`min-w-0 flex-1 rounded-full ${v == null ? "bg-raised" : v ? "bg-ok" : "bg-crit"}`} />)}
     </span>
   )
 }
@@ -290,14 +291,14 @@ function ProbeView({ def, probe, onEdit, onToggle, onDelete }: { def: any; probe
         <Stat label="Average response" value={avg == null ? "—" : `${avg.toFixed(0)} ms`} sub={range} />
         <Stat label="Uptime" value={pct(recent)} level={recent == null ? undefined : uptimeLevel(recent)} sub={`Last ${probe?.history.length ?? 0} checks`} />
         <Stat label="Uptime" value={pct(probe?.uptime_30d)} level={probe?.uptime_30d == null ? undefined : uptimeLevel(probe.uptime_30d)} sub="30 days" />
-        {probe?.cert_days != null && <Stat label="Certificate" value={probe.cert_days < 0 ? "Expired" : `${probe.cert_days} d`} level={probe.cert_days <= 7 ? "crit" : probe.cert_days <= probe.warn_days ? "warn" : "ok"} sub="Until it expires" />}
+        {probe?.cert_days != null && <Stat label="Certificate" value={probe.cert_days < 0 ? t("Expired") : `${probe.cert_days} ${t("d")}`} level={probe.cert_days <= 7 ? "crit" : probe.cert_days <= probe.warn_days ? "warn" : "ok"} sub="Until it expires" />}
       </div>
       {days.some((d) => d != null) && (
         <div className="flex flex-col gap-1">
-          <span className="flex h-8 items-stretch gap-[2px]" role="img" aria-label="Uptime of each of the last 30 days">
-            {days.map((d, i) => <span key={i} title={`${days.length - 1 - i === 0 ? "Today" : `${days.length - 1 - i} days ago`}: ${d == null ? "no data" : `${d} %`}`} className={`min-w-0 flex-1 rounded-sm ${uptimeBar(d)}`} />)}
+          <span className="flex h-8 items-stretch gap-[2px]" role="img" aria-label={t("Uptime of each of the last 30 days")}>
+            {days.map((d, i) => <span key={i} title={`${days.length - 1 - i === 0 ? "Today" : t("{v0} days ago", { v0: days.length - 1 - i })}: ${d == null ? "no data" : `${d} %`}`} className={`min-w-0 flex-1 rounded-sm ${uptimeBar(d)}`} />)}
           </span>
-          <div className="flex justify-between text-xs text-fg3"><span>30 days ago</span><span>Today</span></div>
+          <div className="flex justify-between text-xs text-fg3"><span>{t("30 days ago")}</span><span>{t("Today")}</span></div>
         </div>
       )}
       {probe?.readings.length > 0 && (
@@ -347,26 +348,26 @@ export function Network() {
   const remove = async (d: any) => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/probes/${d.id}`, { method: "DELETE" }); setPicked(undefined); done() } }
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
-      <Panel title="Summary" edit={edit}>
+      <Panel title={t("Summary")} edit={edit}>
         <div className="grid grid-cols-5 gap-4 max-md:grid-cols-3 max-sm:grid-cols-2">
           <Stat label="Up" value={count("ok")} level="ok" />
           <Stat label="Down" value={count("crit")} level={count("crit") ? "crit" : undefined} />
           <Stat label="Warning" value={count("warn")} level={count("warn") ? "warn" : undefined} />
           <Stat label="Paused" value={paused} sub={count("off") > paused ? `${count("off") - paused} pending` : undefined} />
-          <Stat label="Average response" value={latencies.length ? `${(latencies.reduce((a, b) => a + b) / latencies.length).toFixed(0)} ms` : "—"} sub={certs[0] ? `Next certificate: ${certs[0].name}, ${certs[0].cert_days} d` : undefined} />
+          <Stat label="Average response" value={latencies.length ? `${(latencies.reduce((a, b) => a + b) / latencies.length).toFixed(0)} ms` : "—"} sub={certs[0] ? t("Next certificate: {v0}, {v1} d", { v0: certs[0].name, v1: certs[0].cert_days }) : undefined} />
         </div>
       </Panel>
     ) },
     { id: "probes", title: "Probes", render: (edit: any) => (
-      <Panel title="Probes" flush edit={edit}>
-        {rows.length === 0 ? <div className="px-4 pb-4"><Empty>No probes yet. Add one to watch a host, a website, a DNS server or a certificate.</Empty></div> : (
+      <Panel title={t("Probes")} flush edit={edit}>
+        {rows.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No probes yet. Add one to watch a host, a website, a DNS server or a certificate.")}</Empty></div> : (
           <div className="grid grid-cols-[minmax(18rem,2fr)_3fr] max-lg:grid-cols-1">
             <div className="flex min-w-0 flex-col border-r border-line max-lg:border-r-0 max-lg:border-b">
               <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
                 <div className="min-w-40 flex-1"><Input label="Search" type="search" value={q} onChange={(e) => setQ(e.target.value)} /></div>
                 <Variable label="Show" value={show} onChange={setShow} options={SHOW} />
               </div>
-              {shown.length === 0 ? <div className="px-4 pb-4"><Empty>No probe matches.</Empty></div> : (
+              {shown.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No probe matches.")}</Empty></div> : (
                 <ul className="max-h-[70vh] overflow-y-auto max-lg:max-h-[40vh]">
                   {shown.map(({ d, p, level }: any) => (
                     <li key={d.id}>
@@ -389,17 +390,17 @@ export function Network() {
       </Panel>
     ) },
     { id: "vpn", title: "VPN links", absent: !tunnels.length, render: (edit: any) => (
-      <Panel title="VPN links" flush edit={edit}><VpnTable rows={tunnels} /></Panel>
+      <Panel title={t("VPN links")} flush edit={edit}><VpnTable rows={tunnels} /></Panel>
     ) },
     { id: "certs", title: "Certificates", render: (edit: any) => (
-      <Panel title="Certificates" edit={edit}>
-        {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>No HTTPS certificates followed.</Empty>}
+      <Panel title={t("Certificates")} edit={edit}>
+        {certs.length ? <ul className="divide-y divide-line">{certs.map((c) => <li key={c.id} className="flex justify-between py-2"><span>{c.name}</span><span className={c.cert_days <= c.warn_days ? "text-warn" : "text-fg2"}>{c.cert_days} days left</span></li>)}</ul> : <Empty>{t("No HTTPS certificates followed.")}</Empty>}
       </Panel>
     ) },
   ]
   return (
     <>
-      <PageHeader title="Network" subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button onClick={() => setDnsOpen(true)}><GlobeAltIcon className="size-5" aria-hidden />Probe DNS</Button><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />Add probe</Button></>} />
+      <PageHeader title={t("Network")} subtitle="Ping, website, DNS, certificate and SNMP probes" onRefresh={live.reload} actions={<><CustomizeButton /><Button onClick={() => setDnsOpen(true)}><GlobeAltIcon className="size-5" aria-hidden />{t("Probe DNS")}</Button><Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add probe")}</Button></>} />
       <Board id="network" panels={panels} desktop={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} phone={{ cols: [["summary", "probes", "vpn"]], hidden: ["certs"] }} />
       {edit !== undefined && <ProbeForm row={edit} onDone={done} />}
       {dnsOpen && <ProbeDns defs={defs.data?.items ?? []} onDone={done} />}
@@ -420,19 +421,19 @@ export function Alerts() {
   )
   const panels = [
     { id: "open", title: "Open", render: (edit: any) => (
-      <Panel title="Open" flush edit={edit}>
-        {open.data?.items.length ? <Table head={["Alert", "Host", "Since", "State"]}>{open.data.items.map((a: any) => row(a, false))}</Table> : <div className="px-4 pb-4"><Empty>Nothing is wrong.</Empty></div>}
+      <Panel title={t("Open")} flush edit={edit}>
+        {open.data?.items.length ? <Table head={["Alert", "Host", "Since", "State"]}>{open.data.items.map((a: any) => row(a, false))}</Table> : <div className="px-4 pb-4"><Empty>{t("Nothing is wrong.")}</Empty></div>}
       </Panel>
     ) },
     { id: "resolved", title: "Resolved", render: (edit: any) => (
-      <Panel title="Resolved" flush edit={edit}>
-        {past.data?.items.length ? <Table head={["Alert", "Host", "Resolved", "State"]}>{past.data.items.map((a: any) => row(a, true))}</Table> : <div className="px-4 pb-4"><Empty>No history yet.</Empty></div>}
+      <Panel title={t("Resolved")} flush edit={edit}>
+        {past.data?.items.length ? <Table head={["Alert", "Host", "Resolved", "State"]}>{past.data.items.map((a: any) => row(a, true))}</Table> : <div className="px-4 pb-4"><Empty>{t("No history yet.")}</Empty></div>}
       </Panel>
     ) },
   ]
   return (
     <>
-      <PageHeader title="Alerts" subtitle={`${open.data?.items.length ?? 0} open`} onRefresh={open.reload} actions={<CustomizeButton />} />
+      <PageHeader title={t("Alerts")} subtitle={`${open.data?.items.length ?? 0} open`} onRefresh={open.reload} actions={<CustomizeButton />} />
       <Board id="alerts" panels={panels} desktop={{ cols: [["open", "resolved"]], hidden: [] }} phone={{ cols: [["open", "resolved"]], hidden: [] }} />
     </>
   )
@@ -449,10 +450,10 @@ export function SearchPage() {
   const cs = containers?.filter((c) => hit(c.name, c.image)) ?? []
   return (
     <>
-      <PageHeader title="Search" />
+      <PageHeader title={t("Search")} />
       <Section>
         <Input label="Search" autoFocus value={q} onChange={(e) => setQ(e.target.value)} />
-        <Panel title="Results">
+        <Panel title={t("Results")}>
           {hs.length + cs.length === 0 ? <Empty>{n ? "No results." : "Type a host, address or container."}</Empty> : (
             <ul className="flex flex-col gap-2">
               {hs.map((h) => <li key={h.id}><Link className="text-accent" to={`/hosts/${h.id}`}>{h.name}</Link> <Mono className="text-fg3">{h.ip}</Mono> <Status cell level={h.status} label="" /></li>)}

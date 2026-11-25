@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { fmt, markUrl } from "./lib"
+import { t } from "./i18n"
 
 interface Chat { label: string; bg: string; text: string; meta: string; bubble?: string }
 
@@ -24,7 +25,7 @@ function ChatLook({ id, title, body }: { id: string; title: string; body: string
       <Avatar />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-medium">Nyx</span>
+          <span className="font-medium">{t("Nyx")}</span>
           {id === "discord" && <span className="rounded-full bg-[#5865f2] px-1.5 text-[10px] leading-4 font-medium text-white">BOT</span>}
           <span className="text-xs" style={{ color: c.meta }}>{fmt.time(new Date())}</span>
         </div>
@@ -50,7 +51,7 @@ function EmailLook({ title, body, html }: { title: string; body: string; html: b
         </div>
       </div>
       {html
-        ? <iframe title="Message preview" sandbox="" srcDoc={`<style>body{margin:0}</style>${body}`} className="h-96 w-full" />
+        ? <iframe title={t("Message preview")} sandbox="" srcDoc={`<style>body{margin:0}</style>${body}`} className="h-96 w-full" />
         : <pre className="p-4 font-sans whitespace-pre-wrap break-words">{body}</pre>}
     </div>
   )
@@ -75,14 +76,14 @@ export function MessagePreview({ url, title, body, html }: { url: string; title:
   return (
     <div className="flex flex-col gap-3">
       {!html && (
-        <div role="tablist" aria-label="Preview as" className="flex flex-wrap gap-1">
+        <div role="tablist" aria-label={t("Preview as")} className="flex flex-wrap gap-1">
           {LOOKS.map((l) => (
             <button key={l.id} type="button" role="tab" aria-selected={l.id === look} onClick={() => setPicked(l.id)} className={`h-8 rounded-control px-3 text-[13px] ${l.id === look ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{l.label}</button>
           ))}
         </div>
       )}
       {look === "email" ? <EmailLook title={title} body={body} html={html} /> : look === "phone" ? <PhoneLook title={title} body={body} /> : <ChatLook id={look} title={title} body={body} />}
-      <p className="text-xs text-fg3">Sample events. Each app has the last word on the final look.</p>
+      <p className="text-xs text-fg3">{t("Sample events. Each app has the last word on the final look.")}</p>
     </div>
   )
 }
