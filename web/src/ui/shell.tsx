@@ -50,9 +50,9 @@ const NavContext = createContext<NavConfig | null>(null)
 function Search() {
   const [q, setQ] = useState("")
   return (
-    <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`) }} className="relative max-lg:hidden">
-      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 size-5 text-fg3" aria-hidden />
-      <input aria-label={t("Search")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search…")} className="h-9 max-sm:h-11 w-full rounded-control border border-line2 bg-raised pl-10 pr-4 placeholder:text-fg3" />
+    <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`) }} className="relative w-full max-w-sm">
+      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2 size-5 text-fg3" aria-hidden />
+      <input aria-label={t("Search")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search…")} className="h-9 w-full rounded-control border border-line bg-surface pl-10 pr-4 placeholder:text-fg3 hover:border-line2" />
     </form>
   )
 }
@@ -60,34 +60,43 @@ function Search() {
 function SideEntry({ item, path }: { item: NavItem; path: string }) {
   const active = isActive(path, item.to), I = item.icon
   return (
-    <Link to={item.to} title={t(item.label)} aria-current={active ? "page" : undefined} className={`flex h-9 max-sm:h-11 items-center gap-3 rounded-control px-3 max-lg:justify-center ${active ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>
-      <I className="size-5 shrink-0" aria-hidden />
+    <Link to={item.to} title={t(item.label)} aria-current={active ? "page" : undefined} className={`relative flex h-9 max-sm:h-11 items-center gap-3 rounded-control px-3 max-lg:justify-center ${active ? "bg-raised text-fg before:absolute before:-left-4 before:h-5 before:w-[3px] before:rounded-r-full before:bg-accent max-lg:before:-left-3" : "text-fg2 hover:bg-raised/60 hover:text-fg"}`}>
+      <I className={`size-5 shrink-0 ${active ? "text-accent" : ""}`} aria-hidden />
       <span className="flex-1 max-lg:sr-only">{t(item.label)}</span>
       {!!item.badge && <span className="rounded-full bg-crit-soft px-2 text-xs leading-5 text-crit max-lg:hidden">{item.badge}</span>}
     </Link>
   )
 }
 
-/** 248 px sidebar, 72 px icon rail from 640 to 1023 px. */
+/** 240 px sidebar, 72 px icon rail from 640 to 1023 px. */
 function Sidebar({ nav, path }: { nav: NavConfig; path: string }) {
+  const version = useApi<{ version: string }>("/api/system/version", { poll: false }).data?.version
   return (
-    <aside className="fixed inset-y-0 left-0 z-10 flex w-[248px] flex-col gap-7 border-r border-line bg-sidebar px-4 py-6 max-lg:w-[72px] max-lg:px-3 max-sm:hidden">
-      <Link to="/" className="flex items-center gap-3 max-lg:justify-center"><Logo /><span className="flex flex-col max-lg:sr-only"><span className="text-lg leading-6 font-medium">{nav.name}</span><span className="text-xs text-fg2">{t(nav.role)}</span></span></Link>
-      <Search />
-      <nav className="flex flex-1 flex-col gap-7 overflow-y-auto" aria-label={t("Main")}>
+    <aside className="fixed inset-y-0 left-0 z-10 flex w-[240px] flex-col gap-6 border-r border-line bg-sidebar px-4 py-4 max-lg:w-[72px] max-lg:px-3 max-sm:hidden">
+      <Link to="/" className="flex h-10 items-center gap-3 px-1 max-lg:justify-center"><Logo className="size-7" /><span className="flex flex-col max-lg:sr-only"><span className="text-base leading-5 font-medium">{nav.name}</span><span className="text-xs text-fg3">{t(nav.role)}{version && <> · <span className="font-mono text-[11px]">v{version}</span></>}</span></span></Link>
+      <nav className="flex flex-1 flex-col gap-6 overflow-y-auto" aria-label={t("Main")}>
         {nav.groups.map((g) => (
-          <div key={g.label} className="flex flex-col gap-1">
-            <div className="px-3 pb-1 text-xs text-fg3 max-lg:sr-only">{t(g.label)}</div>
+          <div key={g.label} className="flex flex-col gap-0.5">
+            <div className="px-3 pb-1.5 text-xs font-medium text-fg3 max-lg:sr-only">{t(g.label)}</div>
             {g.items.map((i) => <SideEntry key={i.to} item={i} path={path} />)}
           </div>
         ))}
       </nav>
-      <div className="flex flex-col gap-3">
-        <LangSelect />
-        <SideEntry item={{ to: "/settings", label: "Settings", icon: Cog6ToothIcon }} path={path} />
-        {nav.footer && <div className="border-t border-line px-3 pt-3 max-lg:hidden">{nav.footer}</div>}
-      </div>
+      <SideEntry item={{ to: "/settings", label: "Settings", icon: Cog6ToothIcon }} path={path} />
     </aside>
+  )
+}
+
+/** Search on the left; how the fleet is doing and the language on the right. */
+function TopBar({ nav }: { nav: NavConfig }) {
+  return (
+    <div className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-line bg-bg/85 px-6 backdrop-blur max-sm:hidden">
+      <Search />
+      <div className="ml-auto flex items-center gap-2">
+        {nav.footer && <div className="whitespace-nowrap max-lg:hidden">{nav.footer}</div>}
+        <LangSelect />
+      </div>
+    </div>
   )
 }
 
@@ -141,28 +150,30 @@ function RefreshControl({ onRefresh }: { onRefresh?: () => void }) {
   )
 }
 
-export function PageHeader({ title, crumbs: given, subtitle, actions, variables, onRefresh }: { title: string; crumbs?: { label: string; to?: string }[]; subtitle?: ReactNode; actions?: ReactNode; variables?: ReactNode; onRefresh?: () => void }) {
+/** Strings are translated; pass an element for a name, such as a host's, that must show as typed. */
+export function PageHeader({ title, crumbs: given, subtitle, actions, variables, onRefresh }: { title: ReactNode; crumbs?: { label: ReactNode; to?: string }[]; subtitle?: ReactNode; actions?: ReactNode; variables?: ReactNode; onRefresh?: () => void }) {
   const nav = useContext(NavContext)
   const path = usePath()
   // As in GLPI, every page says where it sits: Home > its menu group > the page.
   const group = nav?.groups.find((g) => g.items.some((i) => i.to !== "/" && isActive(path, i.to)))
-  const crumbs = given ? [...(group ? [{ label: group.label }] : []), ...given] : group && path !== "/" ? [{ label: group.label }] : undefined
+  const crumbs: { label: ReactNode; to?: string }[] | undefined = given ? [...(group ? [{ label: group.label }] : []), ...given] : group && path !== "/" ? [{ label: group.label }] : undefined
+  const tr = (v: ReactNode) => (typeof v === "string" ? t(v) : v)
   return (
-    <header className="mb-6 border-b border-line pb-6 max-sm:border-0 max-sm:pb-0">
+    <header className="mb-5">
       {crumbs && (
-        <nav aria-label={t("Breadcrumb")} className="mb-2 flex items-center gap-2 text-xs text-fg2 max-sm:hidden">
+        <nav aria-label={t("Breadcrumb")} className="mb-1.5 flex items-center gap-1.5 text-xs text-fg3 max-sm:hidden">
           <Link to="/" className="hover:text-fg">{t("Home")}</Link>
-          {crumbs.map((c) => (
-            <span key={c.label} className="flex items-center gap-2">
+          {crumbs.map((c, i) => (
+            <span key={i} className="flex items-center gap-1.5">
               <ChevronRightIcon className="size-3" aria-hidden />
-              {c.to ? <Link to={c.to} className="hover:text-fg">{t(c.label)}</Link> : t(c.label)}
+              {c.to ? <Link to={c.to} className="hover:text-fg">{tr(c.label)}</Link> : tr(c.label)}
             </span>
           ))}
         </nav>
       )}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[26px] leading-[34px] font-medium">{t(title)}</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl leading-8 font-medium">{tr(title)}</h1>
           {subtitle && <p className="text-[13px] text-fg2">{typeof subtitle === "string" ? t(subtitle) : subtitle}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
@@ -309,7 +320,8 @@ function Authed({ useNav, route, customizable }: { useNav: () => NavConfig; rout
         <Link to="/" className="flex h-14 items-center gap-3"><Logo className="size-7" /><span className="text-base font-medium">{nav.name}</span></Link>
         <Link to="/search" aria-label={t("Search")} className="flex size-14 items-center justify-center text-fg2"><MagnifyingGlassIcon className="size-5" aria-hidden /></Link>
       </header>
-      <main className="pb-16 pl-[248px] max-lg:pl-[72px] max-sm:pb-[calc(96px+env(safe-area-inset-bottom))] max-sm:pl-0">
+      <main className="pb-16 pl-[240px] max-lg:pl-[72px] max-sm:pb-[calc(96px+env(safe-area-inset-bottom))] max-sm:pl-0">
+        <TopBar nav={nav} />
         <div className="px-6 pt-5 max-sm:px-4 max-sm:pt-4"><OfflineNote />{route(path)}</div>
       </main>
       <BottomBar nav={nav} path={path} onCustomize={customizable && canCustomize ? () => setEditing(true) : undefined} />

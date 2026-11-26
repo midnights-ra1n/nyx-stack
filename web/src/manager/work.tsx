@@ -2,7 +2,7 @@ import { ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons
 import { type ReactNode, useState } from "react"
 import { Empty, IconButton, Progress, Status, Table, Tabs, Td, Variable } from "../ui/components"
 import { t } from "../ui/i18n"
-import { splitTags, TagList } from "../ui/tags"
+import { splitTags, TagList, tagOptions } from "../ui/tags"
 import { fmt, isOverdue, type Level, sortRows, useStored } from "../ui/lib"
 
 export interface WorkState { id: string; label: string; level: Level }
@@ -75,7 +75,7 @@ function Kanban({ items, states, onMove, onOpen, onPick }: { items: WorkItem[]; 
     if (item && item.state !== state) onMove(item, state)
   }
   return (
-    <div className="grid auto-cols-[minmax(240px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
       {states.map((s) => {
         const cards = items.filter((w) => w.state === s.id)
         return (
@@ -103,7 +103,7 @@ export function WorkView({ id, states, items, empty, columns = [], onMove, onOpe
   const toolbar = (
     <div className="mb-3 flex flex-wrap items-center gap-3">
       <Tabs tabs={VIEWS} value={view} onChange={setView} />
-      {tags.length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...tags.map((x) => ({ value: x, label: x }))]} />}
+      {tags.length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={tagOptions(tags)} />}
     </div>
   )
   if (!items.length) return <Empty>{empty}</Empty>

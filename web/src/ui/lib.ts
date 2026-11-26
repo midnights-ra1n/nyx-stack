@@ -118,17 +118,23 @@ export function useStored<T>(key: string, initial: T) {
   return [value, (v: T) => { set(v); localStorage.setItem(key, JSON.stringify(v)) }] as const
 }
 
+/** A number as the language writes it ("0,3" in French), with up to `digits` decimals and at least `min`. */
+const num = (v: number, digits = 1, min = digits) => v.toLocaleString(lang, { minimumFractionDigits: min, maximumFractionDigits: digits })
+// French writes octets: Mio, Gio.
+const BYTES = lang === "fr" ? ["o", "Kio", "Mio", "Gio", "Tio", "Pio"] : ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+
 const units = (v: number, base: number, names: string[]) => {
   let i = 0
   while (v >= base && i < names.length - 1) { v /= base; i++ }
-  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${names[i]}`
+  return `${num(v, v >= 100 || i === 0 ? 0 : 1)} ${names[i]}`
 }
 
 export const fmt = {
-  pct: (v?: number | null) => (v == null ? "—" : `${v.toFixed(v < 10 ? 1 : 0)} %`),
-  bytes: (v?: number | null) => (v == null ? "—" : units(v, 1024, ["B", "KiB", "MiB", "GiB", "TiB", "PiB"])),
-  bps: (v?: number | null) => (v == null ? "—" : `${units(v, 1024, ["B", "KiB", "MiB", "GiB"])}/s`),
-  temp: (v?: number | null) => (v == null ? "—" : `${v.toFixed(0)} °C`),
+  num,
+  pct: (v?: number | null) => (v == null ? "—" : `${num(v, v < 10 ? 1 : 0)} %`),
+  bytes: (v?: number | null) => (v == null ? "—" : units(v, 1024, BYTES)),
+  bps: (v?: number | null) => (v == null ? "—" : `${units(v, 1024, BYTES.slice(0, 4))}/s`),
+  temp: (v?: number | null) => (v == null ? "—" : `${num(v, 0)} °C`),
   uptime(s?: number | null) {
     if (s == null) return "—"
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)

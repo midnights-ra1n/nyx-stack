@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/nicholas-fedor/shoutrrr"
 )
 
 func withStdin(t *testing.T, body string) {
@@ -46,5 +48,18 @@ func TestRejectsBadInput(t *testing.T) {
 	withStdin(t, `{"url":"nosuchservice://x","message":"m"}`)
 	if run() == nil {
 		t.Fatal("expected an error on an unknown service")
+	}
+}
+
+// The options the server adds for richer messages must be ones Shoutrrr accepts.
+func TestAcceptsTheOptionsTheServerAdds(t *testing.T) {
+	for _, u := range []string{
+		"discord://token@123?json=yes",
+		"telegram://123456:ABC-def@telegram?chats=@ops&parsemode=HTML",
+		"gotify://gotify.example.com/AzyoeNS.D4iJLVa?extras=%7B%22client%3A%3Adisplay%22%3A%7B%22contentType%22%3A%22text%2Fmarkdown%22%7D%7D",
+	} {
+		if _, err := shoutrrr.CreateSender(u); err != nil {
+			t.Errorf("%s: %v", u, err)
+		}
 	}
 }

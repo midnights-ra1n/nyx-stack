@@ -6,13 +6,13 @@ import { LiveMap } from "../map"
 import { PipelineView } from "../../ui/pipelines"
 import { TempoTiles } from "../../ui/tempo"
 import { nextScroll, uptimeBar } from "./model"
-import { t } from "../../ui/i18n"
+import { t, tn, lang } from "../../ui/i18n"
 
 const OVERALL: Record<string, string> = {
   ok: "All systems operational", warn: "Degraded performance", crit: "Service disruption", off: "No services selected",
 }
 const COLORS = ["var(--color-s1)", "var(--color-s2)", "var(--color-s3)", "var(--color-s4)", "var(--color-ok)", "var(--color-warn)"]
-const dayName = (generated: number, back: number) => new Date((generated - back * 86400) * 1000).toLocaleDateString()
+const dayName = (generated: number, back: number) => new Date((generated - back * 86400) * 1000).toLocaleDateString(lang)
 
 function Overall({ state }: { state: Level }) {
   return (
@@ -29,7 +29,7 @@ function UptimeBars({ days, uptime, generated }: { days: (number | null)[]; upti
   return (
     <div className="mt-1">
       <div className="flex h-5 gap-px" role="img" aria-label={uptime == null ? "No uptime data yet" : t("{uptime} percent uptime over 30 days", { uptime })}>
-        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-full ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? "no data" : `${d} %`}`} />)}
+        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-full ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? t("no data") : `${d} %`}`} />)}
       </div>
       <div className="mt-1 flex justify-between text-xs text-fg3"><span>{t("30 days ago")}</span><span>{uptime == null ? t("No data yet") : t("{n} % uptime", { n: uptime })}</span><span>{t("Today")}</span></div>
     </div>
@@ -78,7 +78,7 @@ function Spark({ values, level }: { values: number[]; level: Level }) {
 
 function BigNumber({ data }: { data: any }) {
   if (data == null) return <div className="flex h-full items-center justify-center text-fg3">{t("No data")}</div>
-  const value = Number.isInteger(data.value) ? data.value : Number(data.value).toFixed(data.value >= 100 ? 0 : 1)
+  const value = Number.isInteger(data.value) ? data.value : fmt.num(Number(data.value), data.value >= 100 ? 0 : 1)
   return (
     <div className="fit relative flex h-full items-center justify-center">
       <div className={`relative z-10 font-medium whitespace-nowrap ${levelText[data.level as Level]}`} style={{ fontSize: "clamp(22px, min(52cqh, 24cqw), 160px)", lineHeight: 1 }}>
@@ -113,12 +113,12 @@ function Gauges({ rows }: { rows: any[] }) {
 /** Totals over the curves; on a wall, the most blocked domains beside them. */
 function NextDns({ data }: { data: any }) {
   if (data == null) return <div className="flex h-full items-center justify-center text-fg3">{t("No NextDNS data")}</div>
-  const share = data.total ? ((data.blocked / data.total) * 100).toFixed(1) : "0.0"
+  const share = fmt.num(data.total ? (data.blocked / data.total) * 100 : 0)
   const top: { domain: string; queries: number }[] = data.top_blocked ?? []
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="grid shrink-0 grid-cols-3 gap-2 text-center">
-        {[["Queries", data.total.toLocaleString(), ""], ["Blocked", data.blocked.toLocaleString(), "text-warn"], ["Blocked share", `${share} %`, ""]].map(([label, value, cls]) => (
+        {[["Queries", data.total.toLocaleString(lang), ""], ["Blocked", data.blocked.toLocaleString(lang), "text-warn"], ["Blocked share", `${share} %`, ""]].map(([label, value, cls]) => (
           <div key={label}><div className={`text-[22px] leading-7 font-medium ${cls}`}>{value}</div><div className="text-xs text-fg2">{label}</div></div>
         ))}
       </div>
@@ -126,7 +126,7 @@ function NextDns({ data }: { data: any }) {
         <Chart data={data} />
         {top.length > 0 && (
           <ol className="min-h-0 overflow-hidden text-xs">
-            {top.map((d) => <li key={d.domain} className="flex justify-between gap-2 border-b border-line py-1"><span className="truncate font-mono">{d.domain}</span><span className="text-fg2">{d.queries.toLocaleString()}</span></li>)}
+            {top.map((d) => <li key={d.domain} className="flex justify-between gap-2 border-b border-line py-1"><span className="truncate font-mono">{d.domain}</span><span className="text-fg2">{d.queries.toLocaleString(lang)}</span></li>)}
           </ol>
         )}
       </div>
@@ -171,7 +171,7 @@ function Alerts({ rows }: { rows: any[] | null }) {
       {rows.map((a, i) => (
         <li key={i} className={`flex gap-2 rounded-box px-3 py-2 ${levelSoft[a.severity as Level] ?? levelSoft.warn}`}>
           <ExclamationTriangleIcon className={`mt-0.5 size-4 shrink-0 ${levelText[a.severity as Level] ?? levelText.warn}`} aria-hidden />
-          <span className="min-w-0"><span className="block">{a.message}</span><span className="text-xs text-fg3">Since {fmt.date(a.since)}</span></span>
+          <span className="min-w-0"><span className="block">{tn(a.message)}</span><span className="text-xs text-fg3">{t("Since {date}", { date: fmt.date(a.since) })}</span></span>
         </li>
       ))}
     </ul>
@@ -183,8 +183,8 @@ function Clock() {
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id) }, [])
   return (
     <div className="fit flex h-full flex-col items-center justify-center">
-      <div className="font-medium" style={{ fontSize: "clamp(20px, min(48cqh, 20cqw), 120px)", lineHeight: 1.1 }}>{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-      <div className="text-fg2" style={{ fontSize: "clamp(12px, 14cqh, 32px)" }}>{now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}</div>
+      <div className="font-medium" style={{ fontSize: "clamp(20px, min(48cqh, 20cqw), 120px)", lineHeight: 1.1 }}>{now.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })}</div>
+      <div className="text-fg2" style={{ fontSize: "clamp(12px, 14cqh, 32px)" }}>{now.toLocaleDateString(lang, { weekday: "long", day: "numeric", month: "long" })}</div>
     </div>
   )
 }

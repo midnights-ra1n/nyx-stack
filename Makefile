@@ -11,7 +11,7 @@ NFPM := go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
 .PHONY: test web bins notifier pocketbase packages clean
 test:
 	cargo test --workspace
-	cd notifier && go test ./...
+	cd notifier && go test -tags goolm ./...
 	cd web && pnpm test
 	cd relay && pnpm install --frozen-lockfile && pnpm test && pnpm run check
 	sh packaging/next-version.test.sh
@@ -26,7 +26,8 @@ bins:
 	cp target/release/nyx-agent target/release/nyx-monitor target/release/nyx-manager target/release/nyx-db target/release/nyx-mcp dist/linux-$(ARCH)/
 
 notifier:
-	cd notifier && CGO_ENABLED=0 GOARCH=$(ARCH) go build -trimpath -ldflags '-s -w' -o ../dist/linux-$(ARCH)/nyx-notify .
+	# goolm: the pure Go Olm of mautrix, for encrypted Matrix without cgo.
+	cd notifier && CGO_ENABLED=0 GOARCH=$(ARCH) go build -tags goolm -trimpath -ldflags '-s -w' -o ../dist/linux-$(ARCH)/nyx-notify .
 
 # nfpm does not expand variables in `contents`, hence the sed in `packages`.
 # Verified against PocketBase's published checksums.

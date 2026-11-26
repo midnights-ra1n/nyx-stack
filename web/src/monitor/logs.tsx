@@ -4,7 +4,7 @@ import { Board, CustomizeButton } from "../ui/board"
 import { Button, Empty, Mono, Panel, Stat, Status, Table, Td, Variable } from "../ui/components"
 import { api, type Level, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
-import { t } from "../ui/i18n"
+import { t, lang } from "../ui/i18n"
 
 export interface LogRow { t?: number; level: Level; service: string; message: string; host?: string; count: number }
 
@@ -61,8 +61,8 @@ export function useLiveLogs(id: string | null) {
 function when(t?: number) {
   if (!t) return "—"
   const d = new Date(t * 1000)
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { day: "2-digit", month: "2-digit" })} ${time}`
+  const time = d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString(lang, { day: "2-digit", month: "2-digit" })} ${time}`
 }
 
 export function LogTable({ rows, hosts }: { rows: LogRow[]; hosts?: boolean }) {
@@ -106,8 +106,8 @@ function tally(rows: LogRow[], key: (r: LogRow) => string) {
   return [...counts].sort((a, b) => b[1] - a[1])
 }
 
-function LiveButton({ live, onClick, disabled }: { live: boolean; onClick: () => void; disabled?: boolean }) {
-  return <Button variant={live ? "primary" : undefined} aria-pressed={live} disabled={disabled} onClick={onClick}><SignalIcon className="size-5" aria-hidden />{live ? "Stop live" : "Go live"}</Button>
+function LiveButton({ live, onClick, disabled, className }: { live: boolean; onClick: () => void; disabled?: boolean; className?: string }) {
+  return <Button variant={live ? "primary" : undefined} aria-pressed={live} disabled={disabled} onClick={onClick} className={className}><SignalIcon className="size-5" aria-hidden />{live ? "Stop live" : "Go live"}</Button>
 }
 
 const liveNote = (connected: boolean) => (connected
@@ -120,8 +120,7 @@ export function HostLogs({ id, lines, edit }: { id: string; lines: string[]; edi
   const tail = useLiveLogs(live ? id : null)
   const rows = logRows((live ? tail.lines : lines ?? []).map((line) => ({ line })))
   return (
-    <Panel title={t("Logs")} flush edit={edit} footer={live ? liveNote(tail.connected) : "Warnings and errors from journald, kept in memory."}>
-      <div className="flex justify-end px-4 pb-4"><LiveButton live={live} onClick={() => setLive(!live)} /></div>
+    <Panel title={t("Logs")} flush edit={edit} badge={<LiveButton live={live} onClick={() => setLive(!live)} className="h-8 px-3" />} help="Warnings and errors from journald, kept in memory." footer={live ? liveNote(tail.connected) : undefined}>
       {rows.length ? <div className="max-h-96 overflow-y-auto"><LogTable rows={rows} /></div> : <div className="px-4 pb-4"><Empty>{live ? "No new lines yet." : "No warnings."}</Empty></div>}
     </Panel>
   )
@@ -185,7 +184,7 @@ export function Logs() {
       </Panel>
     ) },
     { id: "journal", title: "Journal", render: (edit: any) => (
-      <Panel title={t("Journal")} flush edit={edit} footer={live ? liveNote(tail.connected) : "Identical messages are folded, with the number of repeats."}>
+      <Panel title={t("Journal")} flush edit={edit} help="Identical messages are folded, with the number of repeats." footer={live ? liveNote(tail.connected) : undefined}>
         {rows.length ? <LogTable rows={rows} hosts={!host} /> : <div className="px-4 pb-4"><Empty>{live ? "No new lines yet." : "No matching lines."}</Empty></div>}
       </Panel>
     ) },

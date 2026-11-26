@@ -128,7 +128,7 @@ export function MapControls({ zoom, full, query, onQuery, onFind, found, classNa
         <form role="search" className="relative" onSubmit={(e) => { e.preventDefault(); onFind?.() }}>
           <MagnifyingGlassIcon className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-fg3" aria-hidden />
           <input type="search" aria-label={t("Find on the map")} placeholder={t("Find on the map…")} value={query} onChange={(e) => onQuery(e.target.value)}
-            className="h-9 w-48 rounded-control border border-line bg-surface pl-8 pr-2 text-[13px] placeholder:text-fg3 max-sm:h-11 max-sm:w-40 max-sm:text-base" />
+            className="h-9 w-48 rounded-control border border-line bg-surface pl-8 pr-2 text-[13px] placeholder:text-fg3 max-sm:h-11 max-sm:w-36 max-sm:text-base" />
           {query && <span role="status" className="ml-2 text-xs text-fg2">{t("{n} found", { n: found ?? 0 })}</span>}
         </form>
       )}

@@ -1,21 +1,16 @@
 import { PencilSquareIcon, PlusIcon, SignalIcon, TrashIcon } from "@heroicons/react/24/outline"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, IconButton, Input, Meter, Mono, Panel, Stat, Status, Table, Tabs, Td, Variable, ask } from "../ui/components"
+import { Button, Empty, ErrorNote, IconButton, Input, Meter, Mono, Panel, Select, Stat, Status, Table, Tabs, Td, Variable, ask, SearchInput, PageSkeleton } from "../ui/components"
 import { type Col, CrudPage, RecordForm } from "../ui/crud"
 import { api, fmt, useApi, useStored } from "../ui/lib"
 import { Link, PageHeader, Section } from "../ui/shell"
-import { t } from "../ui/i18n"
+import { t, tn } from "../ui/i18n"
+import { calc, inside, ip4, ip4str, parse, split } from "./ipcalc"
+import { Simulator } from "./simulator"
 
 export const STATES = ["Active", "Reserved", "DHCP", "Offline"]
 
-/** IPv4 as a number, or null for anything else. */
-export function ip4(s: string): number | null {
-  const p = s.trim().split(".")
-  if (p.length !== 4 || !p.every((x) => /^\d{1,3}$/.test(x) && Number(x) < 256)) return null
-  return p.reduce((a, x) => a * 256 + Number(x), 0)
-}
-export const ip4str = (n: number) => [24, 16, 8, 0].map((b) => Math.floor(n / 2 ** b) % 256).join(".")
 
 /** Largest subnet drawn cell by cell. */
 const MAP_CELLS = 1024
@@ -76,6 +71,7 @@ const ADDRESS_COLS: Col[] = [
   { key: "mac", label: "MAC", mono: true, section: "Details" },
   { key: "owner", label: "Owner", suggest: true },
   { key: "note", label: "Note" },
+  { key: "shared", label: "Shared on purpose", type: "bool", formOnly: true, hint: "VRRP, CARP or anycast: several machines hold this address on purpose, so it is no conflict." },
   { key: "last_seen", label: "Last seen", listOnly: true, render: (a) => fmt.ago(a.last_seen) },
 ]
 
@@ -99,38 +95,72 @@ const usageCell = (s: any) => (
   </span>
 )
 
-function Conflicts({ data, edit }: { data: any; edit?: any }) {
-  return (
-    <Panel title={t("Conflicts")} edit={edit} badge={data?.conflicts.length ? <Status level="warn" label={String(data.conflicts.length)} /> : undefined}>
-      {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>{t("No conflicts.")}</Empty>}
-    </Panel>
-  )
+/** What the row kept takes from the rows merged into it: the fields it leaves empty. */
+export function mergePatch(keep: any, others: any[]): Record<string, unknown> {
+  const patch: Record<string, unknown> = {}
+  for (const k of ["hostname", "mac", "owner", "state", "last_seen"]) {
+    const from = others.find((r) => r[k])
+    if (!keep[k] && from) patch[k] = from[k]
+  }
+  return patch
 }
 
-function Simulator({ edit }: { edit: any }) {
-  const [from, setFrom] = useState("")
-  const [destination, setDestination] = useState("")
-  const [result, setResult] = useState<any>()
+/** Addressing conflicts, and for one address held by several machines, the ways out. */
+function ConflictList({ report, onChange, edit }: { report: any; onChange: () => void; edit?: any }) {
+  const rows = useApi("/api/c/ip_addresses?perPage=500", { poll: false })
+  const [open, setOpen] = useState<string>()
+  const [editing, setEditing] = useState<any>()
   const [error, setError] = useState("")
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try { setResult(await api("/api/ipam/simulate", { body: { from, destination } })); setError("") } catch (err) { setError((err as Error).message); setResult(undefined) }
-  }
-  const level = result?.status === "reached" ? "ok" : result?.status === "loop" ? "warn" : "crit"
+  const all: any[] = rows.data?.items ?? []
+  const list: any[] = report?.conflicts ?? []
+  const done = () => { setOpen(undefined); rows.reload(); onChange() }
+  const run = async (f: () => Promise<unknown>) => { try { await f(); setError(""); done() } catch (e) { setError((e as Error).message) } }
+  // One machine under two records: keep one, give it what only the others knew, drop the others.
+  const merge = (keep: any, others: any[]) => run(async () => {
+    const patch = mergePatch(keep, others)
+    if (Object.keys(patch).length) await api(`/api/c/ip_addresses/${keep.id}`, { method: "PATCH", body: patch })
+    for (const o of others) await api(`/api/c/ip_addresses/${o.id}`, { method: "DELETE" })
+  })
+  const share = (ids: string[]) => run(() => Promise.all(ids.map((id) => api(`/api/c/ip_addresses/${id}`, { method: "PATCH", body: { shared: true } }))))
+  const label = (r: any) => `${r.device || r.address}${r.note === "From monitoring" ? ` (${t("monitoring")})` : ""}`
   return (
-    <Panel title={t("Routing simulation")} edit={edit}>
-      <form className="grid grid-cols-[1fr_1fr_auto] items-end gap-4 max-sm:grid-cols-1" onSubmit={run}>
-        <Input label="From device" required value={from} onChange={(e) => setFrom(e.target.value)} />
-        <Input label="To address" required value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="10.0.2.20" />
-        <Button type="submit" variant="primary">{t("Trace")}</Button>
-      </form>
-      <div className="mt-4 flex flex-col gap-3">
-        <ErrorNote>{error}</ErrorNote>
-        {result && <>
-          <div className="flex items-baseline gap-3"><Status level={level} /><span>{result.summary}</span></div>
-          <ol className="flex flex-col gap-1">{result.hops.map((h: any, i: number) => <li key={i} className="flex flex-wrap gap-x-3"><span className="w-6 text-fg3">{i + 1}</span><span className="font-medium">{h.device}</span><Mono className="text-fg2">{h.detail}</Mono></li>)}</ol>
-        </>}
-      </div>
+    <Panel title={t("Conflicts")} edit={edit} loading={!report} badge={list.length ? <Status level="warn" label={String(list.length)} /> : undefined}
+      help="Records that cannot all be right. Two records of one machine are recognised by their name, hostname or MAC and are no conflict. Resolve shows the ways out of an address held by several machines.">
+      {editing && <RecordForm cols={ADDRESS_COLS} row={editing} collection="ip_addresses" rows={all} title={t("Edit {name}", { name: editing.address })} onDone={() => { setEditing(undefined); done() }} />}
+      <ErrorNote>{error}</ErrorNote>
+      {!list.length ? <Empty>{t("No conflicts.")}</Empty> : (
+        <ul className="-my-2 divide-y divide-line">
+          {list.map((c) => {
+            const mine = (c.ids ?? []).map((id: string) => all.find((r) => r.id === id)).filter(Boolean)
+            const fixable = c.kind === "address" && mine.length > 1
+            const shown = fixable && open === c.address
+            return (
+              <li key={c.message} className="py-2.5">
+                <div className="flex items-center gap-3">
+                  <Status cell level={c.severity} label="" />
+                  <span className="min-w-0 flex-1">{tn(c.message)}</span>
+                  {fixable && <Button aria-expanded={shown} onClick={() => setOpen(shown ? undefined : c.address)}>{t("Resolve")}</Button>}
+                </div>
+                {shown && (
+                  <div className="mt-3 flex flex-col gap-3 rounded-box border border-line bg-raised/40 p-3 text-[13px]">
+                    <div>
+                      <p className="mb-2 text-fg2">{t("The same machine recorded twice? Keep one record; it takes what only the others knew.")}</p>
+                      <div className="flex flex-wrap gap-2">{mine.map((r: any) => <Button key={r.id} onClick={() => merge(r, mine.filter((o: any) => o !== r))}>{t("Keep {name}", { name: label(r) })}</Button>)}</div>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-fg2">{t("Different machines? Give one another address, or mark the address shared if they hold it on purpose (VRRP, CARP, anycast).")}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {mine.map((r: any) => <Button key={r.id} onClick={() => setEditing(r)}>{t("Change the address of {name}", { name: r.device || r.address })}</Button>)}
+                        <Button onClick={() => share(mine.map((r: any) => r.id))}>{t("Shared on purpose")}</Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </Panel>
   )
 }
@@ -145,21 +175,48 @@ function CalcTable({ calc }: { calc: any }) {
   )
 }
 
-function Calculator({ edit }: { edit: any }) {
-  const [cidr, setCidr] = useState("")
-  const [calc, setCalc] = useState<any>()
-  const [error, setError] = useState("")
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try { setCalc(await api(`/api/ipam/calc?cidr=${encodeURIComponent(cidr)}`)); setError("") } catch (err) { setError((err as Error).message); setCalc(undefined) }
-  }
+/** IPv4 worked out as you type; IPv6 asks the server. */
+function IpCalculator({ report, edit }: { report: any; edit?: any }) {
+  const [input, setInput] = useStored("nyx.ipam.calc", "192.168.1.37/26")
+  const [into, setInto] = useState("")
+  const v4 = parse(input)
+  const v6 = !v4 && input.includes(":") ? input.trim() : ""
+  const six = useApi(v6 ? `/api/ipam/calc?cidr=${encodeURIComponent(v6.includes("/") ? v6 : `${v6}/64`)}` : null, { poll: false })
+  const c = v4 ? calc(v4.ip, v4.prefix) : null
+  // The most specific recorded subnet holding the address.
+  const home = c && (report?.subnets ?? []).map((s: any) => ({ s, p: parse(s.cidr) })).filter(({ p }: any) => p && !p.assumed && inside(c.base, p.ip, p.prefix) && p.prefix <= 32)
+    .sort((a: any, b: any) => b.p.prefix - a.p.prefix)[0]?.s
+  const parts = c && into ? split(c.base, c.prefix, Number(into)) : null
+  const row = (label: string, value: ReactNode) => <div className="contents"><dt className="text-fg2">{t(label)}</dt><dd className="min-w-0">{value}</dd></div>
   return (
-    <Panel title={t("Subnet calculator")} edit={edit}>
-      <form className="grid grid-cols-[1fr_auto] items-end gap-4" onSubmit={run}>
-        <Input label="Prefix" required placeholder="192.168.1.0/24" value={cidr} onChange={(e) => setCidr(e.target.value)} />
-        <Button type="submit">{t("Calculate")}</Button>
-      </form>
-      <div className="mt-4"><ErrorNote>{error}</ErrorNote>{calc && <CalcTable calc={calc} />}</div>
+    <Panel title={t("IP calculator")} edit={edit} help="An address with its prefix length or mask, such as 192.168.1.37/26 or 10.0.0.1 255.255.255.0. Without either, /24 is assumed. IPv6 prefixes work too.">
+      <Input label="Address" value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false} className="font-mono"
+        hint={v4?.assumed ? t("No prefix given: /24 assumed.") : !c && !v6 && input.trim() ? t("Not an address: write it like 192.168.1.37/26.") : undefined} />
+      {c && (
+        <dl className="mt-4 grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-1.5">
+          {row("Address", <span className="flex flex-wrap items-baseline gap-2"><Mono>{c.address}</Mono><span className="rounded-md bg-raised px-1.5 text-xs text-fg2">{t(c.kind)}</span></span>)}
+          {row("Binary", <Mono className="break-all text-[12px]"><span className="text-accent">{c.bits[0]}</span><span className="text-fg3">{c.bits[1]}</span></Mono>)}
+          {row("Network", <Mono>{c.network}/{c.prefix}</Mono>)}
+          {row("Netmask", <Mono>{c.netmask}</Mono>)}
+          {row("Wildcard", <Mono>{c.wildcard}</Mono>)}
+          {row("Broadcast", <Mono>{c.broadcast}</Mono>)}
+          {row("Hosts", <Mono>{c.first} – {c.last}</Mono>)}
+          {row("Usable hosts", <span className="tabular-nums">{fmt.num(c.usable, 0)} <span className="text-fg3">/ {fmt.num(c.total, 0)}</span></span>)}
+          {row("In the IPAM", home ? <Link to={`/ipam/subnet/${home.id}`} className="text-accent">{home.name} · {home.cidr}</Link> : <span className="text-fg3">{t("In no recorded subnet")}</span>)}
+        </dl>
+      )}
+      {c && c.prefix < 32 && (
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="w-56"><Select label="Split into" value={into} onChange={(e) => setInto(e.target.value)} options={[{ value: "", label: t("Choose…") }, ...Array.from({ length: Math.min(8, 32 - c.prefix) }, (_, i) => { const p = c.prefix + i + 1; return { value: String(p), label: t("{n} subnets of /{p}", { n: 2 ** (i + 1), p }) } })]} /></div>
+          {parts && (
+            <>
+              <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-4 gap-y-1">{parts.list.map((p) => <li key={p}><Mono>{p}</Mono></li>)}</ul>
+              {parts.count > parts.list.length && <p className="mt-2 text-[13px] text-fg3">{t("And {n} more.", { n: parts.count - parts.list.length })}</p>}
+            </>
+          )}
+        </div>
+      )}
+      {v6 && <div className="mt-4">{six.error ? <p className="text-[13px] text-fg3">{six.error}</p> : six.data && <CalcTable calc={six.data} />}</div>}
     </Panel>
   )
 }
@@ -199,8 +256,8 @@ function Subnets({ report, reload, tabs }: { report: any; reload: () => void; ta
       {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={SUBNET_COLS((vrfs.data?.items ?? []).map((v: any) => v.name))} row={edit} collection="subnets" onDone={done} title={edit ? t("Edit {name}", { name: edit.name }) : "Add subnet"} rows={rows.data?.items} />}
       <Section>
         {all.length > 0 && (
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-64 max-sm:w-full"><Input label="Search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} />
             {sections.length > 1 && <Variable label="Section" value={section} onChange={setSection} options={[{ value: "", label: "All" }, ...sections.map((s) => ({ value: s, label: s || "No section" }))]} />}
           </div>
         )}
@@ -242,12 +299,15 @@ function Vlans({ report, tabs }: { report: any; tabs: React.ReactNode }) {
   return <CrudPage heading="IPAM" variables={tabs} title={t("VLANs")} singular="VLAN" collection="vlans" cols={cols} sort="number" />
 }
 
-const IPAM_TABS = [{ id: "overview", label: "Overview" }, { id: "subnets", label: "Subnets" }, { id: "addresses", label: "Addresses" }, { id: "vlans", label: "VLANs" }, { id: "vrfs", label: "VRFs" }, { id: "routes", label: "Routes" }]
+const IPAM_TABS = [{ id: "overview", label: "Overview" }, { id: "subnets", label: "Subnets" }, { id: "addresses", label: "Addresses" }, { id: "vlans", label: "VLANs" }, { id: "vrfs", label: "VRFs" }, { id: "routes", label: "Routes" }, { id: "simulator", label: "Simulator" }]
 
 export function Ipam() {
   const [tab, setTab] = useStored("nyx.ipam.tab", "overview")
   const { data, reload } = useApi("/api/ipam/report", { poll: false })
+  const [fixes, setFixes] = useState(0)
   const tabs = <Tabs tabs={IPAM_TABS} value={tab} onChange={setTab} />
+  // A fixed conflict changes the drawing: draw it again.
+  if (tab === "simulator") return <Simulator key={fixes} tabs={tabs} aside={<ConflictList report={data} onChange={() => { reload(); setFixes(fixes + 1) }} />} />
   if (tab === "subnets") return <Subnets report={data} reload={reload} tabs={tabs} />
   if (tab === "addresses") return <CrudPage key={tab} heading="IPAM" variables={tabs} title={t("Addresses")} singular="address" collection="ip_addresses" cols={ADDRESS_COLS} sort="address" onChanged={reload} defaults={{ state: "Active" }} />
   if (tab === "vlans") return <Vlans report={data} tabs={tabs} />
@@ -257,17 +317,14 @@ export function Ipam() {
   return (
     <>
       <PageHeader title={t("IPAM")} variables={tabs} onRefresh={reload} actions={<CustomizeButton />} />
-      <div className="mb-4 grid grid-cols-4 gap-4 max-sm:grid-cols-2">
-        <Panel title={t("Subnets")}><Stat label="Recorded" value={subnets.length} /></Panel>
-        <Panel title={t("Addresses")}><Stat label="Used" value={subnets.filter((s: any) => s.depth === 0).reduce((n: number, s: any) => n + s.used, 0)} /></Panel>
-        <Panel title={t("Sections")}><Stat label="Groups" value={new Set(subnets.map((s: any) => s.section || "")).size} /></Panel>
-        <Panel title={t("Conflicts")}><Stat label="To fix" value={data?.conflicts.length ?? "—"} level={data?.conflicts.length ? "warn" : "ok"} /></Panel>
-      </div>
-      <Board id="ipam" desktop={{ cols: [["conflicts", "usage"], ["calculator", "simulator"]], hidden: [] }} phone={{ cols: [["conflicts", "usage", "calculator", "simulator"]], hidden: [] }} panels={[
-        { id: "conflicts", title: "Conflicts", render: (edit: any) => <Conflicts data={data} edit={edit} /> },
+      <section aria-label={t("Summary")} className="mb-4 grid grid-cols-4 divide-x divide-line rounded-panel border border-line bg-surface max-md:grid-cols-2 max-md:[&>*:nth-child(3)]:border-l-0">
+        {[["Subnets", subnets.length], ["Used addresses", subnets.filter((s: any) => s.depth === 0).reduce((n: number, s: any) => n + s.used, 0)], ["Sections", new Set(subnets.map((s: any) => s.section || "")).size]].map(([label, value]) => <div key={label} className="px-4 py-3"><Stat label={label as string} value={data ? value : "—"} /></div>)}
+        <div className="px-4 py-3"><Stat label="Conflicts" value={data?.conflicts.length ?? "—"} level={data?.conflicts.length ? "warn" : "ok"} /></div>
+      </section>
+      <Board id="ipam" desktop={{ cols: [["conflicts", "usage"], ["calculator"]], hidden: [] }} phone={{ cols: [["conflicts", "calculator", "usage"]], hidden: [] }} panels={[
+        { id: "conflicts", title: "Conflicts", render: (edit: any) => <ConflictList report={data} onChange={reload} edit={edit} /> },
         { id: "usage", title: "Fullest subnets", render: (edit: any) => <Usage report={data} edit={edit} /> },
-        { id: "calculator", title: "Subnet calculator", render: (edit: any) => <Calculator edit={edit} /> },
-        { id: "simulator", title: "Routing simulation", render: (edit: any) => <Simulator edit={edit} /> },
+        { id: "calculator", title: "IP calculator", render: (edit: any) => <IpCalculator report={data} edit={edit} /> },
       ]} />
     </>
   )
@@ -284,7 +341,7 @@ export function SubnetPage({ id }: { id: string }) {
   const [note, setNote] = useState("")
   const vrfs = useApi("/api/c/vrfs?sort=name&perPage=500", { poll: false })
   if (error) return <p role="alert" className="text-crit">{error}</p>
-  if (!d) return null
+  if (!d) return <PageSkeleton />
   const s = d.subnet
   const addresses: any[] = d.addresses
   const alive = scan?.alive ?? []
@@ -312,7 +369,7 @@ export function SubnetPage({ id }: { id: string }) {
       </Panel>
     ) },
     { id: "map", title: "Address map", absent: !cells, render: (e: any) => (
-      <Panel title={t("Address map")} edit={e} footer={scan ? t("Scanned {v0}: {n} addresses answered.", { v0: fmt.ago(scan.at), n: alive.length }) : "Press a free address to record it."}>
+      <Panel title={t("Address map")} edit={e} help="Press a free address to record it." footer={scan ? t("Scanned {v0}: {n} addresses answered.", { v0: fmt.ago(scan.at), n: alive.length }) : undefined}>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(18px,1fr))] gap-1" role="list" aria-label={t("Addresses")}>
           {cells?.map((c) => {
             const [bg, label] = CELL[c.kind]
@@ -334,7 +391,7 @@ export function SubnetPage({ id }: { id: string }) {
       </Panel>
     ) },
     { id: "addresses", title: "Addresses", render: (e: any) => (
-      <Panel title={`${used} addresses`} flush edit={e}>
+      <Panel title={t("{n} addresses", { n: used })} flush edit={e}>
         {used === 0 ? <div className="px-4 pb-4"><Empty>{t("No address recorded in this subnet.")}</Empty></div> : (
           <Table head={["Address", "State", "Device", "Hostname", "MAC", "Owner", "Last seen", ""]}>
             {addresses.map((a) => (
@@ -368,7 +425,7 @@ export function SubnetPage({ id }: { id: string }) {
       <Panel title={t("Free ranges")} flush edit={e}>
         {d.free.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No free address left.")}</Empty></div> : (
           <Table head={["From", "To", "Size", ""]}>
-            {d.free.slice(0, 50).map((r: any) => <tr key={r.start}><Td mono>{r.start}</Td><Td mono>{r.end}</Td><Td className="text-fg2">{Number(r.size) > 1e9 ? "a lot" : r.size}</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(r.start)}>Use {r.start}</Button></Td></tr>)}
+            {d.free.slice(0, 50).map((r: any) => <tr key={r.start}><Td mono>{r.start}</Td><Td mono>{r.end}</Td><Td className="text-fg2">{Number(r.size) > 1e9 ? t("a lot") : r.size}</Td><Td className="text-right"><Button variant="ghost" onClick={() => add(r.start)}>Use {r.start}</Button></Td></tr>)}
           </Table>
         )}
       </Panel>

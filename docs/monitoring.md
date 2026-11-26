@@ -9,12 +9,24 @@ monitor, and the overview, IPAM, network map, sites and tasks in the manager.
 - Slide a block where you want it, by its handle on a phone, or use the arrows from the
   keyboard.
 - Close a block to hide it. Hidden blocks stay listed at the top, ready to come back.
-- Choose from one to four columns. Below 1024 pixels there is always one.
+- Choose from one to four columns. When the window is too narrow for them, each under
+  380 pixels, they stack into one.
 - **Reset this page** goes back to the default layout. To reset every page, use
   **Settings, General**.
 
+Until you arrange a page yourself, its blocks are dealt between the columns by their
+height, each to the shortest column so far, so that the columns end level whatever a host
+has to show. Moving a block keeps what is on screen as your layout; **Reset this page**
+brings the automatic one back.
+
 Some blocks are hidden by default. The overview also offers disk health, recent logs,
 probes, stopped containers, pending updates, power and EDF Tempo.
+
+A block with an ⓘ in its header explains itself there: press it to read how the block
+is filled and how often. Tables follow the width of their block rather than the
+window: tighter cells in a narrow block, one labelled line per field in a very narrow
+one. Numbers, sizes and dates follow the language of the interface, so French shows
+`12,5 Gio` and `3,2 %`.
 
 Layouts are stored in your browser, separately for desktop and phone. All host pages
 share one layout. A block a host cannot show, such as SMART on a VM, is skipped there
@@ -32,21 +44,44 @@ install command shown beside it. **Open** leads to the new host, **Add another**
 over with the same type.
 
 The host list has a search field (name, hostname, address, OS or tag) and filters per
-type, state (healthy, warning or critical, offline) and tag. CPU, memory and the fullest
-disk show as bars coloured by your thresholds, and the temperature turns amber or red
-past its own. A number of pending updates in red holds security fixes; click it for the
-[Updates](#updates) page. Click a row to open the host. Agent-less Proxmox guests only
-show while no filter is set.
+type, state (healthy, warning or critical, offline) and tag. Each Proxmox or physical
+server that runs other hosts gets a block of its own, the server on top and its VMs and
+containers below it; hosts that run nothing share the last block. A row shows the type's
+icon with a dot for the state, the name, and under it the type, the system and the
+hostname when it differs from the name. CPU, memory and the fullest disk show as bars
+coloured by your thresholds, and the temperature turns amber or red past its own. On a
+narrow screen the address, then the temperature and disk, then CPU and memory make way
+for the name. The last column holds what needs a look: the state's issues, failed
+services, pending updates (red when they hold security fixes, a click opens
+[Updates](#updates)) and a needed restart. Click a row to open the host. Agent-less
+Proxmox guests show what Proxmox knows of them, and only while no filter is set.
 
-**Cards**, beside **Table** above the list, shows one card per host in the manner of
+The pencil beside a name, on the list or on the host's page, renames the host in Nyx
+only: the machine's hostname, its agent and its history stay as they are. Enter or
+leaving the field saves, Escape cancels. A name can only be used once.
+
+A VM with an agent is tied to its Proxmox guest once, by name, hostname or the address
+Proxmox reports, and keeps that tie by VMID: renamed, or named differently in Proxmox, it
+is still listed once, with its agent, and its **Console** button opens the VM's noVNC
+console.
+
+Each host shows the logo of its Linux distribution beside its name: Debian, Ubuntu, Fedora,
+Red Hat, AlmaLinux, Rocky, CentOS, Arch, Alpine, openSUSE, NixOS and some twenty more,
+read from the name the agent reports or, for a guest without an agent, the OS type
+Proxmox gives. Other Linux systems get Tux. The logos come from
+[Simple Icons](https://simpleicons.org) (CC0) and are bundled: nothing is fetched.
+
+**Cards**, beside **List** above the list, shows one card per host in the manner of
 Beszel: a state dot, CPU, memory and disk bars, traffic, temperature, uptime, tags, and
 badges for failed services and pending updates. The choice is remembered.
 
 A host's page opens on a line of facts under its name: uptime, address, hostname,
 system, kernel and architecture, agent version, and its services, in red with the number
-failed. **Details** adds the type, the host it runs on, the last report and whether a
+failed. **Details**, first on the page, says who the host is (hostname, address, type, the
+host it runs on, uptime, last report, system), then gives its figures as small tiles: swap,
+temperature, containers, traffic received and sent, and the agent version, in amber when a
 newer agent exists. **History** is a grid of charts, one per measure with a line on what
-it shows: CPU, memory, the fullest disk, bandwidth (down and up) and temperature, over
+it shows: CPU, memory, the fullest disk, bandwidth (received and sent) and temperature, over
 the period picked at the top. Hosts without a sensor say so instead of drawing a flat
 line.
 
@@ -184,6 +219,18 @@ the selected probe with its last 60 checks, current and average response time, u
 over the recent checks and over 30 days, one bar per day, the response time chart and
 its SNMP readings. **Pause** stops a probe without deleting it. Search and the **Show**
 filter narrow the list.
+
+Each line of the list holds a probe's state, name, target, last response time, uptime
+and its last checks, so a few dozen probes fit on one screen. Sort them into
+**categories**, such as Infrastructure, Services or DNS:
+
+- **New category**, the folder button above the list, adds one. Hover a category to add
+  a probe to it, rename it, move it up or down, or delete it. Deleting a category keeps
+  its probes, out of any category.
+- Drag a probe onto a category to move it there, or choose the category in the probe's
+  settings. Probes in no category are listed last.
+- A category's header counts its probes and its down and warning ones. Press it to fold
+  it; folded categories are remembered in your browser.
 
 A website probe on an `https://` address also follows its
 certificate: the probe's **Certificate** figure shows the days left, and it alerts

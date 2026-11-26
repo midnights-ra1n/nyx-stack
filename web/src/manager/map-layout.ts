@@ -7,8 +7,8 @@ const ROW = H + GAP_Y
 
 /** Machines that run guests. */
 export const HOSTS = ["proxmox", "physical", "server"]
-/** Network gear, drawn above the hosts. */
-export const GEAR = ["router", "switch"]
+/** Network gear, drawn above the hosts in this order: from the Internet down to the access points. */
+export const GEAR = ["internet", "firewall", "router", "switch", "ap"]
 
 interface N { id: string; name: string; type?: string }
 interface L { source: string; target: string }
@@ -37,7 +37,7 @@ export function arrange(nodes: N[], links: L[]): Record<string, { x: number; y: 
   const parent = parents(nodes, links)
   const kids = (id: string) => nodes.filter((n) => parent[n.id] === id).sort(byName)
   const top = nodes.filter((n) => !parent[n.id])
-  const gear = top.filter((n) => GEAR.includes(n.type ?? "")).sort(byName)
+  const gear = top.filter((n) => GEAR.includes(n.type ?? "")).sort((a, b) => GEAR.indexOf(a.type!) - GEAR.indexOf(b.type!) || byName(a, b))
   const hosts = top.filter((n) => !gear.includes(n) && (HOSTS.includes(n.type ?? "") || kids(n.id).length > 0)).sort(byName)
   const loose = top.filter((n) => !gear.includes(n) && !hosts.includes(n)).sort(byName)
   const out: Record<string, { x: number; y: number }> = {}

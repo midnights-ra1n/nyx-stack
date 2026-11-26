@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { Empty, ErrorNote, Mono, Panel, Stat, TimeSeries, Variable } from "./components"
-import { useApi } from "./lib"
+import { fmt, useApi } from "./lib"
 import { SettingForm } from "./settings"
-import { t } from "./i18n"
+import { t, lang } from "./i18n"
 
 export const PERIODS = [["1", "24 hours"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]].map(([value, label]) => ({ value, label }))
 
@@ -25,20 +25,20 @@ export function NextDns() {
     <div className="flex flex-col gap-4">
       <div className="flex justify-end"><Variable label="Period" value={days} onChange={setDays} options={PERIODS} /></div>
       <div className="grid grid-cols-3 gap-4">
-        <Stat label="Queries" value={data.total.toLocaleString()} />
-        <Stat label="Blocked" value={data.blocked.toLocaleString()} level={data.blocked ? "warn" : "ok"} />
-        <Stat label="Blocked share" value={`${data.total ? ((data.blocked / data.total) * 100).toFixed(1) : "0.0"} %`} />
+        <Stat label="Queries" value={data.total.toLocaleString(lang)} />
+        <Stat label="Blocked" value={data.blocked.toLocaleString(lang)} level={data.blocked ? "warn" : "ok"} />
+        <Stat label="Blocked share" value={fmt.pct(data.total ? (data.blocked / data.total) * 100 : 0)} />
       </div>
       <TimeSeries max={niceMax(Math.max(0, ...data.series_total))} unit="" series={[
-        { name: "Queries", color: "var(--color-s1)", values: points(data.series_total) },
-        { name: "Blocked", color: "var(--color-crit)", values: points(data.series_blocked) },
+        { name: t("Queries"), color: "var(--color-s1)", values: points(data.series_total) },
+        { name: t("Blocked"), color: "var(--color-crit)", values: points(data.series_blocked) },
       ]} />
       <div>
         <h3 className="mb-1 text-[13px] text-fg2">{t("Most blocked domains")}</h3>
         {data.top_blocked?.length ? (
           <ol className="divide-y divide-line border-t border-line">
             {data.top_blocked.map((d: { domain: string; queries: number }) => (
-              <li key={d.domain} className="flex justify-between gap-3 py-1.5 text-[13px]"><Mono className="truncate">{d.domain}</Mono><span className="text-fg2">{d.queries.toLocaleString()}</span></li>
+              <li key={d.domain} className="flex justify-between gap-3 py-1.5 text-[13px]"><Mono className="truncate">{d.domain}</Mono><span className="text-fg2">{d.queries.toLocaleString(lang)}</span></li>
             ))}
           </ol>
         ) : <Empty>{t("Nothing blocked over this period.")}</Empty>}

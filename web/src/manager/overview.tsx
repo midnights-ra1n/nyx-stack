@@ -1,7 +1,7 @@
 import { BoltIcon, ShieldCheckIcon, CodeBracketSquareIcon, ClockIcon, DocumentTextIcon, GlobeAltIcon, HeartIcon, LinkIcon, PlusIcon, WindowIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton, reveal } from "../ui/board"
-import { BarGauge, Button, Empty, ErrorNote, type Icon, Input, Meter, Panel, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
+import { BarGauge, Button, Empty, ErrorNote, type Icon, Input, Meter, Panel, Stat, Status, Table, Td, TextArea, ask, Skeleton } from "../ui/components"
 import { Editor, EditorGroup } from "../ui/crud"
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
@@ -9,7 +9,7 @@ import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
 import { NextDns } from "../ui/nextdns"
 import { ProgressSummary } from "./progress"
-import { t } from "../ui/i18n"
+import { t, lang, tn } from "../ui/i18n"
 
 export const deployLevel = (s: string): Level => (s === "ok" ? "ok" : s === "failed" ? "crit" : s === "running" ? "info" : "off")
 
@@ -40,7 +40,7 @@ export function parseLinks(text = "") {
 function Clock({ tz }: { tz?: string }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 10_000); return () => clearInterval(t) }, [])
-  const opts = (o: Intl.DateTimeFormatOptions) => { try { return now.toLocaleString(undefined, { ...o, timeZone: tz || undefined }) } catch { return now.toLocaleString(undefined, o) } }
+  const opts = (o: Intl.DateTimeFormatOptions) => { try { return now.toLocaleString(lang, { ...o, timeZone: tz || undefined }) } catch { return now.toLocaleString(lang, o) } }
   return (
     <div className="py-2 text-center">
       <div className="text-[44px] leading-none font-medium tabular-nums">{opts({ hour: "2-digit", minute: "2-digit" })}</div>
@@ -52,7 +52,7 @@ function Clock({ tz }: { tz?: string }) {
 function FromMonitor({ what, children }: { what: string; children: (data: any) => React.ReactNode }) {
   const { data, error } = useApi(`/api/monitor/${what}`)
   if (error) return <ErrorNote>{error}</ErrorNote>
-  if (data === undefined) return <Empty>{t("Loading…")}</Empty>
+  if (data === undefined) return <Skeleton />
   if (data === null) return <Empty>{t("Link a monitor in")} <Link to="/settings" className="text-accent">{t("Settings")}</Link> {t("to fill this panel.")}</Empty>
   return <>{children(data)}</>
 }
@@ -179,14 +179,14 @@ export function Overview() {
       <Panel title="Progress" edit={edit} actions={[{ label: "Open tasks", onClick: () => navigate("/tasks") }]}><ProgressSummary /></Panel>
     ) },
     { id: "categories", title: "Hardware by category", render: (edit: any) => (
-      <Panel title={t("Hardware by category")} edit={edit} actions={[{ label: "Open hardware", onClick: () => navigate("/hardware") }]}>
+      <Panel title={t("Hardware by category")} edit={edit} loading={!data} actions={[{ label: "Open hardware", onClick: () => navigate("/hardware") }]}>
         {data?.categories.length ? (
           <ul className="flex flex-col gap-2">
             {data.categories.map((c: any) => (
               <li key={c.name} className="grid grid-cols-[120px_1fr_auto] items-center gap-3">
                 <span className="truncate">{c.name}</span>
                 <div className="h-2 overflow-hidden rounded-full bg-raised"><div className="h-full rounded-full bg-accent" style={{ width: `${(c.total * 100) / Math.max(...data.categories.map((x: any) => x.total))}%` }} /></div>
-                <span className="text-[13px] whitespace-nowrap text-fg2">{c.total}{c.in_service < c.total && <span className="text-fg3"> · {c.total - c.in_service} out</span>}</span>
+                <span className="text-[13px] whitespace-nowrap text-fg2">{c.total}{c.in_service < c.total && <span className="text-fg3"> · {t("{n} out", { n: c.total - c.in_service })}</span>}</span>
               </li>
             ))}
           </ul>
@@ -194,22 +194,22 @@ export function Overview() {
       </Panel>
     ) },
     { id: "conflicts", title: "Addressing conflicts", render: (edit: any) => (
-      <Panel title={t("Addressing conflicts")} edit={edit} actions={[{ label: "Open IPAM", onClick: () => navigate("/ipam") }]}>
-        {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{c.message}</span></li>)}</ul> : <Empty>{t("No conflicts.")}</Empty>}
+      <Panel title={t("Addressing conflicts")} edit={edit} loading={!data} actions={[{ label: "Open IPAM", onClick: () => navigate("/ipam") }]}>
+        {data?.conflicts.length ? <ul className="flex flex-col gap-2">{data.conflicts.map((c: any) => <li key={c.message} className="flex items-baseline gap-3"><Status level={c.severity} /><span>{tn(c.message)}</span></li>)}</ul> : <Empty>{t("No conflicts.")}</Empty>}
       </Panel>
     ) },
     { id: "subnets", title: "Subnet usage", render: (edit: any) => (
-      <Panel title={t("Subnet usage")} edit={edit}>
+      <Panel title={t("Subnet usage")} edit={edit} loading={!data}>
         {data?.subnets.length ? <BarGauge rows={[...data.subnets].sort((a: any, b: any) => b.pct - a.pct).slice(0, 10).map((s: any) => ({ label: `${s.name} ${s.cidr}`, pct: s.pct }))} /> : <Empty>{t("No subnets yet.")}</Empty>}
       </Panel>
     ) },
     { id: "tasks", title: "Due within 7 days", render: (edit: any) => (
-      <Panel title={t("Due within 7 days")} edit={edit}>
+      <Panel title={t("Due within 7 days")} edit={edit} loading={!data}>
         {data?.tasks.length ? <ul className="flex flex-col gap-2">{data.tasks.map((task: any) => <li key={task.id} className="flex justify-between gap-3"><span>{task.title}</span><span className="whitespace-nowrap text-fg2">{fmt.date(task.due)}</span></li>)}</ul> : <Empty>{t("Nothing due.")}</Empty>}
       </Panel>
     ) },
     { id: "deployments", title: "Recent deployments", render: (edit: any) => (
-      <Panel title={t("Recent deployments")} edit={edit} flush>
+      <Panel title={t("Recent deployments")} edit={edit} loading={!data} flush>
         {data?.deployments.length ? (
           <Table head={["Name", "Version", "State"]}>
             {data.deployments.map((d: any) => <tr key={d.id}><Td className="font-medium">{d.name}</Td><Td mono>{d.version || "—"}</Td><Td><Status level={deployLevel(d.status)} label={d.status || "planned"} /></Td></tr>)}
@@ -218,7 +218,7 @@ export function Overview() {
       </Panel>
     ) },
     { id: "warranty", title: "Warranty ending", render: (edit: any) => (
-      <Panel title={t("Warranty ending")} edit={edit}>
+      <Panel title={t("Warranty ending")} edit={edit} loading={!data}>
         {data?.warranty.length ? <ul className="flex flex-col gap-2">{data.warranty.map((h: any) => <li key={h.id} className="flex justify-between gap-3"><span>{h.name}</span><span className="text-fg2">{fmt.date(h.warranty_until)}</span></li>)}</ul> : <Empty>{t("No warranty ending soon.")}</Empty>}
       </Panel>
     ) },

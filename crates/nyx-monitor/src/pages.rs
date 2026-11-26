@@ -445,7 +445,7 @@ fn map_nodes(c: &Ctx, rows: &[Row], guests: bool) -> Vec<(String, Value)> {
     for (i, r) in rows.iter().enumerate().filter(|_| guests) {
         let Target::Host(h) = r.target else { continue };
         for g in h.live.iter().flat_map(|l| &l.guests) {
-            if c.st.hosts.values().any(|o| (o.parent == h.id && o.vmid == g.vmid) || o.name == g.name || o.hostname == g.name) {
+            if c.st.hosts.values().any(|o| (o.parent == h.id && (o.vmid == g.vmid || o.guest_vmid == g.vmid)) || o.name == g.name || o.hostname == g.name) {
                 continue;
             }
             let id = format!("{}/{}", h.id, g.vmid);

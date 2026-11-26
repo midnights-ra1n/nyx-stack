@@ -34,7 +34,7 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | GET, PATCH, DELETE | `/api/c/{coll}/{id}` | Session | Read, change or delete a record |
 | GET | `/api/c/{coll}/{id}/history` | Session | Changes of a record, newest first (hardware and virtual assets) |
 | GET, PUT | `/api/settings/{key}` | Session | Read or write an allowed setting |
-| POST | `/api/notify/preview` | Session | Render templates with sample events |
+| POST | `/api/notify/preview` | Session | Render sample events: `{"design"}` (a visual layout) or `{"title_tpl", "body_tpl"}`, with `"html"` and `"lang"` (`en` or `fr`). Returns the `title`, the `head`, `cards` and `tail` of the body, its `plain` text, the HTML `email` when `html` is set, and the `title_tpl` and `body_tpl` used |
 | POST | `/api/notify/test/{id}` | Session | Send a test through a channel |
 | GET | `/api/system/version` | Session | Version and install type |
 | POST | `/api/system/check` | Session | Ask GitHub for the latest release, on the chosen channel |
@@ -57,7 +57,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/overview` | Session | Fleet summary |
 | GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host, and a name can only be used once. Each host carries its `vpn` tunnels |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it. Its LXC containers go with it, other children stay at the top level |
-| PATCH | `/api/hosts/{id}` | Session | `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back. `{"tags": ["lab", "prod"]}` replaces its tags. Either field can be left out |
+| PATCH | `/api/hosts/{id}` | Session | `{"name": "NAS"}` renames the host in Nyx, not on the machine; names are unique, ignoring case. `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back. `{"tags": ["lab", "prod"]}` replaces its tags. Any field can be left out |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent. `{"action": "service", "op": "start\|stop\|restart\|logs\|status\|cat", "name": "nginx"}` acts on a systemd service; the agent refuses to stop itself |
 | GET | `/api/results` | Session | The latest 200 command results of every host |
@@ -133,7 +133,8 @@ Each host in `/api/hosts` carries `reboot_required`, and `update` once one was s
 | GET | `/api/overview` | Session | Inventory summary |
 | GET | `/api/ipam/report` | Session | Usage and conflicts |
 | GET | `/api/ipam/next/{subnet}` | Session | Next free address |
-| POST | `/api/ipam/simulate` | Session | Trace a route, `{"from", "destination"}` |
+| POST | `/api/ipam/simulate` | Session | A ping, `{"from", "destination"}`, each a machine name or an address. Returns `status`, `summary`, `destination`, and `request` and `reply` with their `hops` (`device`, `ip`, `detail`, `level`) |
+| GET | `/api/ipam/topology` | Session | The recorded machines as a network: `segments` with their `hosts`, `routers` with a link per segment, and machines `outside` every subnet |
 | GET | `/api/ipam/subnet/{id}` | Session | Calculator figures, addresses, nested subnets, free ranges and addresses known elsewhere but not recorded |
 | POST | `/api/ipam/scan/{id}` | Session | Ping an IPv4 subnet of /22 or smaller once. Stamps `last_seen` on recorded addresses that answer and returns `alive` |
 | GET | `/api/ipam/calc?cidr=` | Session | Subnet calculator for any prefix |

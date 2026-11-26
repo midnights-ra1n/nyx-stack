@@ -3,12 +3,12 @@ import { Board, CustomizeButton } from "../ui/board"
 import { BarGauge, Empty, Meter, Mono, Panel, Stat, StateCell, Status, Table, Td, Variable } from "../ui/components"
 import { fmt, type Level, levelBg, levelOf, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
-import { t } from "../ui/i18n"
+import { t, tn } from "../ui/i18n"
 
 const LIFE_WARN = 20, LIFE_CRIT = 10
 const DEFAULT_TH = { warn: 75, crit: 90 }
 const lifeLevel = (life: number): Level => (life <= LIFE_CRIT ? "crit" : life <= LIFE_WARN ? "warn" : "ok")
-const powerOn = (h?: number | null) => (h == null ? "—" : h >= 8760 ? `${(h / 8760).toFixed(1)} years` : `${Math.round(h / 24)} days`)
+const powerOn = (h?: number | null) => (h == null ? "—" : h >= 8760 ? t("{n} years", { n: fmt.num(h / 8760) }) : t("{n} days", { n: Math.round(h / 24) }))
 
 /** Total space of file systems. The datasets of a ZFS pool share its free space, so that counts once. */
 export function capacity(disks: { host_id?: string; fs?: string; device?: string; used: number; total: number }[]) {
@@ -31,9 +31,9 @@ export function FileSystems({ rows, th = DEFAULT_TH, hosts }: { rows: any[]; th?
         <tr key={(d.host_id ?? "") + d.mount}>
           {hosts && <Td className="font-medium whitespace-nowrap"><Link to={`/hosts/${d.host_id}`}>{d.host}</Link></Td>}
           <Td><Mono>{d.mount}</Mono><div className="text-xs text-fg3">{[d.fs, d.device].filter(Boolean).join(" · ")}</div></Td>
-          <Td className="w-full min-w-48 py-2">
+          <Td className="w-full min-w-32 py-2">
             <Meter pct={d.pct} warn={th.warn} crit={th.crit} />
-            <div className="mt-1 text-xs text-fg2">{fmt.bytes(d.used)} of {fmt.bytes(d.total)} · {d.pct.toFixed(0)} %</div>
+            <div className="mt-1 text-xs text-fg2">{t("{used} of {total}", { used: fmt.bytes(d.used), total: fmt.bytes(d.total) })} · {d.pct.toFixed(0)} %</div>
           </Td>
           <Td className="text-fg2 whitespace-nowrap">{fmt.bytes(d.total - d.used)}</Td>
           <StateCell level={d.online === false ? "off" : levelOf(d.pct, th.warn, th.crit)} />
@@ -44,7 +44,7 @@ export function FileSystems({ rows, th = DEFAULT_TH, hosts }: { rows: any[]; th?
 }
 
 function Fact({ label, value, level }: { label: string; value: React.ReactNode; level?: Level }) {
-  return <div><dt className="text-xs text-fg3">{label}</dt><dd className={level === "warn" ? "text-warn" : level === "crit" ? "text-crit" : ""}>{value}</dd></div>
+  return <div><dt className="text-xs text-fg3">{t(label)}</dt><dd className={level === "warn" ? "text-warn" : level === "crit" ? "text-crit" : ""}>{value}</dd></div>
 }
 
 /** What smartctl knows about each physical disk, in plain words. */
@@ -60,7 +60,7 @@ export function DiskCards({ disks, hosts }: { disks: any[]; hosts?: boolean }) {
             </div>
             <Status level={d.health} label={d.health === "ok" ? "Healthy" : d.health === "warn" ? "Attention" : "Critical"} />
           </header>
-          {d.reason && <p className="text-[13px] text-fg2">{d.reason}</p>}
+          {d.reason && <p className="text-[13px] text-fg2">{tn(d.reason)}</p>}
           {d.life_left_pct != null && (
             <div>
               <div className="mb-1 flex justify-between text-xs text-fg2"><span>{t("Life left")}</span><span>{d.life_left_pct} %</span></div>
@@ -83,8 +83,8 @@ export function DiskCards({ disks, hosts }: { disks: any[]; hosts?: boolean }) {
 
 /** Disks and file systems that need a look, worst first, for the overview and the storage page. */
 function needsAttention(disks: any[], smart: any[], th: { warn: number; crit: number }) {
-  const full = disks.map((d) => ({ key: d.host_id + d.mount, level: levelOf(d.pct, th.warn, th.crit), to: `/hosts/${d.host_id}`, what: `${d.host} ${d.mount}`, why: `${d.pct.toFixed(0)} % full, ${fmt.bytes(d.total - d.used)} free` }))
-  const worn = smart.map((d) => ({ key: d.host_id + d.device, level: d.health as Level, to: `/hosts/${d.host_id}`, what: `${d.host} ${d.device}`, why: d.reason }))
+  const full = disks.map((d) => ({ key: d.host_id + d.mount, level: levelOf(d.pct, th.warn, th.crit), to: `/hosts/${d.host_id}`, what: `${d.host} ${d.mount}`, why: t("{pct} % full, {free} free", { pct: d.pct.toFixed(0), free: fmt.bytes(d.total - d.used) }) }))
+  const worn = smart.map((d) => ({ key: d.host_id + d.device, level: d.health as Level, to: `/hosts/${d.host_id}`, what: `${d.host} ${d.device}`, why: tn(d.reason) }))
   return [...full, ...worn].filter((x) => x.level !== "ok").sort((a, b) => Number(b.level === "crit") - Number(a.level === "crit"))
 }
 
@@ -129,7 +129,7 @@ export function Storage() {
     { id: "capacity", title: "Capacity", render: (edit: any) => (
       <Panel title={t("Capacity")} edit={edit}>
         <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
-          <Stat label="Used" value={fmt.bytes(used)} sub={`of ${fmt.bytes(total)}`} />
+          <Stat label="Used" value={fmt.bytes(used)} sub={t("of {size}", { size: fmt.bytes(total) })} />
           <Stat label="Free" value={fmt.bytes(free)} sub={t("on {n} file systems", { n: disks.length })} />
           <Stat label="Physical disks" value={smart.length ? `${smart.length - unhealthy} / ${smart.length}` : "—"} level={!smart.length ? undefined : unhealthy ? "warn" : "ok"} sub="healthy" />
           <Stat label="Hottest disk" value={fmt.temp(isFinite(hottest) ? hottest : null)} />
@@ -147,7 +147,7 @@ export function Storage() {
       </Panel>
     ) },
     { id: "smart", title: "Physical disks", render: (edit: any) => (
-      <Panel title={t("Physical disks")} edit={edit} footer="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment. Refreshed every 30 minutes.">
+      <Panel title={t("Physical disks")} edit={edit} help="Attention from 20 % life left or any bad sector, critical from 10 % or a failed self-assessment. Refreshed every 30 minutes.">
         {smart.length ? <DiskCards disks={smart} hosts={!host} /> : <Empty>{t("SMART data comes from physical hosts.")}</Empty>}
       </Panel>
     ) },

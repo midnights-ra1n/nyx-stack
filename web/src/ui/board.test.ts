@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { columns, hide, move, place, reconcile, restore, show, slotAt, without } from "./board"
+import { columns, hide, move, place, reconcile, restore, show, slotAt, without, balance, interleave, spread } from "./board"
 
 const l = { cols: [["a", "b"], ["c"]], hidden: ["d"] }
 
@@ -44,5 +44,17 @@ describe("dashboard layout", () => {
   })
   it("drops unknown panels and offers new ones as hidden", () => {
     expect(reconcile(l, ["a", "c", "e"])).toEqual({ cols: [["a"], ["c"]], hidden: ["e"] })
+  })
+})
+
+describe("balance", () => {
+  const h: Record<string, number> = { usage: 200, disks: 300, history: 600, smart: 400, details: 500, agent: 300 }
+  it("deals panels across the default rows to the shortest column", () => {
+    const order = interleave([["usage", "history", "details"], ["disks", "smart", "agent"]])
+    expect(order).toEqual(["usage", "disks", "history", "smart", "details", "agent"])
+    const cols = balance(order, (p) => h[p], 2)
+    expect(cols).toEqual([["usage", "history", "agent"], ["disks", "smart", "details"]])
+    expect(spread(cols, (p) => h[p])).toBe(100)
+    expect(spread([["usage", "history", "details"], ["disks", "smart", "agent"]], (p) => h[p])).toBe(300)
   })
 })

@@ -51,6 +51,7 @@ async fn report(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) ->
     let first = absorb(&app, &id, report).await?;
     if let Some(guests) = guests {
         watch_containers(&app, &id, &guests).await?;
+        link_vms(&app, &id, &guests).await?;
     }
     let now = Utc::now().timestamp();
     let mut st = app.lock();
@@ -188,6 +189,28 @@ fn container_report(g: Guest) -> Report {
         disks: vec![Disk { mount: "/".into(), used: g.disk_used, total: g.disk_total, ..Disk::default() }],
         ..Report::default()
     }
+}
+
+/// The Proxmox guest a VM with its own agent runs as: by name or hostname, or by address
+/// when Proxmox knows it. Once found its VMID ties them, as the name can change.
+pub fn vm_guest(h: &Host, guests: &[Guest]) -> Option<u32> {
+    if h.is_container() || h.guest_vmid != 0 || h.parent.is_empty() {
+        return None;
+    }
+    let ip = |g: &Guest| !g.ip.is_empty() && g.ip == h.ip;
+    guests.iter().find(|g| g.kind == "qemu" && (g.name == h.name || g.name == h.hostname || ip(g))).map(|g| g.vmid)
+}
+
+/// Ties each VM of this Proxmox host to its guest, once.
+async fn link_vms(app: &App, parent: &str, guests: &[Guest]) -> ApiResult<()> {
+    let found: Vec<(String, u32)> = app.lock().hosts.values().filter(|h| h.parent == parent).filter_map(|h| Some((h.id.clone(), vm_guest(h, guests)?))).collect();
+    for (id, vmid) in found {
+        if let Some(h) = app.lock().hosts.get_mut(&id) {
+            h.guest_vmid = vmid;
+        }
+        app.core.pb.update("hosts", &id, &json!({"guest_vmid": vmid})).await?;
+    }
+    Ok(())
 }
 
 /// Keeps one host per watched container of a Proxmox host, fed by that host.
@@ -481,5 +504,23 @@ mod tests {
         assert_eq!(checksum(sums, "nyx-agent-linux-x86_64"), Some("abc"));
         assert_eq!(checksum(sums, "nyx-agent-linux-aarch64"), Some("def"));
         assert_eq!(checksum(sums, "other"), None);
+    }
+
+    #[test]
+    fn ties_a_vm_to_its_guest_by_name_hostname_or_address() {
+        let g = |vmid, name: &str, kind: &str, ip: &str| Guest { vmid, name: name.into(), kind: kind.into(), ip: ip.into(), ..Guest::default() };
+        let guests = [g(100, "db", "qemu", "10.0.0.5"), g(101, "web", "lxc", "10.0.0.6"), g(102, "git", "qemu", "")];
+        let vm = |f: serde_json::Value| {
+            let mut r = json!({"kind": "vm", "parent": "p"});
+            r.as_object_mut().unwrap().extend(f.as_object().unwrap().clone());
+            host("v", r).1
+        };
+        assert_eq!(vm_guest(&vm(json!({"name": "db"})), &guests), Some(100));
+        assert_eq!(vm_guest(&vm(json!({"name": "Forge", "hostname": "git"})), &guests), Some(102));
+        assert_eq!(vm_guest(&vm(json!({"name": "Database", "ip": "10.0.0.5"})), &guests), Some(100));
+        // Containers have their own VMID, and a link once made is kept.
+        assert_eq!(vm_guest(&vm(json!({"name": "web"})), &guests), None);
+        assert_eq!(vm_guest(&vm(json!({"name": "db", "guest_vmid": 7})), &guests), None);
+        assert_eq!(vm_guest(&vm(json!({"name": "db", "parent": ""})), &guests), None);
     }
 }

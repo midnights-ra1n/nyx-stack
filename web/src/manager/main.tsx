@@ -3,7 +3,7 @@ import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, R
 import { t } from "../ui/i18n"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
-import { Deployments, Hardware, HardwareRecord, SearchPage, Tasks, Virtual, VirtualRecord, Vpn } from "./inventory"
+import { Components, Deployments, Hardware, HardwareRecord, SearchPage, Tasks, Virtual, VirtualRecord, Vpn } from "./inventory"
 import { Ipam, SubnetPage } from "./ipam"
 import { NetworkMap } from "./map"
 import { Overview } from "./overview"
@@ -15,6 +15,7 @@ function route(path: string) {
   if (path === "/") return <Overview />
   if (path === "/hardware") return <Hardware />
   if (path.startsWith("/hardware/")) return <HardwareRecord key={path} id={path.slice(10)} />
+  if (path === "/components") return <Components />
   if (path === "/racks") return <Racks />
   if (path === "/virtual") return <Virtual />
   if (path.startsWith("/virtual/")) return <VirtualRecord key={path} id={path.slice(9)} />
@@ -41,8 +42,9 @@ function useNav(): NavConfig {
       // GLPI's menus: the assets, the network they sit on, then the work done on them.
       { label: "Assets", items: [
         { to: "/", label: "Overview", icon: Squares2X2Icon },
-        { to: "/hardware", label: "Hardware", icon: ServerIcon },
-        { to: "/racks", label: "Racks", icon: ServerStackIcon },
+        { to: "/hardware", label: "Inventory", icon: ServerIcon },
+        { to: "/components", label: "Components", icon: CpuChipIcon },
+        { to: "/racks", label: "Places", icon: ServerStackIcon },
         { to: "/virtual", label: "Virtual", icon: RectangleStackIcon },
       ] },
       { label: "Network", items: [

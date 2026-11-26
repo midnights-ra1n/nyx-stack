@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildTree, consoleUrl, filterHosts, hostType, noAgent, updateRun } from "./hosts"
+import { buildTree, consoleUrl, filterHosts, fleetGroups, hostType, noAgent, updateRun } from "./hosts"
 
 const pve = { id: "p", kind: "proxmox", hostname: "pve1", guests: [{ vmid: 101, name: "web", kind: "lxc", node: "pve1" }, { vmid: 102, name: "db", kind: "qemu", node: "pve1" }] }
 const ct = { id: "c", parent: "p", vmid: 101 }
@@ -46,6 +46,11 @@ describe("host tree", () => {
     const rows = buildTree([pve, vm], (h) => h.guests ?? [], new Set())
     expect(rows.map((r) => r.host?.id ?? r.guest.name)).toEqual(["p", "v", "web"])
   })
+  it("keeps a renamed VM tied to its guest by the VMID the monitor found", () => {
+    const vm = { id: "v", parent: "p", name: "Database", hostname: "pg-01", vmid: 0, guest_vmid: 102 }
+    const rows = buildTree([pve, vm], (h) => h.guests ?? [], new Set())
+    expect(rows.map((r) => r.host?.id ?? r.guest.name)).toEqual(["p", "v", "web"])
+  })
   it("does not repeat a guest whose agent sits at the top level", () => {
     const rows = buildTree([pve, { id: "v", name: "db", vmid: 0 }, { id: "w", hostname: "web", vmid: 0 }], (h) => h.guests ?? [], new Set())
     expect(rows.map((r) => r.host?.id ?? r.guest.name)).toEqual(["p", "v", "w"])
@@ -53,6 +58,12 @@ describe("host tree", () => {
   it("collapses children and treats orphans as roots", () => {
     expect(buildTree([pve, ct], (h) => h.guests ?? [], new Set(["p"]))).toHaveLength(1)
     expect(buildTree([{ id: "x", parent: "gone" }], () => [], new Set())[0].depth).toBe(0)
+  })
+  it("gives each host that runs others its block, and the rest one block at the end", () => {
+    const ids = (rows: ReturnType<typeof buildTree>) => rows.map((r) => r.host?.id ?? r.guest.name)
+    const groups = fleetGroups(buildTree([{ id: "a" }, pve, ct, { id: "z" }], (h) => h.guests ?? [], new Set()))
+    expect(groups.map((g) => [g.lead?.host.id, ids(g.rows)])).toEqual([["p", ["p", "c", "db"]], [undefined, ["a", "z"]]])
+    expect(fleetGroups(buildTree([pve, ct], (h) => h.guests ?? [], new Set(["p"])))[0].lead?.host.id).toBe("p")
   })
 })
 

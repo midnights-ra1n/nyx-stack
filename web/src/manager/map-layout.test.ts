@@ -32,6 +32,14 @@ describe("network map layout", () => {
     expect(Object.keys(at)).toHaveLength(nodes.length)
   })
 
+  it("lines the network gear up from the Internet down", () => {
+    const gear = [{ id: "s", name: "a-switch", type: "switch" }, { id: "i", name: "isp", type: "internet" }, { id: "f", name: "fw", type: "firewall" }]
+    const at = arrange(gear, [])
+    expect(at.i.x).toBeLessThan(at.f.x)
+    expect(at.f.x).toBeLessThan(at.s.x)
+    expect(at.i.y).toBe(at.s.y)
+  })
+
   it("arcs over the row between two cards side by side", () => {
     const c = curve({ x: 0, y: 100 }, { x: 600, y: 100 })
     expect(c.my).toBeLessThan(100)

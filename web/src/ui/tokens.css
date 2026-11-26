@@ -38,9 +38,9 @@
   --color-s4: #ffb0cf;
   --font-sans: Ubuntu, system-ui, sans-serif;
   --font-mono: "Ubuntu Mono", ui-monospace, monospace;
-  --radius-control: 9999px;
-  --radius-box: 16px; /* Controls that wrap text: a pill would clip it. */
-  --radius-panel: 24px;
+  --radius-control: 10px;
+  --radius-box: 10px;
+  --radius-panel: 14px;
 }
 
 html, body, #root { height: 100%; }
@@ -73,7 +73,6 @@ select.field {
   background-repeat: no-repeat;
 }
 
-/* Checkboxes are pills too. */
 /* Tailwind resets buttons to the default arrow. In the base layer, so that cursor utilities still win. */
 @layer base {
   button:not(:disabled), [role="button"], summary, select:not(:disabled), input[type="file"]::file-selector-button, label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { cursor: pointer; }
@@ -85,9 +84,7 @@ select.field {
 .switch:checked { background: var(--color-accent); border-color: var(--color-accent); }
 .switch:checked::before { translate: 16px 0; background: var(--color-accent-ink); }
 
-/* Tinted cells must follow the panel's corners, and the header band stays a pill. */
-.rt th:first-child { border-radius: 9999px 0 0 9999px; }
-.rt th:last-child { border-radius: 0 9999px 9999px 0; }
+/* A hovered last row follows the panel's corners. */
 .rt tbody tr:last-child td:first-child { border-bottom-left-radius: var(--radius-panel); }
 .rt tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius-panel); }
 
@@ -105,8 +102,15 @@ select.field {
   .dash > .dash-flow { height: auto; }
 }
 
-/* Phones: every table becomes a list of labelled lines. */
-@media (max-width: 639px) {
+/* Tables follow the width of their panel, not of the screen: a half-width column of the
+   host page is as narrow as a phone. Narrow, the cells tighten; very narrow, as on a phone,
+   every table becomes a list of labelled lines. */
+.rt-box { container-type: inline-size; }
+@container (max-width: 40rem) {
+  .rt th, .rt td { padding-left: 8px; padding-right: 8px; }
+  .rt th:first-child, .rt td:first-child { padding-left: 16px; }
+}
+@container (max-width: 26rem) {
   .rt thead { display: none; }
   .rt, .rt tbody, .rt tr { display: block; width: 100%; }
   .rt td { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: auto; min-height: 36px; padding: 6px 20px; text-align: right; overflow-wrap: anywhere; }

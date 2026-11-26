@@ -5,6 +5,7 @@
 pub mod auth;
 pub mod backup;
 pub mod crud;
+pub mod lang;
 pub mod database;
 pub mod mcp;
 pub mod nextdns;

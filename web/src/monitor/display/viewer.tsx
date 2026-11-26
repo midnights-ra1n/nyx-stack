@@ -4,7 +4,7 @@ import { IconButton, Status } from "../../ui/components"
 import { api, type Level, levelSoft, levelText, useMedia } from "../../ui/lib"
 import { bottom, themeVars } from "./model"
 import { DashPanel } from "./panels"
-import { t } from "../../ui/i18n"
+import { t, lang } from "../../ui/i18n"
 
 /** These grow with their content on a phone. Charts need a fixed height. */
 const FLOWING = ["services", "tiles", "alerts", "text"]
@@ -67,7 +67,7 @@ function Header({ page, updated, compact, step, paused, onPause, go }: { page: a
       </div>
       {compact && <Status level={page.overall} />}
       {page.rotation && <Pages rotation={page.rotation} step={step} go={go} />}
-      {updated && <span className="text-xs text-fg3">{t(paused ? "Paused at {time}" : "Updated {time}", { time: updated.toLocaleTimeString() })}</span>}
+      {updated && <span className="text-xs text-fg3">{t(paused ? "Paused at {time}" : "Updated {time}", { time: updated.toLocaleTimeString(lang) })}</span>}
       {onPause && <IconButton label={paused ? "Resume" : "Pause"} icon={paused ? PlayIcon : PauseIcon} onClick={onPause} />}
       {compact && document.fullscreenEnabled && <IconButton label="Full screen" icon={ArrowsPointingOutIcon} onClick={() => document.documentElement.requestFullscreen()} />}
     </header>
@@ -82,7 +82,7 @@ function Notice({ page }: { page: any }) {
 
 /** A dead link or a lost network must not look like an outage. */
 function Lost({ updated }: { updated?: Date }) {
-  return <p role="alert" className="mb-2 rounded-panel bg-warn-soft px-4 py-2 text-warn">Connection lost. Showing data from {updated?.toLocaleTimeString() ?? "earlier"}.</p>
+  return <p role="alert" className="mb-2 rounded-panel bg-warn-soft px-4 py-2 text-warn">{t("Connection lost. Showing data from {time}.", { time: updated?.toLocaleTimeString(lang) ?? t("earlier") })}</p>
 }
 
 /** Screens in a room must stay awake and survive network cuts unattended. */

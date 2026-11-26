@@ -4,7 +4,7 @@ import { Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Panel, Range
 import { t } from "../ui/i18n"
 import { api, useApi, useStored } from "../ui/lib"
 import { PageHeader } from "../ui/shell"
-import { allTags, hasTag } from "../ui/tags"
+import { allTags, hasTag, tagOptions } from "../ui/tags"
 import { axis, combine, METRIC_KEYS, METRICS, type Metric, pointsOf, slotFor } from "./metrics"
 
 /** Which hosts a chart draws: all, one tag, a fixed list, or whatever a variable of the page holds. */
@@ -148,7 +148,7 @@ export function Charts() {
       <PageHeader title={t("Charts")} subtitle="Pick a measure and some hosts. The variables below change every chart that uses them." onRefresh={() => { hosts.reload(); saved.reload() }}
         variables={<>
           <Variable label="Host" value={vars.host} onChange={(host) => setVars({ ...vars, host })} options={[{ value: "", label: "All" }, ...list.map((h) => ({ value: h.id, label: h.name }))]} />
-          <Variable label="Tag" value={vars.tag} onChange={(tag) => setVars({ ...vars, tag })} options={[{ value: "", label: "All" }, ...tags.map((x) => ({ value: x, label: x }))]} />
+          <Variable label="Tag" value={vars.tag} onChange={(tag) => setVars({ ...vars, tag })} options={tagOptions(tags)} />
           <RangeSelect value={vars.range} onChange={(range) => setVars({ ...vars, range })} />
         </>}
         actions={<Button variant="primary" onClick={() => setEditing(fresh())}><PlusIcon className="size-5" aria-hidden />{t("Add chart")}</Button>} />

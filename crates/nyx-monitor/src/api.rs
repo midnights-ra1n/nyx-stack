@@ -25,7 +25,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     let parent = st.hosts.get(&h.parent).and_then(|p| p.live.as_ref());
     let r = live.map(|l| &l.report);
     json!({
-        "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "hostname": h.hostname, "ip": h.ip,
+        "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "guest_vmid": h.guest_vmid, "hostname": h.hostname, "ip": h.ip,
         "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted, "tags": h.tags,
         "ct_autoinstall": h.ct_autoinstall, "dns": r.map(|r| &r.dns), "last_seen": h.last_seen, "status": host_status(h, now, th),
         "issues": host_issues(h, th).into_iter().map(|(level, message)| json!({"level": level, "message": message})).collect::<Vec<_>>(),
@@ -219,15 +219,36 @@ async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Str
 struct HostPatch {
     muted: Option<bool>,
     tags: Option<Vec<String>>,
+    /// The name shown in Nyx. The machine's hostname stays as it is.
+    name: Option<String>,
 }
 
-/// Keeps a host out of alerts and notifications, or brings it back. Its open alerts
-/// close quietly; unmuted, it alerts again from its next report.
+/// Renames a host, sets its tags, or keeps it out of alerts and notifications. Muted,
+/// its open alerts close quietly; unmuted, it alerts again from its next report.
 async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<HostPatch>) -> ApiResult<Json<Value>> {
     let tags = b.tags.as_ref().map(|t| crate::state::parse_tags(t.iter().map(String::as_str)));
+    let name = b.name.as_deref().map(str::trim);
+    let mut rec = serde_json::Map::new();
+    if name == Some("") {
+        return Err(ApiError::bad_request("name is required"));
+    }
     {
         let mut st = app.lock();
+        if let Some(n) = name {
+            if st.hosts.values().any(|h| h.id != id && h.name.eq_ignore_ascii_case(n)) {
+                return Err(ApiError::bad_request("a host has this name already"));
+            }
+        }
+        // Tie a VM to its Proxmox guest while the old name still finds it.
+        let guest = st.hosts.get(&id).and_then(|h| ingest::vm_guest(h, st.hosts.get(&h.parent)?.live.as_ref()?.guests.as_slice()));
         let h = st.hosts.get_mut(&id).ok_or_else(ApiError::not_found)?;
+        if let Some(vmid) = guest.filter(|_| name.is_some()) {
+            h.guest_vmid = vmid;
+            rec.insert("guest_vmid".into(), vmid.into());
+        }
+        if let Some(n) = name {
+            h.name = n.into();
+        }
         if let Some(m) = b.muted {
             h.muted = m;
         }
@@ -235,7 +256,9 @@ async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Stri
             h.tags = t.clone();
         }
     }
-    let mut rec = serde_json::Map::new();
+    if let Some(n) = name {
+        rec.insert("name".into(), n.into());
+    }
     if let Some(m) = b.muted {
         rec.insert("muted".into(), m.into());
     }

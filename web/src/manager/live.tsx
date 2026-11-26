@@ -1,3 +1,4 @@
+import { DistroIcon, osName } from "../ui/brand-icons"
 import { Meter, Panel, Status } from "../ui/components"
 import { t } from "../ui/i18n"
 import { fmt, type Level, useApi } from "../ui/lib"
@@ -36,6 +37,7 @@ export function LivePanel({ hosts, row }: { hosts: any[] | null | undefined; row
           {bar("Memory", h.status === "off" ? null : h.mem)}
           {bar("Fullest disk", h.status === "off" ? null : h.disk)}
           <dt className="text-fg2">{t("Up for")}</dt><dd>{fmt.uptime(h.uptime_s)}</dd>
+          {h.os && <><dt className="text-fg2">{t("System")}</dt><dd className="flex min-w-0 items-center gap-1.5"><DistroIcon os={h.os} className="size-4 text-fg3" /><span className="truncate">{osName(h.os)}</span></dd></>}
           <dt className="text-fg2">{t("Updates")}</dt><dd className={h.security ? "text-crit" : ""}>{h.updates ? `${h.updates}${h.security ? ` · ${t("{n} security fixes", { n: h.security })}` : ""}` : t("Up to date")}{h.reboot_required ? ` · ${t("Restart needed")}` : ""}</dd>
           <dt className="text-fg2">{t("Tags")}</dt><dd><TagList tags={h.tags} /></dd>
         </dl>

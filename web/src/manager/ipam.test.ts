@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { addressMap, ip4, ip4str } from "./ipam"
+import { addressMap, mergePatch } from "./ipam"
+import { ip4, ip4str } from "./ipcalc"
 import { parseLinks } from "./overview"
 
 describe("ipam helpers", () => {
@@ -27,5 +28,12 @@ describe("link widget", () => {
       { label: "Proxmox", url: "https://pve.lan:8006" },
       { label: "http://bare.lan", url: "http://bare.lan" },
     ])
+  })
+})
+
+describe("merging the records of one machine", () => {
+  it("fills only what the kept record leaves empty", () => {
+    const keep = { device: "Forge", hostname: "", mac: "aa:bb", owner: "" }
+    expect(mergePatch(keep, [{ device: "gitea", hostname: "gitea", mac: "cc:dd", owner: "" }, { owner: "me" }])).toEqual({ hostname: "gitea", owner: "me" })
   })
 })

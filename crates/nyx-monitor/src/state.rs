@@ -165,6 +165,8 @@ pub struct Host {
     pub key: String,
     pub parent: String,
     pub vmid: u32,
+    /// For a VM with its own agent: the VMID it has on its Proxmox host, 0 until found.
+    pub guest_vmid: u32,
     pub ct_autoinstall: bool,
     pub hostname: String,
     pub ip: String,
@@ -269,6 +271,7 @@ impl Host {
             key: s("key"),
             parent: s("parent"),
             vmid: r["vmid"].as_u64().unwrap_or(0) as u32,
+            guest_vmid: r["guest_vmid"].as_u64().unwrap_or(0) as u32,
             ct_autoinstall: r["ct_autoinstall"].as_bool().unwrap_or(false),
             hostname: s("hostname"),
             ip: Some(s("ip")).filter(|ip| !is_vpn_ip(ip)).unwrap_or_default(),

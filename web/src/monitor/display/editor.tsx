@@ -57,7 +57,7 @@ export function PagesList() {
     <>
       <PageHeader title={t("Status pages")} subtitle="Public status pages and wall displays." actions={<Button variant="primary" onClick={() => setAdding(true)}><PlusIcon className="size-5" aria-hidden />{t("New page")}</Button>} />
       <Section>
-        <Panel title={`${data?.length ?? 0} pages`} flush>
+        <Panel title={t("{n} pages", { n: data?.length ?? 0 })} flush>
           <ErrorNote>{error}</ErrorNote>
           {data?.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No pages yet.")}</Empty></div> : (
             <Table head={["Name", "Type", "Address", "State", ""]}>
@@ -68,7 +68,7 @@ export function PagesList() {
                   <Td mono>/{p.kind}/{p.slug}</Td>
                   <Td>{p.published ? <Status cell level="ok" label="Published" /> : <Status cell level="off" label="Draft" />}</Td>
                   <Td className="w-24 whitespace-nowrap text-right">
-                    {p.published && <a href={pageUrl(p)} target="_blank" rel="noreferrer" aria-label={`Open ${p.name}`} className="inline-flex size-10 items-center justify-center text-fg2 hover:text-fg"><ArrowTopRightOnSquareIcon className="size-5" aria-hidden /></a>}
+                    {p.published && <a href={pageUrl(p)} target="_blank" rel="noreferrer" aria-label={t("Open {name}", { name: p.name })} className="inline-flex size-10 items-center justify-center text-fg2 hover:text-fg"><ArrowTopRightOnSquareIcon className="size-5" aria-hidden /></a>}
                     <IconButton label="Delete" icon={TrashIcon} onClick={() => remove(p)} />
                   </Td>
                 </tr>
@@ -167,7 +167,7 @@ function EditGrid({ page, panels, onChange, onEdit }: { page: any; panels: Panel
           <div className={`absolute inset-0 rounded-panel border border-dashed border-line2 hover:border-accent ${phone ? "pointer-events-none" : "cursor-move touch-none"}`} onPointerDown={(e) => start(e, p.id, false)} onPointerMove={move} onPointerUp={end} />
           <div className="absolute right-1 top-0 flex">
             <IconButton label={t("Edit {name}", { name: p.title || p.type })} icon={Cog6ToothIcon} onClick={() => onEdit(p)} />
-            <IconButton label={`Remove ${p.title || p.type}`} icon={TrashIcon} onClick={() => onChange(panels.filter((x) => x.id !== p.id))} />
+            <IconButton label={t("Remove {name}", { name: p.title || p.type })} icon={TrashIcon} onClick={() => onChange(panels.filter((x) => x.id !== p.id))} />
           </div>
           {!phone && <div aria-hidden className="absolute bottom-0 right-0 size-6 cursor-se-resize touch-none border-b-2 border-r-2 border-accent" onPointerDown={(e) => start(e, p.id, true)} onPointerMove={move} onPointerUp={end} />}
         </div>
@@ -239,8 +239,8 @@ function Rotation({ c, set, others, onCreated }: { c: PageConfig; set: (o: Parti
                 <li key={id} className="flex min-h-11 items-center gap-2">
                   <span className="w-6 text-fg3">{i + 2}</span>
                   <span className="min-w-0 flex-1 truncate"><Link className="text-accent" to={`/pages/${id}`}>{p.name}</Link>{!p.published && <span className="ml-2 text-xs text-warn">{t("Draft: skipped until published")}</span>}</span>
-                  <IconButton label={`Move ${p.name} up`} icon={ArrowUpIcon} disabled={i === 0} onClick={() => move(i, -1)} />
-                  <IconButton label={`Move ${p.name} down`} icon={ArrowDownIcon} disabled={i === picked.length - 1} onClick={() => move(i, 1)} />
+                  <IconButton label={t("Move {name} up", { name: p.name })} icon={ArrowUpIcon} disabled={i === 0} onClick={() => move(i, -1)} />
+                  <IconButton label={t("Move {name} down", { name: p.name })} icon={ArrowDownIcon} disabled={i === picked.length - 1} onClick={() => move(i, 1)} />
                   <IconButton label={t("Remove {name} from the rotation", { name: p.name })} icon={TrashIcon} onClick={() => set({ rotate: picked.filter((x) => x !== id) })} />
                 </li>
               )

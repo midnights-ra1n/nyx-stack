@@ -54,11 +54,34 @@ fn is_vpn(l: &Value) -> bool {
 const W: f64 = 140.0;
 const H: f64 = 56.0;
 
-pub fn svg(nodes: &[Value], links: &[Value]) -> String {
+/// The colours zones can take on the map, as the exports draw them.
+fn zone_color(z: &Value) -> &'static str {
+    match s(z, "color") {
+        "green" => "#4cc38a",
+        "yellow" => "#e5b94e",
+        "red" => "#e5534b",
+        "orange" => "#f08a4b",
+        "grey" => "#8b98a8",
+        _ => "#5b9bf0",
+    }
+}
+
+fn zone_box(z: &Value) -> (f64, f64, f64, f64) {
+    let n = |k: &str| z[k].as_f64().unwrap_or(0.0);
+    (n("x"), n("y"), n("w").max(40.0), n("h").max(40.0))
+}
+
+pub fn svg(nodes: &[Value], links: &[Value], zones: &[Value]) -> String {
     let xy = |n: &Value| (n["x"].as_f64().unwrap_or(0.0), n["y"].as_f64().unwrap_or(0.0));
-    let right = nodes.iter().map(|n| xy(n).0).fold(0.0, f64::max) + W + 40.0;
-    let bottom = nodes.iter().map(|n| xy(n).1).fold(0.0, f64::max) + H + 40.0;
+    let ends = zones.iter().map(|z| { let (x, y, w, h) = zone_box(z); (x + w - W, y + h - H) });
+    let right = nodes.iter().map(xy).chain(ends.clone()).map(|p| p.0).fold(0.0, f64::max) + W + 40.0;
+    let bottom = nodes.iter().map(xy).chain(ends).map(|p| p.1).fold(0.0, f64::max) + H + 40.0;
     let mut out = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{right}" height="{bottom}" viewBox="0 0 {right} {bottom}" font-family="Ubuntu, sans-serif"><rect width="100%" height="100%" fill="#141a22"/>"##);
+    for z in zones {
+        let ((x, y, w, h), c) = (zone_box(z), zone_color(z));
+        out += &format!(r##"<rect x="{}" y="{}" width="{w}" height="{h}" rx="14" fill="{c}" fill-opacity="0.08" stroke="{c}" stroke-opacity="0.6" stroke-dasharray="6 4"/><text x="{}" y="{}" font-size="13" fill="{c}">{}</text>"##,
+            x + 20.0, y + 20.0, x + 32.0, y + 40.0, xml(s(z, "name")));
+    }
     for l in links {
         if let (Some(a), Some(b)) = (name_of(nodes, s(l, "source")), name_of(nodes, s(l, "target"))) {
             let ((ax, ay), (bx, by)) = (xy(a), xy(b));
@@ -107,8 +130,14 @@ pub fn mermaid(nodes: &[Value], links: &[Value]) -> String {
 }
 
 /// draw.io / diagrams.net uncompressed format.
-pub fn drawio(nodes: &[Value], links: &[Value]) -> String {
+pub fn drawio(nodes: &[Value], links: &[Value], zones: &[Value]) -> String {
     let mut out = String::from(r#"<mxfile><diagram name="Nyx network"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>"#);
+    // Zones first, so that they sit behind the devices.
+    for z in zones {
+        let ((x, y, w, h), c) = (zone_box(z), zone_color(z));
+        out += &format!(r#"<mxCell id="zone-{}" value="{}" style="rounded=1;dashed=1;fillColor={c};opacity=15;strokeColor={c};verticalAlign=top;align=left;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>"#,
+            xml(s(z, "id")), xml(s(z, "name")));
+    }
     for n in nodes {
         let label = xml(&format!("{}\n{}", s(n, "name"), s(n, "ip"))).replace('\n', "&#10;");
         out += &format!(r#"<mxCell id="{}" value="{label}" style="rounded=1;whiteSpace=wrap;html=0;" vertex="1" parent="1"><mxGeometry x="{}" y="{}" width="{W}" height="{H}" as="geometry"/></mxCell>"#,
@@ -123,13 +152,13 @@ pub fn drawio(nodes: &[Value], links: &[Value]) -> String {
 }
 
 /// `(body, content type, file extension)`.
-pub fn export(format: &str, nodes: &[Value], links: &[Value]) -> Option<(String, &'static str, &'static str)> {
+pub fn export(format: &str, nodes: &[Value], links: &[Value], zones: &[Value]) -> Option<(String, &'static str, &'static str)> {
     Some(match format {
-        "svg" => (svg(nodes, links), "image/svg+xml", "svg"),
+        "svg" => (svg(nodes, links, zones), "image/svg+xml", "svg"),
         "dot" => (dot(nodes, links), "text/vnd.graphviz", "dot"),
         "mermaid" => (mermaid(nodes, links), "text/plain; charset=utf-8", "mmd"),
-        "drawio" => (drawio(nodes, links), "application/xml", "drawio"),
-        "json" => (json!({"nodes": nodes, "links": links}).to_string(), "application/json", "json"),
+        "drawio" => (drawio(nodes, links, zones), "application/xml", "drawio"),
+        "json" => (json!({"nodes": nodes, "links": links, "zones": zones}).to_string(), "application/json", "json"),
         _ => return None,
     })
 }
@@ -146,20 +175,32 @@ mod tests {
     }
 
     #[test]
+    fn zones_are_drawn_behind_the_devices() {
+        let (n, l) = data();
+        let z = [json!({"id": "z1", "name": "DMZ <edge>", "color": "red", "x": 0, "y": 0, "w": 400, "h": 300})];
+        let s = svg(&n, &l, &z);
+        assert!(s.contains("DMZ &lt;edge&gt;") && s.contains("#e5534b"));
+        assert!(s.find("DMZ").unwrap() < s.find("<line").unwrap_or(usize::MAX));
+        let d = drawio(&n, &l, &z);
+        assert!(d.find("zone-z1").unwrap() < d.find(r#"<mxCell id="a""#).unwrap());
+        assert!(export("json", &n, &l, &z).unwrap().0.contains("\"zones\""));
+    }
+
+    #[test]
     fn every_format_exports_and_unknown_is_refused() {
         let (n, l) = data();
         for f in ["svg", "dot", "mermaid", "drawio", "json"] {
-            assert!(!export(f, &n, &l).unwrap().0.is_empty());
+            assert!(!export(f, &n, &l, &[]).unwrap().0.is_empty());
         }
-        assert!(export("pdf", &n, &l).is_none());
+        assert!(export("pdf", &n, &l, &[]).is_none());
     }
 
     #[test]
     fn labels_cannot_break_out_of_their_format() {
         let (n, l) = data();
-        let s = svg(&n, &l);
+        let s = svg(&n, &l, &[]);
         assert!(s.contains("r&lt;1&gt;") && s.contains("1 &amp; 2") && !s.contains("r<1>"));
-        assert!(drawio(&n, &l).contains("sw &quot;core&quot;"));
+        assert!(drawio(&n, &l, &[]).contains("sw &quot;core&quot;"));
         assert!(dot(&n, &l).contains(r#"sw \"core\""#));
         assert!(mermaid(&n, &l).contains("sw #quot;core#quot;"));
     }
@@ -171,8 +212,8 @@ mod tests {
         let l = with_vpn(&n, &[], &vpn);
         assert_eq!(l.len(), 1, "a tunnel with one known end cannot be drawn");
         assert_eq!((l[0]["source"].as_str(), l[0]["target"].as_str()), (Some("a"), Some("b")));
-        assert!(svg(&n, &l).contains("stroke-dasharray") && dot(&n, &l).contains("style=dashed"));
-        assert!(mermaid(&n, &l).contains("-.-|") && drawio(&n, &l).contains("dashed=1"));
+        assert!(svg(&n, &l, &[]).contains("stroke-dasharray") && dot(&n, &l).contains("style=dashed"));
+        assert!(mermaid(&n, &l).contains("-.-|") && drawio(&n, &l, &[]).contains("dashed=1"));
     }
 
     #[test]
@@ -197,6 +238,6 @@ mod tests {
     #[test]
     fn svg_skips_links_to_deleted_nodes() {
         let (n, l) = data();
-        assert_eq!(svg(&n, &l).matches("<line").count(), 1);
+        assert_eq!(svg(&n, &l, &[]).matches("<line").count(), 1);
     }
 }

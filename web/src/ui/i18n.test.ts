@@ -13,6 +13,9 @@ function keys() {
         // A literal compared with `===` is a value tested, not text shown.
         if (/[A-Za-z]{2}/.test(s[1]) && !/[=!]==\s*$/.test(m[1].slice(0, s.index))) out.add(JSON.parse(`"${s[1]}"`))
       }
+    // Components translate these props themselves, so their literals need French too.
+    for (const m of src.matchAll(/\b(?:label|title|hint|sub|footer|subtitle)=\{?"((?:[^"\\]|\\.)*)"/g))
+      if (/[A-Za-z]{2}/.test(m[1]) && !m[1].includes("${")) out.add(JSON.parse(`"${m[1]}"`))
   }
   return [...out]
 }

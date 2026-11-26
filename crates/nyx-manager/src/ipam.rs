@@ -8,9 +8,7 @@ use std::{
     net::IpAddr,
 };
 
-const MAX_HOPS: usize = 32;
-
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+pub fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or_default()
 }
 
@@ -18,13 +16,85 @@ fn s<'a>(v: &'a Value, k: &str) -> &'a str {
 pub struct Conflict {
     pub severity: &'static str,
     pub message: String,
+    /// `address` for one address held by several machines, which the interface offers to fix.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub address: String,
+    /// The address rows involved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<String>,
 }
 
 fn crit(message: String) -> Conflict {
-    Conflict { severity: "crit", message }
+    Conflict { severity: "crit", message, kind: String::new(), address: String::new(), ids: vec![] }
 }
 fn warn(message: String) -> Conflict {
-    Conflict { severity: "warn", message }
+    Conflict { severity: "warn", ..crit(message) }
+}
+
+/// Two address rows of one machine: the same name, hostname or MAC, ignoring case. A host
+/// renamed in the monitor keeps its hostname, so its old and new rows are still one machine.
+pub fn same_item(a: &Value, b: &Value) -> bool {
+    let names = |r: &Value| [s(r, "device"), s(r, "hostname")].into_iter().filter(|n| !n.is_empty()).map(str::to_lowercase).collect::<Vec<_>>();
+    let (na, nb) = (names(a), names(b));
+    na.iter().any(|n| nb.contains(n)) || (!s(a, "mac").is_empty() && s(a, "mac").eq_ignore_ascii_case(s(b, "mac")))
+}
+
+/// One machine and its address rows.
+pub struct Item<'a> {
+    pub name: String,
+    pub rows: Vec<&'a Value>,
+}
+
+/// The machines behind address rows: rows of one machine joined, named after the first row
+/// typed by hand, else the first with a name, else its address.
+pub fn items<'a>(rows: impl IntoIterator<Item = &'a Value>) -> Vec<Item<'a>> {
+    let rows: Vec<&Value> = rows.into_iter().collect();
+    // shortcut: compares every pair of rows; fine for a few thousand addresses, index by name past that.
+    let mut up: Vec<usize> = (0..rows.len()).collect();
+    fn root(up: &mut [usize], mut i: usize) -> usize {
+        while up[i] != i {
+            up[i] = up[up[i]];
+            i = up[i];
+        }
+        i
+    }
+    for i in 0..rows.len() {
+        for j in i + 1..rows.len() {
+            if same_item(rows[i], rows[j]) {
+                let (a, b) = (root(&mut up, i), root(&mut up, j));
+                up[b] = a;
+            }
+        }
+    }
+    let mut groups: Vec<(usize, Vec<&Value>)> = vec![];
+    for (i, r) in rows.iter().enumerate() {
+        let k = root(&mut up, i);
+        match groups.iter_mut().find(|(g, _)| *g == k) {
+            Some((_, g)) => g.push(r),
+            None => groups.push((k, vec![r])),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(_, rows)| {
+            let named = |r: &&&Value| !s(r, "device").is_empty();
+            let by_hand = rows.iter().filter(named).find(|r| s(r, "note") != "From monitoring").or(rows.iter().find(named));
+            Item { name: by_hand.map_or_else(|| s(rows[0], "address").to_string(), |r| s(r, "device").to_string()), rows }
+        })
+        .collect()
+}
+
+/// The machines at one address that make it a conflict: none when they are one machine, or
+/// when every row there is marked shared (VRRP, CARP, anycast).
+fn rivals<'a>(rows: &[&'a Value]) -> Vec<Item<'a>> {
+    let shared: Vec<&Value> = rows.iter().copied().filter(|r| r["shared"] == true).collect();
+    let mut machines = items(rows.iter().copied().filter(|r| r["shared"] != true));
+    if machines.len() == 1 && shared.iter().any(|r| !machines[0].rows.iter().any(|m| same_item(m, r))) {
+        machines.extend(items(shared));
+    }
+    if machines.len() > 1 { machines } else { vec![] }
 }
 
 /// Usable addresses in a network, saturating for huge IPv6 prefixes.
@@ -97,11 +167,16 @@ pub fn report(subnets: &[Value], addresses: &[Value]) -> Value {
     ips.sort();
     for ip in ips {
         let rows = &by_ip[ip];
-        let devices: HashSet<&str> = rows.iter().map(|r| s(r, "device")).collect();
-        if rows.len() > 1 && devices.len() > 1 {
-            let mut d: Vec<&str> = devices.into_iter().collect();
-            d.sort();
-            conflicts.push(crit(format!("{ip} is assigned to {}", d.join(" and "))));
+        let machines = rivals(rows);
+        if !machines.is_empty() {
+            let mut names: Vec<&str> = machines.iter().map(|m| m.name.as_str()).collect();
+            names.sort();
+            conflicts.push(Conflict {
+                kind: "address".into(),
+                address: ip.to_string(),
+                ids: rows.iter().map(|r| s(r, "id").to_string()).collect(),
+                ..crit(format!("{ip} is assigned to {}", names.join(", ")))
+            });
         }
         match nets.iter().filter(|(_, n)| n.contains(ip)).max_by_key(|(_, n)| n.prefix_len()) {
             None if !nets.is_empty() => conflicts.push(warn(format!("{ip} is outside every subnet"))),
@@ -228,63 +303,6 @@ pub fn next_free(subnet: &Value, addresses: &[Value]) -> Option<IpAddr> {
     net.hosts().take(65536).find(|ip| !taken.contains(ip) && Some(*ip) != gateway)
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-pub struct Hop {
-    pub device: String,
-    pub detail: String,
-}
-
-/// Follow the route tables from `from` to `dest`: longest prefix wins, then lowest
-/// metric. Next hops are matched to devices through the IPAM records.
-pub fn simulate(from: &str, dest: IpAddr, routes: &[Value], addresses: &[Value], subnets: &[Value]) -> Value {
-    let nets: Vec<IpNet> = subnets.iter().filter_map(|r| s(r, "cidr").parse().ok()).collect();
-    let owner = |ip: IpAddr| addresses.iter().find(|r| s(r, "address").parse::<IpAddr>() == Ok(ip)).map(|r| s(r, "device").to_string());
-    let own_ips = |d: &str| -> Vec<IpAddr> { addresses.iter().filter(|r| s(r, "device") == d).filter_map(|r| s(r, "address").parse().ok()).collect() };
-    let on_link = |d: &str| nets.iter().any(|n| n.contains(&dest) && own_ips(d).iter().any(|ip| n.contains(ip)));
-
-    let mut hops: Vec<Hop> = vec![];
-    let mut seen = HashSet::new();
-    let mut device = from.to_string();
-    let result = loop {
-        if !seen.insert(device.clone()) {
-            hops.push(Hop { device: device.clone(), detail: "already visited".into() });
-            break ("loop", format!("Routing loop at {device}"));
-        }
-        if hops.len() >= MAX_HOPS {
-            break ("unreachable", format!("Gave up after {MAX_HOPS} hops"));
-        }
-        if own_ips(&device).contains(&dest) {
-            hops.push(Hop { device: device.clone(), detail: "destination".into() });
-            break ("reached", format!("{dest} reached in {} hops", hops.len() - 1));
-        }
-        if on_link(&device) {
-            hops.push(Hop { device: device.clone(), detail: format!("{dest} is on a connected subnet") });
-            break ("reached", match owner(dest) {
-                Some(d) => format!("{dest} ({d}) reached in {} hops", hops.len()),
-                None => format!("{dest} is on the local subnet, no device recorded"),
-            });
-        }
-        let best = routes
-            .iter()
-            .filter(|r| s(r, "device") == device)
-            .filter_map(|r| Some((r, s(r, "destination").parse::<IpNet>().ok()?)))
-            .filter(|(_, n)| n.contains(&dest))
-            .max_by_key(|(r, n)| (n.prefix_len(), -r["metric"].as_i64().unwrap_or(0)));
-        let Some((route, net)) = best else {
-            hops.push(Hop { device: device.clone(), detail: "no route".into() });
-            break ("unreachable", format!("{device} has no route to {dest}"));
-        };
-        let hop_ip = s(route, "next_hop");
-        hops.push(Hop { device: device.clone(), detail: format!("{net} via {hop_ip}") });
-        let next = hop_ip.parse().ok().and_then(owner);
-        let Some(next) = next else {
-            break ("unreachable", format!("Next hop {hop_ip} is not a known device"));
-        };
-        device = next;
-    };
-    json!({"status": result.0, "summary": result.1, "hops": hops})
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,9 +312,6 @@ mod tests {
     }
     fn addr(ip: &str, device: &str) -> Value {
         json!({"address": ip, "device": device, "mac": ""})
-    }
-    fn route(device: &str, dest: &str, hop: &str, metric: i64) -> Value {
-        json!({"device": device, "destination": dest, "next_hop": hop, "metric": metric})
     }
     fn messages(v: &Value) -> Vec<String> {
         v["conflicts"].as_array().unwrap().iter().map(|c| c["message"].as_str().unwrap().to_string()).collect()
@@ -326,7 +341,7 @@ mod tests {
         other_ip["mac"] = "aa:bb".into();
         let addrs = [dup, addr("10.0.0.5", "y"), other_ip, addr("10.0.0.0", "z"), addr("172.16.0.1", "z"), addr("oops", "z")];
         let m = messages(&report(&subs, &addrs));
-        for expected in ["invalid CIDR", "are both 10.0.0.0/24", "gateway 10.1.0.1 is outside", "10.0.0.5 is assigned to x and y", "network or broadcast", "172.16.0.1 is outside every subnet", "Invalid address oops", "MAC aa:bb appears"] {
+        for expected in ["invalid CIDR", "are both 10.0.0.0/24", "gateway 10.1.0.1 is outside", "10.0.0.5 is assigned to x, y", "network or broadcast", "172.16.0.1 is outside every subnet", "Invalid address oops", "MAC aa:bb appears"] {
             assert!(m.iter().any(|x| x.contains(expected)), "missing {expected:?} in {m:?}");
         }
     }
@@ -380,36 +395,41 @@ mod tests {
         assert_eq!(next_free(&s, &[addr("192.168.1.2", "a")]).unwrap().to_string(), "192.168.1.3");
     }
 
-    fn lab() -> (Vec<Value>, Vec<Value>, Vec<Value>) {
-        let subs = vec![subnet("lan", "10.0.1.0/24", ""), subnet("dmz", "10.0.2.0/24", ""), subnet("core", "10.0.9.0/24", "")];
-        let addrs = vec![addr("10.0.1.10", "pc"), addr("10.0.1.1", "r1"), addr("10.0.9.1", "r1"), addr("10.0.9.2", "r2"), addr("10.0.2.1", "r2"), addr("10.0.2.20", "web")];
-        let routes = vec![route("pc", "0.0.0.0/0", "10.0.1.1", 1), route("r1", "0.0.0.0/0", "10.0.9.9", 1), route("r1", "10.0.2.0/24", "10.0.9.2", 1)];
-        (subs, addrs, routes)
+    #[test]
+    fn one_machine_under_two_names_is_not_a_conflict() {
+        let mut renamed = addr("10.0.0.5", "Forge Git");
+        renamed["hostname"] = "gitea".into();
+        let mut old = addr("10.0.0.5", "gitea");
+        old["hostname"] = "gitea".into();
+        let mut a = addr("10.0.0.6", "nas");
+        a["mac"] = "AA:BB".into();
+        let mut b = addr("10.0.0.6", "Synology");
+        b["mac"] = "aa:bb".into();
+        assert!(messages(&report(&[], &[renamed, old, a, b])).is_empty());
     }
 
     #[test]
-    fn traces_a_path_with_longest_prefix_match() {
-        let (subs, addrs, routes) = lab();
-        let v = simulate("pc", "10.0.2.20".parse().unwrap(), &routes, &addrs, &subs);
-        assert_eq!(v["status"], "reached");
-        let path: Vec<&str> = v["hops"].as_array().unwrap().iter().map(|h| h["device"].as_str().unwrap()).collect();
-        assert_eq!(path, ["pc", "r1", "r2"]);
+    fn shared_addresses_conflict_only_with_others() {
+        let mut r1 = addr("10.0.0.1", "r1");
+        r1["shared"] = true.into();
+        let mut r2 = addr("10.0.0.1", "r2");
+        r2["shared"] = true.into();
+        assert!(messages(&report(&[], &[r1.clone(), r2.clone()])).is_empty());
+        let mut pc = addr("10.0.0.1", "pc");
+        pc["id"] = "p".into();
+        let v = report(&[], &[r1, r2, pc]);
+        assert_eq!(messages(&v), ["10.0.0.1 is assigned to pc, r1, r2"]);
+        assert_eq!((v["conflicts"][0]["kind"].as_str(), v["conflicts"][0]["ids"].as_array().unwrap().len()), (Some("address"), 3));
     }
 
     #[test]
-    fn lower_metric_wins_between_equal_prefixes() {
-        let (subs, addrs, mut routes) = lab();
-        routes.push(route("r1", "10.0.2.0/24", "10.0.9.9", 5));
-        assert_eq!(simulate("pc", "10.0.2.20".parse().unwrap(), &routes, &addrs, &subs)["status"], "reached");
-    }
-
-    #[test]
-    fn reports_black_holes_and_loops() {
-        let (subs, addrs, routes) = lab();
-        let v = simulate("web", "8.8.8.8".parse().unwrap(), &routes, &addrs, &subs);
-        assert_eq!((v["status"].as_str(), v["summary"].as_str()), (Some("unreachable"), Some("web has no route to 8.8.8.8")));
-        let looped = [route("a", "0.0.0.0/0", "10.0.0.2", 1), route("b", "0.0.0.0/0", "10.0.0.1", 1)];
-        let a = [addr("10.0.0.1", "a"), addr("10.0.0.2", "b")];
-        assert_eq!(simulate("a", "8.8.8.8".parse().unwrap(), &looped, &a, &[])["status"], "loop");
+    fn items_are_named_after_the_row_typed_by_hand() {
+        let mut seen = addr("10.0.0.5", "gitea");
+        seen["note"] = "From monitoring".into();
+        let mut typed = addr("10.0.0.5", "Forge");
+        typed["hostname"] = "gitea".into();
+        let rows = [seen, typed, addr("10.0.0.9", "")];
+        let names: Vec<String> = items(&rows).into_iter().map(|i| i.name).collect();
+        assert_eq!(names, ["Forge", "10.0.0.9"]);
     }
 }

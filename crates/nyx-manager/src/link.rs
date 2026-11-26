@@ -3,7 +3,6 @@
 use crate::App;
 use anyhow::{bail, Context};
 use nyx_proto::{is_vpn_ip, relay::Key, Deploy};
-use nyx_srv::pb_quote;
 use serde_json::{json, Value};
 
 pub struct Link {
@@ -122,7 +121,10 @@ fn assets_of(h: &Value) -> Vec<(String, Value)> {
 /// its node and as a host of its own: keep the host row, it knows more.
 fn inventory(hosts: &[Value]) -> Vec<(String, Value)> {
     let mut rows: Vec<(String, Value)> = hosts.iter().flat_map(assets_of).collect();
-    let monitored = |g: &Value| hosts.iter().any(|h| h["name"] == g["name"] || (h["vmid"].as_u64().unwrap_or(0) > 0 && h["vmid"] == g["vmid"] && h["pve_node"] == g["pve_node"]));
+    let parent_name = |h: &Value| hosts.iter().find(|p| p["id"] == h["parent"]).map(|p| p["name"].clone());
+    // A VM renamed in Nyx is still its guest: the monitor ties them by VMID.
+    let linked = |h: &Value, g: &Value| h["guest_vmid"].as_u64().unwrap_or(0) > 0 && h["guest_vmid"] == g["vmid"] && parent_name(h).is_some_and(|p| p == g["parent"]);
+    let monitored = |g: &Value| hosts.iter().any(|h| h["name"] == g["name"] || h["hostname"] == g["name"] || linked(h, g) || (h["vmid"].as_u64().unwrap_or(0) > 0 && h["vmid"] == g["vmid"] && h["pve_node"] == g["pve_node"]));
     rows.retain(|(_, f)| f.get("parent").is_none() || f["type"] == "docker" || !monitored(f));
     rows
 }
@@ -132,7 +134,8 @@ fn differs(row: &Value, wanted: &Value) -> bool {
 }
 
 /// Mirror monitor hosts into `virtual_assets` and `ip_addresses`, writing only what
-/// changed. Rows that left the monitor are removed; manual rows are left alone.
+/// changed. Rows that left the monitor are removed; manual rows are left alone. A host
+/// renamed in the monitor keeps its address row, found by hostname, under its new name.
 pub async fn sync(app: &App) -> anyhow::Result<()> {
     let Some(hosts) = hosts(app).await? else { return Ok(()) };
     let pb = &app.core.pb;
@@ -152,15 +155,27 @@ pub async fn sync(app: &App) -> anyhow::Result<()> {
     for row in existing.iter().filter(|r| !wanted.iter().any(|(e, _)| r["external_id"] == e.as_str())) {
         pb.delete("virtual_assets", row["id"].as_str().unwrap_or_default()).await?;
     }
+    let rows = pb.list("ip_addresses", "", "").await?;
+    let mut kept = vec![];
     for h in &hosts {
-        let (ip, name) = (h["ip"].as_str().unwrap_or_default(), h["name"].as_str().unwrap_or_default());
+        let (ip, name, hostname) = (h["ip"].as_str().unwrap_or_default(), h["name"].as_str().unwrap_or_default(), h["hostname"].as_str().unwrap_or_default());
         if ip.is_empty() {
             continue;
         }
-        let filter = format!("address = {} && device = {}", pb_quote(ip), pb_quote(name));
-        if pb.first("ip_addresses", &filter).await?.is_none() {
-            pb.create("ip_addresses", &json!({"address": ip, "device": name, "hostname": h["hostname"], "note": "From monitoring"})).await?;
+        let at: Vec<&Value> = rows.iter().filter(|r| r["address"] == ip).collect();
+        let found = at.iter().find(|r| r["device"] == name).or_else(|| at.iter().find(|r| !hostname.is_empty() && r["hostname"] == hostname));
+        match found {
+            Some(r) => {
+                kept.push(r["id"].clone());
+                if r["note"] == "From monitoring" && (r["device"] != name || r["hostname"] != hostname) {
+                    pb.update("ip_addresses", r["id"].as_str().unwrap_or_default(), &json!({"device": name, "hostname": hostname})).await?;
+                }
+            }
+            None => kept.push(pb.create("ip_addresses", &json!({"address": ip, "device": name, "hostname": hostname, "note": "From monitoring"})).await?["id"].clone()),
         }
+    }
+    for r in rows.iter().filter(|r| r["note"] == "From monitoring" && !kept.contains(&r["id"])) {
+        pb.delete("ip_addresses", r["id"].as_str().unwrap_or_default()).await?;
     }
     Ok(())
 }
@@ -210,12 +225,14 @@ mod tests {
             json!({"id": "n", "name": "pve", "kind": "proxmox", "guests": [
                 {"vmid": 101, "name": "web", "kind": "qemu", "node": "pve"},
                 {"vmid": 102, "name": "other-name", "kind": "lxc", "node": "pve"},
-                {"vmid": 103, "name": "plain", "kind": "qemu", "node": "pve"}]}),
+                {"vmid": 103, "name": "plain", "kind": "qemu", "node": "pve"},
+                {"vmid": 104, "name": "git", "kind": "qemu", "node": "pve"}]}),
             json!({"id": "w", "name": "web", "kind": "vm", "vmid": 0}),
             json!({"id": "c", "name": "ct", "kind": "vm", "vmid": 102, "pve_node": "pve"}),
+            json!({"id": "g", "name": "Forge", "hostname": "forge-01", "parent": "n", "kind": "vm", "vmid": 0, "guest_vmid": 104}),
         ];
         let rows = inventory(&hosts);
-        assert_eq!(rows.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["n/103", "w", "c"]);
+        assert_eq!(rows.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["n/103", "w", "c", "g"]);
     }
 
     #[test]

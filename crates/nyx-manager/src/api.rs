@@ -1,6 +1,6 @@
 //! Browser-facing API, task reminders and MCP tools.
 
-use crate::{ipam, link, map, nextcloud, App};
+use crate::{ipam, link, map, nextcloud, sim, App};
 use axum::{
     extract::{Path, Query, State},
     http::header,
@@ -113,10 +113,16 @@ struct Simulate {
     destination: String,
 }
 
+/// A ping between two machines or addresses, request and reply, hop by hop.
 async fn simulate(_: Session, State(app): State<Arc<App>>, Json(b): Json<Simulate>) -> ApiResult<Json<Value>> {
-    let dest = b.destination.trim().parse().map_err(|_| ApiError::bad_request("destination must be an IP address"))?;
     let (subnets, addresses, routes) = ipam_data(&app).await?;
-    Ok(Json(ipam::simulate(&b.from, dest, &routes, &addresses, &subnets)))
+    Ok(Json(sim::Net::new(&subnets, &addresses, &routes).ping(&b.from, &b.destination)))
+}
+
+/// The recorded machines as a network: segments, routers between them, and the strays.
+async fn topology(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let (subnets, addresses, routes) = ipam_data(&app).await?;
+    Ok(Json(sim::Net::new(&subnets, &addresses, &routes).topology()))
 }
 
 async fn map_export(_: Session, State(app): State<Arc<App>>, Path(format): Path<String>) -> ApiResult<impl IntoResponse> {
@@ -124,7 +130,7 @@ async fn map_export(_: Session, State(app): State<Arc<App>>, Path(format): Path<
     let pb = &app.core.pb;
     let links = map::with_vpn(&nodes, &pb.list("map_links", "", "").await?, &pb.list("vpn_links", "", "").await?);
     let links = map::with_cables(&nodes, links, &pb.list("ports", "", "").await?, &pb.list("hardware", "", "").await?);
-    let (body, mime, ext) = map::export(&format, &nodes, &links).ok_or_else(ApiError::not_found)?;
+    let (body, mime, ext) = map::export(&format, &nodes, &links, &pb.list("map_zones", "", "").await?).ok_or_else(ApiError::not_found)?;
     Ok(([(header::CONTENT_TYPE, mime.to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"nyx-network.{ext}\""))], body))
 }
 
@@ -296,6 +302,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/ipam/report", get(ipam_report))
         .route("/api/ipam/next/{subnet}", get(next_free))
         .route("/api/ipam/simulate", post(simulate))
+        .route("/api/ipam/topology", get(topology))
         .route("/api/ipam/subnet/{id}", get(subnet_detail))
         .route("/api/ipam/scan/{id}", post(scan))
         .route("/api/ipam/calc", get(calc))
@@ -320,7 +327,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
             ("list_deployments", "Recent and planned deployments.", empty.clone()),
             ("list_tasks", "Open tasks and upcoming events.", empty.clone()),
             ("list_vpn_links", "VPN links between sites and devices.", empty.clone()),
-            ("trace_route", "Simulate the path from a device to an IP address.", json!({"type": "object", "properties": {"from": {"type": "string"}, "destination": {"type": "string"}}, "required": ["from", "destination"]})),
+            ("trace_route", "Simulate a ping between two devices or IP addresses: the path there and back, hop by hop, and what stops it.", json!({"type": "object", "properties": {"from": {"type": "string"}, "destination": {"type": "string"}}, "required": ["from", "destination"]})),
         ],
         call: Box::new(move |name, args| {
             let app = app.clone();
@@ -335,8 +342,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                     "list_vpn_links" => Ok(json!(pb.list("vpn_links", "", "name").await?)),
                     "trace_route" => {
                         let (s, a, r) = ipam_data(&app).await?;
-                        let dest = args["destination"].as_str().unwrap_or_default().parse()?;
-                        Ok(ipam::simulate(args["from"].as_str().unwrap_or_default(), dest, &r, &a, &s))
+                        Ok(sim::Net::new(&s, &a, &r).ping(args["from"].as_str().unwrap_or_default(), args["destination"].as_str().unwrap_or_default()))
                     }
                     other => anyhow::bail!("unknown tool {other}"),
                 }

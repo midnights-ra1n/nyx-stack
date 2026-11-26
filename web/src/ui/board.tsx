@@ -86,10 +86,36 @@ export function reveal(board: string, pid: string, defaults: { desktop: Layout; 
   }
 }
 
+/** The default columns read across, row by row: the order panels are dealt in. */
+export const interleave = (cols: string[][]) => Array.from({ length: Math.max(0, ...cols.map((c) => c.length)) }, (_, i) => cols.map((c) => c[i])).flat().filter((p): p is string => !!p)
+
+const GAP = 16
+const sums = (cols: string[][], height: (id: string) => number) => cols.map((c) => c.reduce((s, p) => s + height(p) + GAP, 0))
+/** How much longer the longest column is than the shortest. */
+export const spread = (cols: string[][], height: (id: string) => number) => { const s = sums(cols, height); return Math.max(...s) - Math.min(...s) }
+
+/** Each panel in turn joins the shortest column so far, so that the columns end close together. */
+export function balance(order: string[], height: (id: string) => number, n: number): string[][] {
+  const cols: string[][] = Array.from({ length: n }, () => [])
+  const total = Array(n).fill(0)
+  for (const p of order) {
+    const c = total.indexOf(Math.min(...total))
+    cols[c].push(p)
+    total[c] += height(p) + GAP
+  }
+  return cols
+}
+
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
+const storedKey = (key: string) => { try { return localStorage.getItem(key) !== null } catch { return false } }
+
 /** `absent` marks a panel with nothing to show here that keeps its place for pages that do. */
 export interface BoardPanel { id: string; title: string; absent?: boolean; render: (edit?: ReactNode) => ReactNode }
 
 /** Free columns of panels with the guide's customize mode. Layouts are per device. */
+/** Narrowest column worth showing side by side, in pixels: below it the columns stack. */
+const MIN_COLUMN = 380
+
 export function Board({ id, panels, desktop, phone }: { id: string; panels: BoardPanel[]; desktop: Layout; phone: Layout }) {
   const mobile = useMedia("(max-width: 639px)")
   const { editing, setEditing, register } = useCustomize()
@@ -98,10 +124,42 @@ export function Board({ id, panels, desktop, phone }: { id: string; panels: Boar
   const [pLayout, setP] = useStored(`nyx.layout.${id}.phone`, phone)
   const gone = panels.filter((p) => p.absent).map((p) => p.id)
   const full = reconcile(mobile ? pLayout : dLayout, panels.map((p) => p.id))
-  const layout = without(full, gone)
+  const base = without(full, gone)
   const save = (l: Layout) => (mobile ? setP : setD)(restore(l, full, gone))
   const byId = (pid: string) => panels.find((p) => p.id === pid)!
   const grid = useRef<HTMLDivElement>(null)
+
+  // Until someone arranges this page, panels are dealt by their measured height, as the
+  // panels a host has vary. Moving one keeps what is on screen as the new layout.
+  const auto = !mobile && !storedKey(`nyx.layout.${id}`) && base.cols.length > 1
+  const heights = useRef<Record<string, number>>({})
+  const [balanced, setBalanced] = useState<string[][]>()
+  const present = base.cols.flat()
+  const order = [...interleave(desktop.cols), ...present].filter((p, i, all) => present.includes(p) && all.indexOf(p) === i)
+  const layout = auto && balanced && sameSet(balanced.flat(), present) ? { ...base, cols: balanced } : base
+  // Columns stack once they would be narrower than a table needs, whatever the screen.
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    if (!grid.current) return
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width))
+    ro.observe(grid.current)
+    return () => ro.disconnect()
+  }, [])
+  const stacked = width > 0 && width / layout.cols.length < MIN_COLUMN
+  const arranged = layout.cols.map((c) => c.join()).join("|")
+  useEffect(() => {
+    if (!auto || !grid.current) return
+    const height = (p: string) => heights.current[p] ?? 0
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) heights.current[(e.target as HTMLElement).dataset.pid!] = e.contentRect.height
+      if (order.some((p) => !(p in heights.current))) return
+      const next = balance(order, height, base.cols.length)
+      // Only for a clear gain: a few pixels of new data must not shuffle the page.
+      setBalanced((cur) => (!cur || !sameSet(cur.flat(), order) || spread(cur, height) - spread(next, height) > 120 ? next : cur))
+    })
+    grid.current.querySelectorAll<HTMLElement>("[data-pid]").forEach((el) => ro.observe(el))
+    return () => ro.disconnect()
+  }, [auto, arranged, order.join()])
   const current = useRef(layout)
   current.current = layout
   const [dragged, setDragged] = useState<string>()
@@ -171,13 +229,13 @@ export function Board({ id, panels, desktop, phone }: { id: string; panels: Boar
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             {!mobile && <Variable label="Columns" value={String(layout.cols.length)} onChange={(n) => save(columns(layout, Number(n)))} options={["1", "2", "3", "4"].map((n) => ({ value: n, label: n }))} />}
-            <Button onClick={() => (mobile ? setP(phone) : setD(desktop))}><ArrowPathIcon className="size-4" aria-hidden />{t("Reset this page")}</Button>
+            <Button onClick={() => { if (mobile) setP(phone); else { setD(desktop); try { localStorage.removeItem(`nyx.layout.${id}`) } catch { /* nothing kept */ } setBalanced(undefined) } }}><ArrowPathIcon className="size-4" aria-hidden />{t("Reset this page")}</Button>
           </div>
           {mobile && <Button variant="primary" className="mt-3 w-full" onClick={() => setEditing(false)}>{t("Done")}</Button>}
         </div>
       )}
       {/* While editing, columns stretch so that the whole height of a short one accepts a drop. */}
-      <div ref={grid} style={{ "--cols": layout.cols.length } as React.CSSProperties} className={`grid grid-cols-[repeat(var(--cols),minmax(0,1fr))] gap-4 max-lg:grid-cols-1 ${editing ? "select-none" : "items-start"}`}>
+      <div ref={grid} style={{ "--cols": stacked ? 1 : layout.cols.length } as React.CSSProperties} className={`grid grid-cols-[repeat(var(--cols),minmax(0,1fr))] gap-4 ${editing ? "select-none" : "items-start"}`}>
         {layout.cols.map((col, c) => (
           <div key={c} className={`flex min-w-0 flex-col gap-4 ${editing ? "min-h-40 rounded-panel outline-2 outline-offset-2 outline-line outline-dashed" : ""}`}>
             {col.map((pid) => (

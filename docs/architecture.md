@@ -40,8 +40,10 @@ uses this library for its local database, on a random loopback port, and the `ny
 program uses it to serve a shared one. A server is therefore one package or image, with
 one systemd unit, at the cost of about 33 MB per binary.
 
-Our own Go is confined to `nyx-notify` because Shoutrrr is a Go library. The server starts one
-short-lived process per delivery, so nothing Go-related stays in memory.
+Our own Go is confined to `nyx-notify` because Shoutrrr is a Go library, as is mautrix, which
+sends encrypted Matrix messages. The server starts one short-lived process per delivery, so
+nothing Go-related stays in memory. It is built with `-tags goolm`, mautrix's Olm in pure
+Go, to stay free of cgo.
 
 ## Why it stays light
 
@@ -119,8 +121,11 @@ minutes otherwise (see [Report pace](agent.md#report-pace)), and a grace period 
 
 ## Notifications
 
-Every event lands in `notif_events`. Each minute, rules decide what to send. Delivery
-is separate from detection, which is what makes digests possible.
+Every event lands in `notif_events`, in English. Each minute, rules decide what to send.
+Delivery is separate from detection, which is what makes digests possible. Rendering
+happens per channel, in its language: `crates/nyx-srv/src/lang.rs` finds the English
+pattern each text was built from and fills its translation, the same way the interface
+translates alerts with `tn`.
 
 ## Public pages
 

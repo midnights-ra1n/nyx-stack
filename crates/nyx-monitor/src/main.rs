@@ -2,6 +2,7 @@
 //!
 //! Disk-write budget: metrics stay in RAM and reach PocketBase as one batched
 //! rollup every five minutes. Only state *transitions* are written immediately.
+#![recursion_limit = "256"] // the host summary is one large json! literal
 
 mod api;
 mod compact;
@@ -29,6 +30,7 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "hosts", hidden: &["key", "token"], history: false },
     crud::Spec { name: "alerts", hidden: &[], history: false },
     crud::Spec { name: "probes", hidden: &[], history: false },
+    crud::Spec { name: "probe_categories", hidden: &[], history: false },
     crud::Spec { name: "pipelines", hidden: &[], history: false },
     crud::Spec { name: "mcp_tokens", hidden: &["token_hash"], history: false },
     crud::Spec { name: "notif_channels", hidden: &[], history: false },

@@ -6,6 +6,7 @@ mod ipam;
 mod link;
 mod map;
 mod nextcloud;
+mod sim;
 mod sites;
 
 use axum::{middleware::from_fn_with_state, routing::get, Router};
@@ -19,6 +20,7 @@ struct Ui;
 
 const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "hardware", hidden: &[], history: true },
+    crud::Spec { name: "components", hidden: &[], history: false },
     crud::Spec { name: "virtual_assets", hidden: &[], history: true },
     crud::Spec { name: "subnets", hidden: &[], history: false },
     crud::Spec { name: "ip_addresses", hidden: &[], history: false },
@@ -30,6 +32,7 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "racks", hidden: &[], history: false },
     crud::Spec { name: "map_nodes", hidden: &[], history: false },
     crud::Spec { name: "map_links", hidden: &[], history: false },
+    crud::Spec { name: "map_zones", hidden: &[], history: false },
     crud::Spec { name: "vpn_links", hidden: &[], history: false },
     crud::Spec { name: "sites", hidden: &["ssh_private_key", "webhook_secret"], history: false },
     crud::Spec { name: "mcp_tokens", hidden: &["token_hash"], history: false },

@@ -7,6 +7,12 @@ import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSet
 import { NextDnsSettings } from "../ui/nextdns"
 import { t } from "../ui/i18n"
 
+/** Host names come from the monitor, for the host filter of rules. */
+function Notifications() {
+  const hosts = useApi<any[]>("/api/hosts", { poll: false })
+  return <NotificationSettings hosts={(hosts.data ?? []).map((h) => h.name)} />
+}
+
 interface Plug { name: string; ip: string; mac: string }
 const MAC = /^([0-9a-f]{2}[:-]?){5}[0-9a-f]{2}$/i
 
@@ -45,7 +51,7 @@ function Meross() {
               <Input label="Name" value={p.name} onChange={(e) => edit(i, "name", e.target.value)} />
               <Input label="IP address" className="font-mono" placeholder="192.168.10.50" value={p.ip} onChange={(e) => edit(i, "ip", e.target.value)} />
               <Input label="MAC address" className="font-mono" placeholder={t("48:e1:e9:00:11:22")} value={p.mac} onChange={(e) => edit(i, "mac", e.target.value)} />
-              <IconButton label={`Remove ${p.name || "plug"}`} icon={TrashIcon} onClick={() => setPlugs(list.filter((_, j) => j !== i))} />
+              <IconButton label={t("Remove {name}", { name: p.name || t("plug") })} icon={TrashIcon} onClick={() => setPlugs(list.filter((_, j) => j !== i))} />
             </div>
           ))}
           <div><Button onClick={() => setPlugs([...list, { name: "", ip: "", mac: "" }])}>{t("Add a plug")}</Button></div>
@@ -150,7 +156,7 @@ export function Settings() {
         <NextDnsSettings />
         <Meross />
       </> },
-      { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <NotificationSettings /> },
+      { id: "notifications", label: "Notifications", icon: BellIcon, description: "Channels say where a message goes, rules say what and when.", body: <Notifications /> },
       { id: "security", label: "Security", icon: ShieldCheckIcon, description: "Your account, and what can reach this server without it.", body: <><AccountSettings /><PasskeySettings /><McpSettings /></> },
       { id: "backup", label: "Backup", icon: ArchiveBoxIcon, description: "Everything needed to rebuild this server elsewhere.", body: <BackupSettings /> },
       { id: "updates", label: "Updates", icon: ArrowPathIcon, description: "The version of this server and its agents.", body: <SystemUpdates agents /> },

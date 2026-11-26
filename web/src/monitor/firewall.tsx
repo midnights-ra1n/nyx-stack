@@ -61,7 +61,7 @@ function Saving({ fw, send }: { fw: any; send: (op: string, rule: any, what: str
   if (fw.saved_by) {
     return fw.unsaved
       ? <div className="flex flex-wrap items-center gap-3"><Status level="warn" label="Not saved" /><span className="text-fg2">The live rules differ from the file {fw.saved_by} loads at boot.</span><Button onClick={() => send("save", {}, "Saving sent.")}>{t("Save rules")}</Button></div>
-      : <p className="text-fg2">Saved by {fw.saved_by}: the rules come back after a restart.</p>
+      : <p className="text-fg2">{t("Saved by {tool}: the rules come back after a restart.", { tool: fw.saved_by })}</p>
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -106,7 +106,7 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 px-4">
         <div className="flex flex-wrap items-center gap-3">
-          {fw.backend && <Status level={fw.active ? "ok" : "warn"} label={`${fw.backend} ${fw.active ? "on" : "off"}`} />}
+          {fw.backend && <Status level={fw.active ? "ok" : "warn"} label={`${fw.backend} ${t(fw.active ? "on" : "off")}`} />}
           {fw.docker && <Status level="info" label="Docker" />}
           {fw.default_in && <span className="text-fg2">{t("Other incoming traffic:")} <b>{fw.default_in === "accept" ? "let in" : fw.default_in === "reject" ? "rejected" : "dropped"}</b></span>}
         </div>
@@ -122,7 +122,7 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
                 {r.iface && <span className="ml-2 text-fg3">on {r.iface}</span>}
                 {r.chain === DOCKER ? <span className="ml-2 text-fg3">{t("Docker")}</span> : r.chain && r.chain !== "INPUT" && <span className="ml-2 text-fg3" title={t("iptables chain")}>{r.chain}</span>}
               </Td>
-              <Td><Mono className="text-fg2">{r.source || "anywhere"}</Mono>{r.family && <span className="ml-2 text-fg3">IPv{r.family} only</span>}</Td>
+              <Td><Mono className="text-fg2">{r.source || t("anywhere")}</Mono>{r.family && <span className="ml-2 text-fg3">{t("IPv{v} only", { v: r.family })}</span>}</Td>
               <Td className="max-w-48 truncate text-fg2" title={r.raw}>{r.comment}</Td>
               <Td className="w-12 text-right">{(editable || r.chain === DOCKER) && ACTIONS[r.action] && <IconButton label="Remove rule" icon={TrashIcon} onClick={() => remove(r)} />}</Td>
             </tr>
@@ -142,7 +142,7 @@ export function FirewallPanel({ id, fw, name, onSent }: { id: string; fw: any; n
         </form>
       )}
       {fw.backend === "nftables" && <p className="px-4 text-fg2">{t("Nyx shows nftables rules but does not change them: edit")} <Mono>{"/etc/nftables.conf"}</Mono>{t(", or switch to ufw or firewalld.")}</p>}
-      {editable && !fw.active && fw.backend !== "iptables" && <p className="px-4 text-fg2">{fw.backend} is installed but off. Turn it on from the host to add rules: <Mono>{fw.backend === "ufw" ? "ufw enable" : "systemctl enable --now firewalld"}</Mono></p>}
+      {editable && !fw.active && fw.backend !== "iptables" && <p className="px-4 text-fg2">{t("{tool} is installed but off. Turn it on from the host to add rules:", { tool: fw.backend })} <Mono>{fw.backend === "ufw" ? "ufw enable" : "systemctl enable --now firewalld"}</Mono></p>}
       <div className="px-4" role="status">{note && <p className="text-[13px] text-fg2">{note}</p>}<ErrorNote>{error}</ErrorNote></div>
       {fw.listening?.length > 0 && <>
         <h3 className="px-4 font-medium">{t("Ports open to the network")}</h3>

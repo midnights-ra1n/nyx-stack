@@ -12,9 +12,36 @@ sign-in screen changes it. The choice is kept on this device.
 
 ## Inventory
 
-**Hardware** tracks physical equipment, with serial numbers, locations and warranty
+**Inventory** tracks physical equipment, with serial numbers, locations and warranty
 dates. The overview flags warranties ending within 60 days. The add form starts from
 the category, and offers the manufacturers, models and locations already in use.
+
+It opens on the **table**, with a tile per category on top, a search, filters, the
+columns you choose and bulk edits. **Cards** shows the same devices grouped by
+[place](#places), by category or not at all. Each card gives the device's icon, name
+and model, where it stands, its address, a warranty ending soon, and with a linked monitor
+its state, its Linux distribution with its logo, CPU, memory and disk, and the guests it runs: the VMs and containers the monitor
+sees on that host, and the virtual records that name it under **Runs on**. **Seen by the
+monitor** lists the physical machines the monitor watches that the inventory lacks, each
+added in one click as a server under its name. The choice between table and cards is
+remembered on this device.
+
+### Components
+
+**Components** lists the parts inside the hardware, after GLPI's components: hard disks,
+SSDs, CPUs, memory, GPUs, network cards, power supplies. Each has a manufacturer, model,
+capacity (such as `8 TB` or `32 GB DDR4-3200 ECC`), serial number, the device it is
+**fitted in** and its slot, purchase and warranty dates, and a status:
+
+| Status | Meaning |
+| --- | --- |
+| In service | Used, in the device it is fitted in |
+| Spare | Kept for later: on a shelf when it is fitted in nothing, a hot spare when it is |
+| Decommissioned | No longer used, with the date it was taken out; kept for the record |
+
+The tiles on top count each type; filter by device or status, or select several rows to
+change them at once, for example to decommission them. A device's page lists its parts
+under **Components**, where you add one already fitted in it.
 
 Hardware, virtual assets, tasks and deployments take **tags**: type one and press Enter,
 or a comma, and the tags already in use are offered. Lists show them as coloured chips,
@@ -138,12 +165,13 @@ IPv4 and IPv6 both work. Its tabs:
 
 | Tab | Contents |
 | --- | --- |
-| Overview | Counts, conflicts, the fullest subnets, a subnet calculator and the routing simulation |
+| Overview | Counts, conflicts with the ways to resolve them, the fullest subnets and the IP calculator |
 | Subnets | Every subnet as a tree, one table per section, with its VLAN, VRF, gateway and usage |
 | Addresses | Every address with its state (Active, Reserved, DHCP, Offline), device, hostname, MAC, owner and when a scan last saw it |
 | VLANs | Numbers, names and the domain they belong to, with the subnets that use them |
 | VRFs | Routing tables, with an optional route distinguisher |
 | Routes | Routes per device, for the simulation |
+| Simulator | The network drawn from the records, and pings played hop by hop |
 
 ### Subnets
 
@@ -183,71 +211,143 @@ service sets `net.ipv4.ping_group_range`, as the monitor does. See
 - A subnet past its threshold
 - Invalid CIDRs and addresses
 
-Assigning the same address to one device twice is not a conflict. The device name is
-the identity, so spell it consistently. Addresses belong to the subnets that contain
-them, whatever their VRF, so the same address recorded twice in two VRFs reads as a conflict.
+One machine recorded twice is not a conflict. Records are the same machine when they
+share a name, a hostname or a MAC address, ignoring case: a host renamed in the monitor,
+or recorded by hand under another name with its hostname, is recognised. Addresses
+belong to the subnets that contain them, whatever their VRF, so the same address
+recorded twice in two VRFs reads as a conflict.
 
-### Routing simulation
+For an address held by several machines, **Resolve** offers the ways out:
 
-Add **Routes** for each device: a destination, a next hop, and a metric. In **Overview**,
-choose a device and an address and press **Trace**.
+- **Keep** one record when they are the same machine. The record kept takes the
+  hostname, MAC, owner and state that only the others had, and the others are deleted.
+- **Change the address** of one of them, in its form.
+- **Shared on purpose** marks every record of the address as shared, for VRRP, CARP or
+  anycast. Shared records are no conflict between themselves, only with another machine.
+  The same box is in each address's form.
 
-At each device the simulation picks the longest matching prefix, then the lowest
-metric, and finds the next device from the address list. Destinations on a directly
-connected subnet are reached without a route. It reports loops and black holes.
+### IP calculator
 
-It reads your records, not your network, so firewalls and NAT are not considered.
+Type an address with its prefix length or mask: `192.168.1.37/26`,
+`192.168.1.37 26` or `10.0.0.1 255.255.255.0`. Without either, /24 is assumed. It
+works as you type and gives the kind of address (private, public, CGNAT, link-local,
+loopback, multicast, documentation), the address in binary with the network bits
+coloured, the network, netmask, wildcard, broadcast, the range of hosts and their
+number, and the recorded subnet it falls in. **Split into** lists the subnets of a longer
+prefix, the first 64 of them. IPv6 prefixes are worked out by the server.
 
-## Racks
+### Simulator
 
-**Racks** draws each rack from the front, to scale, one unit per row with its number,
-1 at the bottom. **Add rack** asks for a name, a location and a height in units (42 by
-default). With several racks, tabs above pick one; the choice is remembered on this
-device.
+The **Simulator** tab draws the network from the IPAM, after Cisco Packet Tracer:
 
-- Drag a device from **Not in a rack** onto the rack, or press **Place** to put it in the
-  highest free spot. Racks fill from the top, as in a real cabinet.
-- Drag a device inside the rack to move it. A spot it would overlap shows red and the
-  move is refused. Focused with the keyboard, the up and down arrows move it one unit.
-- Click a device to set its **Position (U)**, the lowest unit it fills, and its
-  **Height (U)**, or to take it out of the rack.
-- **Cables** lists its ports and what each one is plugged into. **Plug into** picks
-  another device and the port on each side by name; a port that does not exist yet is
-  created. A port holds one cable, so plugging it elsewhere unplugs it first. These are
-  the same [network ports](#network-ports) as on the hardware page, and they are drawn on
-  the [network map](#network-map) too. Cables between two devices of the same rack are
-  drawn as blue curves on its right side.
+- each subnet is a segment, with its VLAN, gateway and machines on a bus, the way a
+  switch connects them;
+- a machine with addresses in two segments, or holding a segment's gateway, is a
+  **router**, drawn above them with a cable to each, labelled with its address there;
+- machines outside every subnet are grouped apart;
+- machines sharing an address with another are in red, and a gateway no machine holds is
+  marked ⚠.
 
-The hardware form shows the same fields under **Where it is**: **Rack**, **Position (U)**
-and **Height (U)**, and the summary links to the Racks page. Deleting a rack keeps its
-devices, out of any rack. **Patch panel** and **PDU** are hardware categories of their own.
+Choose the machine to send from and the machine or address to ping, or click one machine
+then another, and press **Send a ping**. The envelope goes there in orange and comes back
+in green, one hop at a time: play, pause, step back and forth, or start again. The
+**Event list** gives each step: the machine, the address it sends from and what it
+decides. The result is one of:
+
+| Result | When |
+| --- | --- |
+| Reached | The request got there and the reply came back |
+| Conflict | It got there, but two machines answer at that address |
+| Leaves the network | It reached a router with no route further: an address on the internet, for example |
+| Unreachable | Nothing is recorded at the address, a gateway is not recorded, or there is no way |
+| Loop | Routes send it round in circles |
+
+At each machine, a destination in one of its segments is reached directly. Otherwise
+the longest matching **route** of that machine wins, then the lowest metric; without
+one, the packet goes to the **gateway** of the segment it sends from. So most home
+networks need no routes at all: record the router's address in each subnet, the
+subnets' gateways, and the machines. The reply is traced back the same way.
+
+It reads your records, not your network, so firewalls and NAT are not considered. The
+conflicts are listed beside the event list, with the same ways to resolve them.
+
+## Places
+
+**Places** are what devices stand in or on, drawn from the front side by side on one
+floor, so that a homelab without a rack is drawn too. **Add place** picks a kind:
+
+| Kind | Drawn as | Height |
+| --- | --- | --- |
+| Rack | A 19" cabinet with its rails and unit numbers, 1 at the bottom | Units (42 by default) |
+| Shelving unit | Posts and boards; the top board counts as a level | Levels |
+| Desk or box | A top with a box under it, devices set on top | One level |
+
+Shelving units and desks also take a width in centimetres, which makes them wider or
+narrower beside the others, and a finish: wood, white, black or grey.
+
+Across a rack unit or a shelf there are 12 columns. A device takes the whole width by
+default; **Width** makes it a half, a third, a quarter and so on, so two half-width mini
+PCs share one unit, or several devices one shelf. In a rack a device is as tall as its
+**Height (U)**; on a shelf or a desk it takes one level.
+
+- Drag a device from **Not placed** onto a place, or press **Put in place** to put it in
+  the first free spot: highest first, then leftmost, as racks and shelves fill.
+- Drag a device inside a place or from one to another. A spot it would overlap shows red
+  and the move is refused. Focused with the keyboard, the arrows move it one unit or
+  level up and down, one column left and right.
+- Click a device for its width, its height in a rack, its record, **Take out**, and its
+  **Cables**: its ports and what each one is plugged into. **Plug into** picks another
+  device and the port on each side by name; a port that does not exist yet is created. A
+  port holds one cable, so plugging it elsewhere unplugs it first. These are the same
+  [network ports](#network-ports) as on the hardware page, and they are drawn on the
+  [network map](#network-map) too.
+- With a linked monitor, the left edge of a device takes the state of the monitored host
+  of the same name, and **Seen by the monitor** offers the physical machines the inventory
+  lacks.
+
+Switches and patch panels show their ports, servers and NAS their bays, a UPS its screen,
+so that a front reads at a glance. The hardware form shows the place under **Where it
+is**: **Place** and **Position (U or level)**. Deleting a place keeps its devices, out of
+any place. **Patch panel** and **PDU** are hardware categories of their own.
 
 ## Network map
 
-Switch between the **diagram**, a **tree** (guests under their host) and **by type** above the map.
+The map is laid out like a drawing tool: a toolbar on top, the **Devices** to add on the
+left, the canvas in the middle, and the selection on the right. Switch between the
+**diagram**, a **tree** (guests under their host) and **by type** in the toolbar.
 
 The map follows the hierarchy of your machines. A VM, container or other device linked
 to a Proxmox, physical or server node is its guest: it is listed under that host, inside
 a frame, joined to it by a tree line. Links between two hosts, or to network gear, are
-drawn as blue curves that bend around the cards.
+drawn as curves that bend around the cards.
 
-**Arrange** places every device again: routers and switches on top, then one column per
-host with its guests in name order (`PVE-2` before `PVE-10`), then the devices that stand
-alone, such as a VPS. It replaces the places you set by hand, so it asks first.
+**Arrange** places every device again: the network gear on top, from the Internet and the
+firewall down to the switches and access points, then one column per host with its guests
+in name order (`PVE-2` before `PVE-10`), then the devices that stand alone, such as a VPS.
+It replaces the places you set by hand, so it asks first.
 
 **Import hosts** adds monitored hosts and links guests to their parents. The first import
 arranges the map; later ones put new hosts in free spots and leave the rest alone, so
 press **Arrange** when you want them tidied.
 
-Drag a device to move it; its place is saved when you let go. Double-click one to edit
-it, or use the list below the map, which is the easier way on a phone. The type of a
-device sets its icon and decides whether it is a host or a guest.
+### Devices and links
 
-The row of buttons above the map adds a device of one type in one click: Internet, router,
-firewall, switch, access point, server, Proxmox, NAS, VM, LXC container, Docker, VPS,
-cloud service or IoT device. To link two devices, drag from the dot on the right edge of
-one onto the other. **New links** sets the kind of the links you draw, and each kind has
-its own line, shown in the legend:
+Drag a type from **Devices** onto the canvas, or click it to add one in the middle: Internet,
+router, firewall, switch, access point, server, Proxmox, NAS, VM, LXC container, Docker,
+VPS, cloud service or IoT device. It is named after its type, selected, and ready to be
+renamed. Each card shows the type's icon on a tile coloured by family (network gear,
+machines, storage, guests, things outside), the name, the address and, with a linked
+monitor, a state dot. The arrow at the top of the list folds it to icons.
+
+Click a device to select it. The side panel edits its name, address and type in place,
+shows the monitored host's CPU, memory, disk and uptime, lists its connections (click one
+to select that link), links it to another device from **Link to**, and opens the hardware
+or virtual record of the same name. Drag a device to move it; its place is saved when you
+let go. Delete, or the Delete key once the map has focus, removes the selection.
+
+To link two devices, drag from the dot on the right edge of one onto the other; the dot
+shows on hover and on the selected device. **New links**, under the map, sets the kind of
+the links you draw, and each kind has its own line:
 
 | Kind | Line |
 | --- | --- |
@@ -258,21 +358,30 @@ its own line, shown in the legend:
 | VPN | Dashed orange |
 | Virtual | Faint dotted grey |
 
-**Add link** does the same from a form, with a label. Click a link on the map to delete
-it. Exports keep the links, without their kind.
+Click a link to select it: the side panel changes its kind and its label, or deletes it.
+
+### Zones
+
+**Add zone** draws a coloured frame in the middle of the view, behind the devices, to
+group them: a room, a VLAN, a site, the cloud. Drag its label to move it, with every
+device whose middle lies inside; drag its bottom right corner to resize it. Selected, it
+takes a name and a colour (blue, green, yellow, red, orange or grey) in the side panel,
+which also counts the devices inside. Deleting a zone keeps its devices.
+
+### Moving around
 
 The map is a canvas: drag its dotted background to move around, scroll or pinch to zoom,
-or use the buttons at its top left to zoom, fit everything and go full screen (`+`, `-`
+or use the buttons of the toolbar to zoom, fit everything and go full screen (`+`, `-`
 and `0` from the keyboard once the map has focus). Cards snap to an 8 px grid as you drag
 them, so they line up. **Find on the map** outlines the devices whose name, address or
-type holds every word typed, fades the others, and Enter centres the first one. Hovering
-a device keeps it, what it is linked to and their links lit, and fades the rest.
+type holds every word typed, fades the others, and Enter centres and selects the first
+one. Hovering a device keeps it, what it is linked to and their links lit, and fades the
+rest. **Devices and links as a list**, under the map, gives the same data as tables.
 
 With a [linked monitor](deployment.md#linking-manager-and-monitor), a device named like a
-monitored host, or with its address, shows the host's state: a coloured bar on its
-left, a dot in its corner, and a count per state at the bottom of the map. The tree and
-by-type views use the same states. Other devices stay neutral, since nothing says they
-are up.
+monitored host, or with its address, shows the host's state: a dot in its corner, and a
+count per state under the map. The tree and by-type views use the same states. Other
+devices stay neutral, since nothing says they are up.
 
 A VPN link whose **From** and **To** are both device names of the map is drawn there as
 a dashed orange line, and exported the same way.
@@ -282,7 +391,8 @@ on the map is drawn as a grey line labelled with both ports, and exported too. T
 devices get one line, however many cables join them, and a link you drew between them
 wins over the cable.
 
-Exports: SVG, draw.io, Mermaid, Graphviz DOT and JSON.
+**Export** gives SVG, draw.io, Mermaid, Graphviz DOT and JSON. SVG and draw.io draw the
+zones behind the devices, and JSON lists them; Mermaid and Graphviz leave them out.
 
 ## VPN links
 

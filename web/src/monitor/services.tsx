@@ -1,10 +1,10 @@
 import { ArrowPathIcon, PlayIcon, StopIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
-import { Button, Empty, ErrorNote, Input, Mono, Panel, Stat, StateCell, Status, Table, Tabs, Td, Variable, ask } from "../ui/components"
-import { t } from "../ui/i18n"
+import { Button, Empty, ErrorNote, Input, Mono, Panel, Stat, StateCell, Status, Table, Tabs, Td, Variable, ask, SearchInput, PageSkeleton } from "../ui/components"
+import { t, lang } from "../ui/i18n"
 import { fmt, type Level, sortRows, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
-import { allTags, hasTag } from "../ui/tags"
+import { allTags, hasTag, tagOptions } from "../ui/tags"
 import { onHost } from "./pages"
 
 export interface Service {
@@ -51,7 +51,8 @@ const RANK: Record<Level, number> = { crit: 0, warn: 1, ok: 2, info: 3, off: 4 }
 const servicePath = (hostId: string, name: string) => `/hosts/${hostId}/services/${encodeURIComponent(name)}`
 
 /** Failed ones first, then by name; or by a column picked in the header. */
-export function ServiceTable({ rows, hostId, withHost }: { rows: Service[]; hostId?: string; withHost?: boolean }) {
+/** `compact`, for a half-width panel: the state as an icon, and no "At boot" column. */
+export function ServiceTable({ rows, hostId, withHost, compact }: { rows: Service[]; hostId?: string; withHost?: boolean; compact?: boolean }) {
   const [q, setQ] = useState("")
   const [show, setShow] = useState("")
   const [order, setOrder] = useState<{ col: number; desc: boolean }>({ col: -1, desc: false })
@@ -61,17 +62,19 @@ export function ServiceTable({ rows, hostId, withHost }: { rows: Service[]; host
   const open = (s: Service) => navigate(servicePath(s.host_id ?? hostId!, s.name))
   return (
     <>
-      <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
-        <div className="w-64 max-sm:w-full"><Input label="Search" type="search" placeholder={t("Name or description")} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="flex flex-wrap items-center gap-3 px-4 pb-3">
+        <SearchInput className="min-w-40 max-w-64 flex-1 max-sm:max-w-none" placeholder="Name or description" value={q} onChange={(e) => setQ(e.target.value)} />
         <Variable label="Show" value={show} onChange={setShow} options={SHOWS} />
-        <span className="ml-auto self-center text-[13px] text-fg2">{t("{n} of {total}", { n: list.length, total: rows.length })}</span>
+        <span className="ml-auto text-[13px] text-fg2">{t("{n} of {total}", { n: list.length, total: rows.length })}</span>
       </div>
       {list.length === 0 ? <div className="px-4 pb-4"><Empty>{t("Nothing matches.")}</Empty></div> : (
-        <Table head={["State", "Service", ...(withHost ? ["Host"] : []), "For", "Memory", "CPU", "Restarts", "At boot"]} sort={order} onSort={(col) => setOrder({ col, desc: order.col === col && !order.desc })}>
+        <Table head={["State", "Service", ...(withHost ? ["Host"] : []), "For", "Memory", "CPU", "Restarts", ...(compact ? [] : ["At boot"])]} sort={order} onSort={(col) => setOrder({ col, desc: order.col === col && !order.desc })}>
           {list.map((s) => (
             <tr key={`${s.host_id ?? ""}${s.name}`} className="cursor-pointer hover:bg-raised" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) open(s) }}>
-              <StateCell level={serviceLevel(s)} label={serviceWord(s)} />
-              <Td className="max-w-md">
+              {compact
+                ? <Td title={t(serviceWord(s))}><Status cell level={serviceLevel(s)} label="" /><span className="sr-only">{t(serviceWord(s))}</span></Td>
+                : <StateCell level={serviceLevel(s)} label={serviceWord(s)} />}
+              <Td className={compact ? "max-w-48" : "max-w-md"}>
                 <span className="flex min-w-0 flex-col">
                   <Link to={servicePath(s.host_id ?? hostId!, s.name)} className="truncate font-medium hover:text-accent">{s.name}</Link>
                   {s.description && s.description !== `${s.name}.service` && <span className="truncate text-xs text-fg3">{s.description}</span>}
@@ -79,10 +82,10 @@ export function ServiceTable({ rows, hostId, withHost }: { rows: Service[]; host
               </Td>
               {withHost && <Td><Link to={`/hosts/${s.host_id}`} className="text-fg2 hover:text-accent">{s.host}</Link></Td>}
               <Td className="whitespace-nowrap text-fg2">{sinceFor(s.since)}</Td>
-              <Td className="text-fg2 tabular-nums">{s.mem ? fmt.bytes(s.mem) : "—"}</Td>
-              <Td className="text-fg2 tabular-nums">{s.sub === "running" ? fmt.pct(s.cpu_pct) : "—"}</Td>
+              <Td className="whitespace-nowrap text-fg2 tabular-nums">{s.mem ? fmt.bytes(s.mem) : "—"}</Td>
+              <Td className="whitespace-nowrap text-fg2 tabular-nums">{s.sub === "running" ? fmt.pct(s.cpu_pct) : "—"}</Td>
               <Td className={s.restarts ? "text-warn" : "text-fg3"}>{s.restarts || "—"}</Td>
-              <Td className="text-fg2">{s.enabled ? t(s.enabled) : "—"}</Td>
+              {!compact && <Td className="text-fg2">{s.enabled ? t(s.enabled) : "—"}</Td>}
             </tr>
           ))}
         </Table>
@@ -109,10 +112,10 @@ function Counts({ rows }: { rows: Service[] }) {
 export function HostServices({ host, edit }: { host: any; edit?: any }) {
   const rows: Service[] = host.services ?? []
   return (
-    <Panel title={t("Services")} flush edit={edit} footer="systemd services, read every minute. Click one for its details, logs and unit file.">
+    <Panel title={t("Services")} flush edit={edit} help="systemd services, read every minute. Click one for its details, logs and unit file.">
       {rows.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No services reported yet. Up-to-date agents list them from systemd.")}</Empty></div> : <>
         <div className="px-4 pb-4"><Counts rows={rows} /></div>
-        <ServiceTable rows={rows} hostId={host.id} />
+        <ServiceTable rows={rows} hostId={host.id} compact />
       </>}
     </Panel>
   )
@@ -131,11 +134,11 @@ export function ServicesPage() {
       <PageHeader title={t("Services")} subtitle={t("systemd services of {n} hosts, failed ones first.", { n: reporting })} onRefresh={reload}
         variables={<>
           <Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...hosts.filter((h) => h.services_total).map((h) => ({ value: h.id, label: h.name }))]} />
-          {allTags(hosts).length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...allTags(hosts).map((x) => ({ value: x, label: x }))]} />}
+          {allTags(hosts).length > 0 && <Variable label="Tag" value={tag} onChange={setTag} options={tagOptions(allTags(hosts))} />}
         </>} />
       <ErrorNote>{error}</ErrorNote>
       <div className="mb-4"><Panel title={t("Summary")}><Counts rows={rows} /></Panel></div>
-      <Panel title={t("Services")} flush>
+      <Panel title={t("Services")} flush loading={!data}>
         {data && !data.length ? <div className="px-4 pb-4"><Empty>{t("No services reported yet. Up-to-date agents list them from systemd.")}</Empty></div> : <ServiceTable rows={rows} withHost={!host} hostId={host} />}
       </Panel>
     </>
@@ -163,7 +166,7 @@ export function ServiceDetail({ hostId, name }: { hostId: string; name: string }
   const [nonce, setNonce] = useState(0)
   const [note, setNote] = useState("")
   if (error) return <p role="alert" className="text-crit">{error}</p>
-  if (!h) return null
+  if (!h) return <PageSkeleton />
   const s: Service | undefined = h.services?.find((x: Service) => x.name === name)
   const crumbs = [{ label: "Hosts", to: "/hosts" }, { label: h.name, to: `/hosts/${hostId}` }, { label: "Services", to: `/services?host=${hostId}` }, { label: name }]
   if (!s) return <><PageHeader title={name} crumbs={crumbs} /><Empty>{t("This service is not loaded on {host} any more.", { host: h.name })}</Empty></>
@@ -184,7 +187,7 @@ export function ServiceDetail({ hostId, name }: { hostId: string; name: string }
         </>} />
       {note && <p role="status" className="mb-4 rounded-panel bg-raised px-4 py-2.5 text-fg2">{note}</p>}
       <div className="mb-4 grid grid-cols-4 gap-4 max-md:grid-cols-2">
-        <Panel title={t("State")}><Stat label={serviceWord(s)} value={sinceFor(s.since)} sub={s.since ? t("since {date}", { date: new Date(s.since * 1000).toLocaleString() }) : undefined} level={serviceLevel(s)} /></Panel>
+        <Panel title={t("State")}><Stat label={serviceWord(s)} value={sinceFor(s.since)} sub={s.since ? t("since {date}", { date: new Date(s.since * 1000).toLocaleString(lang) }) : undefined} level={serviceLevel(s)} /></Panel>
         <Panel title={t("Memory")}><Stat label="In use" value={s.mem ? fmt.bytes(s.mem) : "—"} /></Panel>
         <Panel title={t("CPU")}><Stat label="Share of one core" value={s.sub === "running" ? fmt.pct(s.cpu_pct) : "—"} /></Panel>
         <Panel title={t("Restarts")}><Stat label="Since it was loaded" value={s.restarts} level={s.restarts ? "warn" : undefined} /></Panel>
@@ -201,7 +204,7 @@ export function ServiceDetail({ hostId, name }: { hostId: string; name: string }
             {row("Unit file", s.path && <span title={s.path}><Mono>{s.path}</Mono></span>)}
           </dl>
         </Panel>
-        <Panel title={t("From the agent")} footer="Read on demand: the answer comes with the host's next report, within a few seconds while this page is open.">
+        <Panel title={t("From the agent")} help="Read on demand: the answer comes with the host's next report, within a few seconds while this page is open.">
           <div className="mb-3 flex flex-wrap items-center gap-3"><Tabs tabs={VIEWS} value={view} onChange={setView} /><Button className="ml-auto" onClick={() => setNonce(nonce + 1)}><ArrowPathIcon className="size-5" aria-hidden />{t("Read again")}</Button></div>
           <AgentText hostId={hostId} name={name} op={view} nonce={nonce} />
         </Panel>

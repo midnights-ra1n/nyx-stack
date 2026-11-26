@@ -1,11 +1,12 @@
 import type { ReactNode } from "react"
+import { t } from "./i18n"
 
 const DAY: Record<string, [string, string]> = { BLUE: ["Blue", "text-info"], WHITE: ["White", "text-fg"], RED: ["Red", "text-crit"] }
 
 function Tile({ label, wide, className, children }: { label: string; wide?: boolean; className: string; children: ReactNode }) {
   return (
-    <section aria-label={label} className={`flex min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface @3xl:col-span-1 ${wide ? "col-span-3" : "col-span-2"}`}>
-      <h2 className="flex h-8 shrink-0 items-center truncate px-3 text-[13px] font-medium text-fg2">{label}</h2>
+    <section aria-label={t(label)} className={`flex min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface @3xl:col-span-1 ${wide ? "col-span-3" : "col-span-2"}`}>
+      <h2 className="flex h-8 shrink-0 items-center truncate px-3 text-[13px] font-medium text-fg2">{t(label)}</h2>
       <div className="fit flex min-h-0 flex-1 items-center justify-center px-2 pb-2">
         <span className={`font-medium whitespace-nowrap ${className}`} style={{ fontSize: "clamp(18px, min(52cqh, 24cqw), 160px)", lineHeight: 1 }}>{children}</span>
       </div>
@@ -15,7 +16,7 @@ function Tile({ label, wide, className, children }: { label: string; wide?: bool
 
 const Day = ({ label, colour }: { label: string; colour?: string | null }) => {
   const [name, className] = (colour && DAY[colour]) || ["—", "text-fg3"]
-  return <Tile wide label={label} className={className}>{name}</Tile>
+  return <Tile wide label={label} className={className}>{t(name)}</Tile>
 }
 
 /** The colours of today and tomorrow, then what the season has left, in the look of the big number panels. One row when there is room, otherwise the days above the counts. */

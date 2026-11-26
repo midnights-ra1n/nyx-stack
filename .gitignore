@@ -11,3 +11,4 @@ notifier/nyx-notify
 notifier/notifier
 .dev.vars
 .wrangler/
+dev/.sim-hosts.json

@@ -1,7 +1,7 @@
 import { ArrowPathIcon, PencilSquareIcon, PlayIcon, PlusIcon, RocketLaunchIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Copy, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, Panel, Select, Stat, Status, Table, Td, Tabs, TextArea, ask } from "../ui/components"
+import { Button, Copy, Empty, ErrorNote, IconButton, Input, Meter, Modal, Mono, Panel, Select, Stat, Status, Table, Td, Tabs, TextArea, ask, Variable } from "../ui/components"
 import { api, fmt, type Level, useApi } from "../ui/lib"
 import { PageHeader } from "../ui/shell"
 import { deployLevel } from "./overview"
@@ -171,7 +171,7 @@ export function Sites() {
     { id: "summary", title: "Summary", render: (edit: any) => (
         <Panel title={t("Summary")} edit={edit}>
           <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
-            <Stat label="Sites" value={data?.items.length ?? 0} sub={t("{n} Node.js apps detected", { n: apps.length })} />
+            <Stat label="Sites" value={data?.items.length ?? 0} sub={t(apps.length === 1 ? "{n} Node.js app detected" : "{n} Node.js apps detected", { n: apps.length })} />
             <Stat label="Running" value={`${managed.length} / ${data?.items.length ?? 0}`} level={managed.length === (data?.items.length ?? 0) ? "ok" : "warn"} />
             <Stat label="CPU used" value={fmt.pct(managed.reduce((t: number, a: any) => t + a.cpu_pct, 0))} sub="by managed sites" />
             <Stat label="Memory used" value={fmt.bytes(managed.reduce((t: number, a: any) => t + a.mem_bytes, 0))} sub={down ? `${down} site${down > 1 ? "s" : ""} down` : "all sites answering"} level={down ? "crit" : undefined} />
@@ -229,7 +229,7 @@ export function Sites() {
   ]
   return (
     <>
-      <PageHeader title={t("Node.js sites")} subtitle={note} actions={<><Select label="Show" value={where} onChange={(e) => setWhere(e.target.value)} options={WHERE} /><CustomizeButton /><Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />{t("Add site")}</Button></>} />
+      <PageHeader title={t("Node.js sites")} subtitle={note} actions={<><Variable label="Show" value={where} onChange={setWhere} options={WHERE} /><CustomizeButton /><Button variant="primary" onClick={() => setForm({})}><PlusIcon className="size-5" aria-hidden />{t("Add site")}</Button></>} />
       <Board id="sites" panels={panels} desktop={{ cols: [["summary", "sites", "apps"]], hidden: [] }} phone={{ cols: [["summary", "sites", "apps"]], hidden: [] }} />
       {form && <SiteForm hosts={hosts} preset={form} onDone={(site) => { setForm(undefined); reload(); if (site) setOpen(site) }} />}
       {open && <Details site={open} onClose={() => setOpen(undefined)} onChange={reload} />}

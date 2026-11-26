@@ -10,7 +10,7 @@ import { StoragePanel } from "./storage-tree"
 import { PipelineList } from "../ui/pipelines"
 import { TempoTiles } from "../ui/tempo"
 import { NextDnsPanel } from "../ui/nextdns"
-import { t } from "../ui/i18n"
+import { t, tn } from "../ui/i18n"
 
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
@@ -102,10 +102,10 @@ export function Overview() {
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title={t("Summary")} edit={edit}>
         <div className="grid grid-cols-2 gap-x-5 gap-y-5 [&>*:nth-child(even)]:border-l [&>*:nth-child(even)]:border-line [&>*:nth-child(even)]:pl-5">
-          <Stat label="Hosts online" value={o ? `${o.hosts_online} / ${o.hosts_total}` : "—"} level={offline ? "warn" : "ok"} sub={`${offline} offline`} />
-          <Stat label="Active alerts" value={o?.alerts ?? "—"} level={o?.alerts_crit ? "crit" : o?.alerts ? "warn" : "ok"} sub={`${o?.alerts_crit ?? 0} critical`} />
-          <Stat label="Containers" value={o ? `${o.containers_running} / ${o.containers_total}` : "—"} level={stopped ? "warn" : "ok"} sub={`${stopped} stopped`} />
-          <Stat label="Availability 7 d" value={o?.availability_7d == null ? "—" : `${o.availability_7d.toFixed(1)} %`} level={o?.availability_7d == null ? undefined : o.availability_7d >= 99 ? "ok" : "warn"} sub="across probes" />
+          <Stat label="Hosts online" value={o ? `${o.hosts_online} / ${o.hosts_total}` : "—"} level={offline ? "warn" : "ok"} sub={t("{n} offline", { n: offline })} />
+          <Stat label="Active alerts" value={o?.alerts ?? "—"} level={o?.alerts_crit ? "crit" : o?.alerts ? "warn" : "ok"} sub={t("{n} critical", { n: o?.alerts_crit ?? 0 })} />
+          <Stat label="Containers" value={o ? `${o.containers_running} / ${o.containers_total}` : "—"} level={stopped ? "warn" : "ok"} sub={t("{n} stopped", { n: stopped })} />
+          <Stat label="Availability 7 d" value={o?.availability_7d == null ? "—" : `${fmt.num(o.availability_7d)} %`} level={o?.availability_7d == null ? undefined : o.availability_7d >= 99 ? "ok" : "warn"} sub="across probes" />
         </div>
       </Panel>
     ) },
@@ -118,18 +118,18 @@ export function Overview() {
       <Panel title={t("Load over {range}", { range })} edit={edit}>
         <TimeSeries series={[
           { name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) },
-          { name: "Memory", color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) },
+          { name: t("Memory"), color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) },
         ]} />
       </Panel>
     ) },
     { id: "alerts", title: "Recent alerts", render: (edit: any) => (
-      <Panel title={t("Recent alerts")} edit={edit} actions={[{ label: "All alerts", onClick: () => navigate("/alerts") }]}>
+      <Panel title={t("Recent alerts")} edit={edit} loading={!alerts.data} actions={[{ label: "All alerts", onClick: () => navigate("/alerts") }]}>
         {alerts.data?.items.length ? (
           <ul className="divide-y divide-line border-t border-line">
             {alerts.data.items.map((a: any) => (
               <li key={a.id} className="flex items-start gap-3 py-3">
                 <Status cell level={sevLevel(a.severity)} label="" />
-                <div><div>{a.message}</div><div className="text-xs text-fg3">{t(a.severity === "crit" ? "Critical" : "Warning")} · {fmt.ago(a.created)}</div></div>
+                <div><div>{tn(a.message)}</div><div className="text-xs text-fg3">{t(a.severity === "crit" ? "Critical" : "Warning")} · {fmt.ago(a.created)}</div></div>
               </li>
             ))}
           </ul>
@@ -142,7 +142,7 @@ export function Overview() {
     { id: "storage", title: "Storage", render: (edit: any) => <StoragePanel edit={edit} hosts={visible} allHosts={hosts.data ?? []} storage={o?.storage ?? []} th={th} /> },
     { id: "power", title: "Power", render: (edit: any) => (
       <Panel title={t("Power")} edit={edit}>
-        <Stat label="Total draw" value={`${(power.data?.total ?? 0).toFixed(0)} W`} sub={`${power.data?.plugs.length ?? 0} plugs`} />
+        <Stat label="Total draw" value={`${(power.data?.total ?? 0).toFixed(0)} W`} sub={t("{n} plugs", { n: power.data?.plugs.length ?? 0 })} />
       </Panel>
     ) },
     { id: "tempo", title: "EDF Tempo", render: (edit: any) => <TempoPanel edit={edit} tempo={tempo.data} error={tempo.error} /> },

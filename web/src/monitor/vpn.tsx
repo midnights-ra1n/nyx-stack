@@ -6,7 +6,7 @@ import { Link } from "../ui/shell"
 export function VpnTable({ rows }: { rows: any[] }) {
   const fleet = rows.some((r) => r.host)
   return (
-    <Table head={[...(fleet ? ["Host"] : []), "Interface", "Type", "Address", "Down", "Up", "State"]}>
+    <Table head={[...(fleet ? ["Host"] : []), "Interface", "Type", "Address", "Received", "Sent", "State"]}>
       {rows.map((v) => (
         <tr key={`${v.host?.id}${v.iface}`}>
           {fleet && <Td className="font-medium"><Link to={`/hosts/${v.host.id}`} className="hover:text-accent">{v.host.name}</Link></Td>}

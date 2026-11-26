@@ -1,10 +1,10 @@
 import {
   ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, ChevronDownIcon, ChevronUpDownIcon, ClockIcon, EllipsisVerticalIcon, ExclamationTriangleIcon,
-  InformationCircleIcon, MinusCircleIcon, XCircleIcon, XMarkIcon,
+  InformationCircleIcon, MagnifyingGlassIcon, MinusCircleIcon, XCircleIcon, XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { Children, cloneElement, type ComponentType, isValidElement, type ReactElement, type ReactNode, type SVGProps, useEffect, useId, useRef, useState } from "react"
-import { t, t as tr, tx } from "./i18n"
-import { type Level, levelBg, levelOf, levelSoft, levelText, samplesAt } from "./lib"
+import { t, t as tr, tx, lang } from "./i18n"
+import { fmt, type Level, levelBg, levelOf, levelSoft, levelText, samplesAt } from "./lib"
 
 export type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -20,7 +20,7 @@ const stateMeta: Record<Level, { icon: Icon; label: string }> = {
 export function Status({ level, label, cell }: { level: Level; label?: string; cell?: boolean }) {
   const { icon: I, label: word } = stateMeta[level]
   return (
-    <span className={`inline-flex items-center gap-2 font-medium whitespace-nowrap ${levelText[level]} ${cell ? "" : `rounded-full px-3 py-1 text-[13px] ${levelSoft[level]}`}`}>
+    <span className={`inline-flex items-center gap-2 font-medium whitespace-nowrap ${levelText[level]} ${cell ? "" : `rounded-md px-2 py-0.5 text-xs ${levelSoft[level]}`}`}>
       <I className="size-4" aria-hidden />
       {tx(label ?? word)}
     </span>
@@ -30,7 +30,7 @@ export function Status({ level, label, cell }: { level: Level; label?: string; c
 export function Button({ variant = "secondary", className = "", children, ...p }: { variant?: "primary" | "secondary" | "ghost" | "danger" } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const look = {
     primary: "bg-accent text-accent-ink hover:bg-accent-hover",
-    secondary: "bg-raised text-fg border border-line2 hover:border-fg3",
+    secondary: "bg-surface text-fg border border-line2 hover:bg-raised hover:border-fg3",
     ghost: "text-accent hover:text-accent-hover",
     danger: "text-crit border border-crit hover:bg-crit-soft",
   }[variant]
@@ -48,13 +48,39 @@ export function IconButton({ label, icon: I, className = "", ...p }: { label: st
 export interface PanelAction { label: string; onClick: () => void }
 
 /** Title left, three-dot menu right, body at the height of its content. */
-export function Panel({ title, badge, actions, children, footer, flush, edit }: { title: string; badge?: ReactNode; actions?: PanelAction[]; children: ReactNode; footer?: ReactNode; flush?: boolean; edit?: ReactNode }) {
+/** Grey lines where content is on its way, so that nothing claims to be empty and the page does not jump when it comes. */
+export function Skeleton({ lines = 3, className = "" }: { lines?: number; className?: string }) {
+  return (
+    <div role="status" aria-label={t("Loading…")} className={`flex flex-col gap-2 ${className}`}>
+      {Array.from({ length: lines }, (_, i) => <div key={i} className="h-8 animate-pulse rounded-control bg-raised" style={{ width: `${100 - (i % 3) * 15}%` }} />)}
+    </div>
+  )
+}
+
+/** A page whose record is on its way: its title and two panels, in grey. */
+export function PageSkeleton() {
+  return (
+    <div role="status" aria-label={t("Loading…")} className="flex flex-col gap-4">
+      <div className="h-8 w-64 animate-pulse rounded-control bg-raised" />
+      <div className="h-4 w-96 max-w-full animate-pulse rounded-control bg-raised" />
+      <div className="grid grid-cols-2 gap-4 max-lg:grid-cols-1">
+        {[0, 1].map((i) => <div key={i} className="h-64 animate-pulse rounded-panel border border-line bg-surface" />)}
+      </div>
+    </div>
+  )
+}
+
+/** `help` explains the panel behind an ⓘ in its header; `footer` is for what changes, such as a state.
+ *  `loading` shows grey lines until the data comes. */
+export function Panel({ title, badge, actions, children, footer, help, flush, edit, loading }: { title: string; badge?: ReactNode; actions?: PanelAction[]; children: ReactNode; footer?: ReactNode; help?: string; flush?: boolean; edit?: ReactNode; loading?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   return (
     <section className={`rounded-panel border bg-surface ${edit ? "border-dashed border-line2" : "border-line"}`} aria-label={t(title)}>
-      <header className="flex h-11 items-center justify-between gap-3 pl-4 pr-2">
-        <h2 className="text-[15px] leading-[22px] font-medium">{t(title)}</h2>
-        {badge && <span className="mr-3">{badge}</span>}
+      <header className="flex h-11 items-center gap-1 border-b border-line pl-4 pr-2">
+        <h2 className="mr-auto text-[14px] leading-5 font-medium">{t(title)}</h2>
+        {badge && <span className="mr-2">{badge}</span>}
+        {help && <IconButton label="About this panel" icon={InformationCircleIcon} aria-expanded={helpOpen} className={helpOpen ? "text-accent" : ""} onClick={() => setHelpOpen(!helpOpen)} />}
         {actions?.length ? (
           <div className="relative">
             <IconButton label={t("{title} menu", { title: t(title) })} icon={EllipsisVerticalIcon} aria-expanded={open} onClick={() => setOpen(!open)} />
@@ -68,8 +94,10 @@ export function Panel({ title, badge, actions, children, footer, flush, edit }: 
           </div>
         ) : null}
       </header>
+      {help && helpOpen && <p className="border-b border-line bg-raised/40 px-4 py-2 text-[13px] text-fg2">{tx(help)}</p>}
       {edit && <div className="flex justify-end border-b border-line px-2">{edit}</div>}
-      <div className={flush ? "" : "px-4 pb-4"}>{children}</div>
+      {/* Flush panels put tables against the header line; anything else first gets the room it needs, unless marked data-flush. */}
+      <div className={flush ? "[&>:first-child:not(:has(table)):not([data-flush])]:pt-4" : "p-4"}>{loading ? <Skeleton className={flush ? "px-4 pb-4" : ""} /> : children}</div>
       {footer && <footer className="border-t border-line px-4 py-2.5 text-[13px] text-fg3">{tx(footer)}</footer>}
     </section>
   )
@@ -78,8 +106,8 @@ export function Panel({ title, badge, actions, children, footer, flush, edit }: 
 export function Stat({ label, value, sub, level }: { label: string; value: ReactNode; sub?: ReactNode; level?: Level }) {
   return (
     <div>
-      <div className="text-[13px] text-fg2">{t(label)}</div>
-      <div className={`mt-1 text-[26px] leading-[32px] font-medium ${level ? levelText[level] : ""}`}>{value}</div>
+      <div className="text-xs text-fg3">{t(label)}</div>
+      <div className={`mt-1 text-2xl font-medium ${level ? levelText[level] : ""}`}>{value}</div>
       {sub && <div className="text-xs text-fg3">{tx(sub)}</div>}
     </div>
   )
@@ -107,7 +135,7 @@ export function Gauge({ label, value, warn = 75, crit = 90 }: { label: string; v
 
 /** Horizontal fill, coloured by thresholds. */
 export function Meter({ pct, warn = 75, crit = 90 }: { pct: number; warn?: number; crit?: number }) {
-  return <div className="h-3 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${levelBg[levelOf(pct, warn, crit)]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
+  return <div className="h-1.5 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${levelBg[levelOf(pct, warn, crit)]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
 }
 
 /** Fills with the work done. Unlike a Meter, a full bar is good news. */
@@ -158,7 +186,7 @@ export function ChartHover({ series, top, unit, colors, format }: { series: { na
     e.preventDefault()
     setT(times[Math.max(0, Math.min(times.length - 1, (t == null ? times.length : times.indexOf(t)) + by))])
   }
-  const label = (at: number) => new Date(at * 1000).toLocaleString([], { ...(t1 - t0 > 86400 ? { day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })
+  const label = (at: number) => new Date(at * 1000).toLocaleString(lang, { ...(t1 - t0 > 86400 ? { day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })
   const flip = t != null && share(t) > 55
   return (
     <div tabIndex={0} role="group" aria-label={tr("Chart values. Use the arrow keys to move in time.")} className="absolute inset-0 touch-pan-y" onPointerMove={follow} onPointerDown={follow} onPointerLeave={(e) => { if (e.pointerType === "mouse") setT(undefined) }} onBlur={() => setT(undefined)} onKeyDown={step}>
@@ -172,7 +200,7 @@ export function ChartHover({ series, top, unit, colors, format }: { series: { na
               <div key={s.name} className="flex items-center gap-2">
                 <span className="inline-block h-0.5 w-3" style={{ background: colors[i] }} />
                 <span className="mr-auto pr-3 text-fg2">{s.name}</span>
-                <span className="font-medium">{format ? format(point.v) : `${point.v.toFixed(point.v < 10 ? 1 : 0)}${unit}`}</span>
+                <span className="font-medium">{format ? format(point.v) : `${fmt.num(point.v, point.v < 10 ? 1 : 0)}${unit}`}</span>
               </div>
             ))}
           </div>
@@ -194,7 +222,7 @@ export function TimeSeries({ series, max = 100, unit = " %", format, fill = true
   if (all.length < 2) return <Empty>{t("Not enough data yet.")}</Empty>
   const t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W, y = (v: number) => H - (Math.min(v, max) / max) * H
-  const clock = (t: number) => t1 - t0 > 2 * 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" }) : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  const clock = (t: number) => t1 - t0 > 2 * 86400 ? new Date(t * 1000).toLocaleDateString(lang, { day: "numeric", month: "short" }) : new Date(t * 1000).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })
   return (
     <div>
       <div className={`grid gap-2 ${format ? "grid-cols-[64px_1fr]" : "grid-cols-[32px_1fr]"}`}>
@@ -246,13 +274,13 @@ export function Table({ head: raw, children, sort, onSort }: { head: ReactNode[]
     return cloneElement(r, {}, Children.toArray(r.props.children).map((cell, i) => (isValidElement(cell) ? cloneElement(cell as ReactElement<any>, { "data-label": head[i] }) : cell)))
   })
   return (
-    <div className="overflow-x-auto max-sm:overflow-visible">
+    <div className="rt-box overflow-x-auto max-sm:overflow-visible">
       <table className="rt w-full text-left">
-        <thead className="bg-raised text-xs text-fg2"><tr>{head.map((h, i) => {
+        <thead className="border-b border-line text-xs text-fg3"><tr>{head.map((h, i) => {
           const active = sort?.col === i
           const Arrow = sort?.desc ? ArrowDownIcon : ArrowUpIcon
           return (
-            <th key={i} scope="col" aria-sort={active ? (sort.desc ? "descending" : "ascending") : undefined} className="h-8 px-3 font-medium first:pl-4 whitespace-nowrap">
+            <th key={i} scope="col" aria-sort={active ? (sort.desc ? "descending" : "ascending") : undefined} className="h-9 px-3 font-normal first:pl-4 whitespace-nowrap">
               {onSort && h ? <button type="button" className={`inline-flex h-8 items-center gap-1 font-medium hover:text-fg ${active ? "text-fg" : ""}`} onClick={() => onSort(i)}>{h}{active && <Arrow className="size-3" aria-hidden />}</button> : h}
             </th>
           )
@@ -267,9 +295,8 @@ export const Td = ({ children, className = "", mono, ...p }: { children?: ReactN
   <td {...p} className={`h-9 px-3 first:pl-4 ${mono ? "font-mono text-[13px] text-fg2" : ""} ${className}`}>{children}</td>
 )
 
-/** Fully tinted state cell, as in the guide's tables. */
 export const StateCell = ({ level, label, ...p }: { level: Level; label?: string } & React.TdHTMLAttributes<HTMLTableCellElement>) => (
-  <td {...p} className={`h-9 px-3 ${levelSoft[level]}`}><Status cell level={level} label={label} /></td>
+  <td {...p} className="h-9 px-3"><Status cell level={level} label={label} /></td>
 )
 
 export const Empty = ({ children }: { children: ReactNode }) => <p className="py-2 text-fg3">{tx(children)}</p>
@@ -287,6 +314,16 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
       <label htmlFor={id} className="mb-1 block text-[13px] text-fg2">{t(label)}</label>
       {children(id)}
       {hint && <p className="mt-1 text-xs text-fg3">{tx(hint)}</p>}
+    </div>
+  )
+}
+
+/** A search field for a toolbar: the magnifier says what it is, so no label shows above it. */
+export function SearchInput({ label = "Search", className = "w-64 max-sm:w-full", placeholder, ...p }: { label?: string; className?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div className={`relative ${className}`}>
+      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg3" aria-hidden />
+      <input type="search" aria-label={t(label)} placeholder={t(placeholder ?? "Search…")} {...p} className="h-9 max-sm:h-11 w-full rounded-control border border-line2 bg-surface pl-9 pr-3 placeholder:text-fg3 hover:border-fg3" />
     </div>
   )
 }
@@ -311,19 +348,20 @@ export function Select({ label, options, hint, ...p }: { label: string; hint?: R
   )
 }
 
-export function Check({ label, hint, ...p }: { label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch shrink-0" {...p} /><span>{t(label)}{hint && <span className="block text-xs text-fg3">{t(hint)}</span>}</span></label>
+/** A string label is translated; pass an element for a name that must show as typed. */
+export function Check({ label, hint, ...p }: { label: ReactNode; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return <label className="flex min-h-9 max-sm:min-h-11 items-center gap-3 text-fg2"><input type="checkbox" className="switch shrink-0" {...p} /><span>{tx(label)}{hint && <span className="block text-xs text-fg3">{t(hint)}</span>}</span></label>
 }
 
-/** The guide's variable control: label on raised, value on surface. */
-export function Variable({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+/** The guide's variable control: label on raised, value on surface. A `raw` option, such as a tag, shows as typed. */
+export function Variable({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string; raw?: boolean }[] }) {
   const id = useId()
   return (
     <div className="flex h-9 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2">
       <label htmlFor={id} className="flex items-center bg-raised pl-4 pr-3 text-fg2">{t(label)}</label>
       <div className="relative flex items-center bg-surface">
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-3 pr-8 text-fg">
-          {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{t(o.label)}</option>)}
+          {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{o.raw ? o.label : t(o.label)}</option>)}
         </select>
         <ChevronUpDownIcon className="pointer-events-none absolute right-2 size-4 text-fg2" aria-hidden />
       </div>
@@ -406,9 +444,9 @@ export function Copy({ text }: { text: string }) {
 
 export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void }) {
   return (
-    <div role="tablist" className="flex flex-wrap gap-2">
+    <div role="tablist" className="inline-flex flex-wrap gap-0.5 rounded-control border border-line2 bg-bg p-0.5">
       {tabs.map((tab) => (
-        <button key={tab.id} type="button" role="tab" aria-selected={tab.id === value} onClick={() => onChange(tab.id)} className={`h-9 max-sm:h-11 rounded-control px-4 ${tab.id === value ? "bg-accent-soft text-accent" : "text-fg2 hover:bg-raised hover:text-fg"}`}>{t(tab.label)}</button>
+        <button key={tab.id} type="button" role="tab" aria-selected={tab.id === value} onClick={() => onChange(tab.id)} className={`h-8 max-sm:h-10 rounded-[8px] px-3 ${tab.id === value ? "bg-raised text-fg" : "text-fg2 hover:text-fg"}`}>{t(tab.label)}</button>
       ))}
     </div>
   )

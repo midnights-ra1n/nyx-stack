@@ -11,6 +11,9 @@ export function splitTags(v: string | string[] | null | undefined): string[] {
 /** Every tag in use, sorted, for filters and suggestions. */
 export const allTags = (rows: any[], key = "tags") => [...new Set(rows.flatMap((r) => splitTags(r[key])))].sort((a, b) => a.localeCompare(b))
 
+/** "All", then every tag as typed: a tag is a name, never translated. */
+export const tagOptions = (tags: string[]) => [{ value: "", label: "All" }, ...tags.map((x) => ({ value: x, label: x, raw: true }))]
+
 export const hasTag = (row: any, tag: string, key = "tags") => !tag || splitTags(row[key]).includes(tag)
 
 const HUES = ["s1", "s2", "s3", "s4"]
@@ -36,7 +39,7 @@ export function TagList({ tags, onPick, empty = "—" }: { tags: string | string
 }
 
 /** Chips and a box to type more: Enter or a comma adds one, Backspace on an empty box takes the last one off. */
-export function TagInput({ label, hint, value, onChange, known = [] }: { label: string; hint?: string; value: string[]; onChange: (tags: string[]) => void; known?: string[] }) {
+export function TagInput({ label, hint, value, onChange, known = [], placeholder = "Type a tag, then Enter" }: { label: string; hint?: string; value: string[]; onChange: (tags: string[]) => void; known?: string[]; placeholder?: string }) {
   const id = useId()
   const [text, setText] = useState("")
   const add = (raw: string) => { const next = splitTags([...value, ...raw.split(",")]); if (next.length !== value.length) onChange(next); setText("") }
@@ -45,7 +48,7 @@ export function TagInput({ label, hint, value, onChange, known = [] }: { label: 
       <label htmlFor={id} className="text-[13px] font-medium text-fg2">{t(label)}</label>
       <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-control border border-line2 bg-surface px-2 py-1 focus-within:border-accent max-sm:min-h-11">
         {value.map((tag) => <Tag key={tag} tag={tag} onRemove={() => onChange(value.filter((x) => x !== tag))} />)}
-        <input id={id} list={`${id}-known`} value={text} placeholder={value.length ? "" : t("Type a tag, then Enter")} className="h-7 min-w-24 flex-1 bg-transparent text-[13px] outline-none max-sm:text-base"
+        <input id={id} list={`${id}-known`} value={text} placeholder={value.length ? "" : t(placeholder)} className="h-7 min-w-24 flex-1 bg-transparent text-[13px] outline-none max-sm:text-base"
           onChange={(e) => (e.target.value.includes(",") ? add(e.target.value) : setText(e.target.value))}
           onKeyDown={(e) => {
             if (e.key === "Enter" && text.trim()) { e.preventDefault(); add(text) }

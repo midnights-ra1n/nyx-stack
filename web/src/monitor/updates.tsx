@@ -1,10 +1,11 @@
 import { ArrowPathIcon, ChevronRightIcon, MagnifyingGlassIcon, SparklesIcon } from "@heroicons/react/24/outline"
 import { Fragment, useState } from "react"
 import { Button, Check, Empty, ErrorNote, Mono, Panel, Stat, StateCell, Status, Table, Td, Variable, ask } from "../ui/components"
+import { DistroIcon, osName } from "../ui/brand-icons"
 import { t } from "../ui/i18n"
 import { api, useApi } from "../ui/lib"
 import { Link, PageHeader } from "../ui/shell"
-import { allTags, hasTag, TagList } from "../ui/tags"
+import { allTags, hasTag, TagList, tagOptions } from "../ui/tags"
 import { FleetUpdates, HostIcon, hostType, noAgent, useUpdatePolling } from "./hosts"
 import { hostLevel } from "./overview"
 
@@ -63,7 +64,7 @@ export function Updates() {
     <>
       <PageHeader title={t("Updates")} subtitle="Packages waiting on each host, security fixes first. Tick hosts to act on them only." onRefresh={hosts.reload}
         variables={<>
-          <Variable label="Tag" value={tag} onChange={setTag} options={[{ value: "", label: "All" }, ...allTags(all).map((x) => ({ value: x, label: x }))]} />
+          <Variable label="Tag" value={tag} onChange={setTag} options={tagOptions(allTags(all))} />
         </>}
         actions={<>
           <Button disabled={!targets.length} onClick={check}><MagnifyingGlassIcon className="size-5" aria-hidden />{t("Check ({scope})", { scope })}</Button>
@@ -94,7 +95,7 @@ export function Updates() {
                     <span className="flex items-center gap-2">
                       <button type="button" aria-label={t("Show the packages of {name}", { name: h.name })} aria-expanded={open.has(h.id)} disabled={!h.updates} className="text-fg3 disabled:opacity-30" onClick={() => setOpen(toggle(open, h.id))}><ChevronRightIcon className={`size-4 ${open.has(h.id) ? "rotate-90" : ""}`} aria-hidden /></button>
                       <HostIcon type={hostType(h, all)} />
-                      <span className="flex min-w-0 flex-col"><Link to={`/hosts/${h.id}`} className="truncate hover:text-accent">{h.name}</Link>{h.os && <span className="truncate text-xs font-normal text-fg3">{h.os}</span>}</span>
+                      <span className="flex min-w-0 flex-col"><Link to={`/hosts/${h.id}`} className="truncate hover:text-accent">{h.name}</Link>{h.os && <span className="truncate text-xs font-normal text-fg3"><DistroIcon os={h.os} className="mr-1 size-3.5 align-[-2px]" />{osName(h.os)}</span>}</span>
                     </span>
                   </Td>
                   <Td><TagList tags={h.tags} onPick={setTag} /></Td>

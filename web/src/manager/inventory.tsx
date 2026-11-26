@@ -1,19 +1,21 @@
-import { ArrowPathIcon, ArrowsRightLeftIcon, Bars4Icon, PencilSquareIcon, PowerIcon, TrashIcon, XMarkIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
+import { GlobeAltIcon, MapPinIcon, CpuChipIcon, RectangleStackIcon, ViewColumnsIcon, ArrowPathIcon, ArrowsRightLeftIcon, Bars4Icon, PencilSquareIcon, PowerIcon, TrashIcon, XMarkIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Progress, Select, Stat, Status, Table, Td, TextArea, ask } from "../ui/components"
+import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Meter, Mono, Panel, Progress, Select, Stat, Status, Table, Tabs, Td, TextArea, Variable, ask, SearchInput, Skeleton } from "../ui/components"
 import { t } from "../ui/i18n"
 import { type Item, joinChecklist, ProgressSummary, splitChecklist } from "./progress"
-import { type Col, CrudPage, Editor, EditorGroup, RecordForm, RecordPage } from "../ui/crud"
-import { api, fmt, type Level, levelText, sortRows, useApi } from "../ui/lib"
+import { type Col, CrudPage, Editor, EditorGroup, Facets, RecordForm, RecordPage } from "../ui/crud"
+import { api, fmt, type Level, levelText, sortRows, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../ui/shell"
 import { deployLevel } from "./overview"
 import { parseTags, type WorkItem, WorkView } from "./work"
 import { splitTags, TagInput } from "../ui/tags"
-import { LiveCell, LivePanel, useLiveHosts } from "./live"
+import { findHost, LiveCell, LivePanel, liveLevel, useLiveHosts } from "./live"
+import { spot } from "./racks"
+import { DistroIcon, osName } from "../ui/brand-icons"
 
 const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
-const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, "Patch panel": Bars4Icon, PDU: PowerIcon, Printer: PrinterIcon, Other: CubeIcon }
+export const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, "Patch panel": Bars4Icon, PDU: PowerIcon, Printer: PrinterIcon, Other: CubeIcon }
 const categoryCell = (h: any) => {
   const I = CATEGORIES[h.category]
   return h.category ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{t(h.category)}</span> : "—"
@@ -37,7 +39,7 @@ const SPECS: Col[] = [
   spec("mgmt_ip", "Management address", MANAGED, { mono: true, suggest: false, hint: "Web interface, IPMI or iDRAC." }),
 ]
 
-const HARDWARE: Col[] = [
+export const HARDWARE: Col[] = [
   { key: "category", label: "Category", type: "select", options: Object.keys(CATEGORIES), icons: CATEGORIES, formOnly: true },
   { key: "name", label: "Name", required: true, section: "Identity" },
   { key: "category", label: "Category", type: "select", options: Object.keys(CATEGORIES), render: categoryCell, listOnly: true },
@@ -58,16 +60,16 @@ const HARDWARE: Col[] = [
   { key: "in_service_at", label: "In service since", type: "date", formOnly: true, section: "Warranty and life" },
   { key: "warranty_until", label: "Warranty until", type: "date", render: (h) => { const w = warranty(h.warranty_until); return w ? <span className={levelText[w.level]}>{w.label}</span> : "—" } },
 ]
-const HW_DEFAULTS = { category: "Server", status: "In service" }
+export const HW_DEFAULTS = { category: "Server", status: "In service" }
 
 /** The hardware fields, with where the device sits among the racks of the Racks page. */
 function useHardwareCols() {
   const { data } = useApi("/api/c/racks?sort=name&perPage=200", { poll: false })
   const racks: any[] = data?.items ?? []
-  const where = (h: any) => { const r = racks.find((x) => x.id === h.rack); return r ? `${r.name}${h.rack_u ? ` · U${h.rack_u}` : ""}` : "" }
+  const where = (h: any) => { const r = racks.find((x) => x.id === h.rack); return r ? `${r.name}${h.rack_u ? ` · ${spot(r, h)}` : ""}` : "" }
   const cols = HARDWARE.flatMap((c): Col[] => c.key !== "location" ? [c] : [c,
-    { key: "rack", label: "Rack", type: "select", choices: racks.map((x) => ({ value: x.id, label: x.name })), render: (h) => where(h) || "—", hint: "Drag it into place on the Racks page." },
-    { key: "rack_u", label: "Position (U)", type: "number", formOnly: true, hint: "The lowest unit it fills, 1 at the bottom." },
+    { key: "rack", label: "Place", type: "select", choices: racks.map((x) => ({ value: x.id, label: x.name })), render: (h) => where(h) || "—", hint: "A rack, a shelving unit or a desk. Drag it into place on the Places page." },
+    { key: "rack_u", label: "Position (U or level)", type: "number", formOnly: true, hint: "The lowest unit it fills in a rack, or the level of a shelf, 1 at the bottom." },
     { key: "rack_units", label: "Height (U)", type: "number", formOnly: true },
   ])
   return { cols, where }
@@ -77,10 +79,187 @@ function useHardwareCols() {
 const withLive = (cols: Col[], live: any[] | null | undefined): Col[] =>
   live ? [...cols, { key: "live", label: "Monitoring", listOnly: true, render: (r) => <LiveCell hosts={live} row={r} /> }] : cols
 
+/** A monitored machine the inventory does not have yet, added as a server under its name. */
+export const adoptHost = (h: any) => api("/api/c/hardware", { body: { ...HW_DEFAULTS, name: h.name, category: "Server" } })
+
+/** One device of the inventory as a card: what it is, where it stands, how it is doing, and what runs on it. */
+function DeviceCard({ h, host, place, guests }: { h: any; host?: any; place?: any; guests: any[] }) {
+  const I = CATEGORIES[h.category] ?? CubeIcon
+  const level = host ? liveLevel(host) : undefined
+  const model = [h.manufacturer, h.model].filter(Boolean).join(" ")
+  const w = warranty(h.warranty_until)
+  const bar = (label: string, pct?: number | null) => pct == null ? null : (
+    <div className="min-w-0"><div className="flex justify-between text-[11px] text-fg3"><span>{t(label)}</span><span className="tabular-nums">{fmt.pct(pct)}</span></div><Meter pct={pct} /></div>
+  )
+  return (
+    <Link to={`/hardware/${h.id}`} className="group flex flex-col gap-3 rounded-panel border border-line bg-surface p-4 hover:border-line2">
+      <div className="flex items-start gap-3">
+        <span className="relative flex size-11 shrink-0 items-center justify-center rounded-box text-accent"><span className="absolute inset-0 rounded-box bg-current opacity-15" /><I className="size-6" aria-hidden /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium group-hover:text-accent">{h.name}</span>
+          <span className="block truncate text-xs text-fg3">{model || t(h.category || "Other")}</span>
+        </span>
+        {level ? <Status cell level={level} label="" /> : h.status && h.status !== "In service" ? <Status cell level={STATUS_LEVEL[h.status] ?? "off"} label={h.status} /> : null}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg2">
+        <span className="inline-flex items-center gap-1.5"><MapPinIcon className="size-4 text-fg3" aria-hidden />{place ? `${place.name} · ${spot(place, h)}` : h.location || t("Not placed")}</span>
+        {(host?.ip || h.mgmt_ip) && <span className="inline-flex items-center gap-1.5 font-mono"><GlobeAltIcon className="size-4 text-fg3" aria-hidden />{host?.ip || h.mgmt_ip}</span>}
+        {host?.os && <span className="inline-flex min-w-0 items-center gap-1.5"><DistroIcon os={host.os} className="size-4 text-fg3" /><span className="truncate">{osName(host.os)}</span></span>}
+        {w && w.level !== "ok" && <span className={`inline-flex items-center gap-1.5 ${levelText[w.level]}`}><ShieldCheckIcon className="size-4" aria-hidden />{w.label}</span>}
+      </div>
+      {host && host.status !== "off" && <div className="grid grid-cols-3 gap-3">{bar("CPU", host.cpu)}{bar("Memory", host.mem)}{bar("Disk", host.disk)}</div>}
+      {guests.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-line pt-3">
+          {guests.slice(0, 8).map((g) => { const G = VIRTUAL_TYPES[g.type] ?? CubeIcon; return <span key={g.id} className="inline-flex h-6 max-w-40 items-center gap-1 rounded-md bg-raised px-1.5 text-xs text-fg2"><G className="size-3.5 shrink-0" aria-hidden /><span className="truncate">{g.name}</span></span> })}
+          {guests.length > 8 && <span className="inline-flex h-6 items-center px-1 text-xs text-fg3">{t("+{n}", { n: guests.length - 8 })}</span>}
+        </div>
+      )}
+    </Link>
+  )
+}
+
+/** The inventory as cards, grouped by the place each device stands in, with what runs on it. */
+function InventoryCards({ toggle, live }: { toggle: React.ReactNode; live: any[] | null | undefined }) {
+  const hw = useApi("/api/c/hardware?sort=name&perPage=500", { poll: false })
+  const racks = useApi("/api/c/racks?sort=name&perPage=200", { poll: false })
+  const va = useApi("/api/c/virtual_assets?sort=name&perPage=500", { poll: false })
+  const [query, setQuery] = useState("")
+  const [category, setCategory] = useState("")
+  const [group, setGroup] = useStored("nyx.inventory.group", "place")
+  const [error, setError] = useState("")
+  const all: any[] = hw.data?.items ?? []
+  const places: any[] = racks.data?.items ?? []
+  const placeOf = (h: any) => places.find((p) => p.id === h.rack && h.rack_u > 0)
+  // What runs on a device: the guests the monitor sees on its host, and the virtual records that name it.
+  const guests = (h: any, host?: any) => {
+    const seen = (live ?? []).filter((g: any) => host && g.parent === host.id).map((g: any) => ({ id: g.id, name: g.name, type: g.kind === "lxc" ? "container" : "vm" }))
+    const named = (va.data?.items ?? []).filter((a: any) => same(a.parent, h.name) || (!!host && (same(a.parent, host.name) || same(a.parent, host.hostname))))
+    return [...seen, ...named.filter((a: any) => !seen.some((g: any) => same(g.name, a.name)))]
+  }
+  const needle = query.trim().toLowerCase()
+  const shown = all.filter((h) => (!category || h.category === category) && (!needle || [h.name, h.model, h.manufacturer, h.serial, h.location, h.tags].some((v) => String(v ?? "").toLowerCase().includes(needle))))
+  const unknown = (live ?? []).filter((h: any) => (h.kind === "physical" || h.kind === "proxmox") && !all.some((d) => findHost([h], d)))
+  const groups: [string, any[]][] = group === "place"
+    ? [...places.map((p) => [p.name, shown.filter((h) => placeOf(h) === p)] as [string, any[]]), [t("Not placed"), shown.filter((h) => !placeOf(h))]]
+    : group === "category" ? Object.keys(CATEGORIES).map((c) => [t(c), shown.filter((h) => (h.category || "Other") === c)] as [string, any[]])
+    : [["", shown]]
+  const adopt = async (h: any) => { try { await adoptHost(h); hw.reload() } catch (e) { setError((e as Error).message) } }
+  return (
+    <>
+      <PageHeader title={t("Inventory")} variables={toggle} actions={<Button variant="primary" onClick={() => navigate("/hardware/new")}><PlusIcon className="size-5" aria-hidden />{t("Add hardware")}</Button>} />
+      <Section>
+        <ErrorNote>{hw.error || error}</ErrorNote>
+        {all.length > 0 && <Facets col={HARDWARE[0]} rows={all} value={category} onChange={setCategory} />}
+        {all.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput placeholder="Name, model or serial number" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Variable label="Group by" value={group} onChange={setGroup} options={[{ value: "place", label: "Place" }, { value: "category", label: "Category" }, { value: "", label: "None" }]} />
+          </div>
+        )}
+        {!hw.data && <Skeleton lines={6} />}
+        {hw.data && all.length === 0 && unknown.length === 0 && <Panel title={t("Inventory")}><Empty>{t("No hardware yet. Add your servers, switches and other devices, then give them a place.")}</Empty></Panel>}
+        {groups.filter(([, rows]) => rows.length).map(([name, rows]) => (
+          <section key={name || "all"} aria-label={name || t("Inventory")}>
+            {name && <h2 className="mb-2 flex items-baseline gap-2 font-medium">{name}<span className="text-xs font-normal text-fg3">{rows.length}</span></h2>}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
+              {rows.map((h) => { const host = findHost(live, h); return <DeviceCard key={h.id} h={h} host={host} place={placeOf(h)} guests={guests(h, host)} /> })}
+            </div>
+          </section>
+        ))}
+        {unknown.length > 0 && (
+          <section aria-label={t("Seen by the monitor")}>
+            <h2 className="mb-1 font-medium">{t("Seen by the monitor")}</h2>
+            <p className="mb-2 text-[13px] text-fg3">{t("Physical machines the monitor watches that the inventory does not list yet.")}</p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
+              {unknown.map((h: any) => (
+                <div key={h.id ?? h.name} className="flex items-center gap-3 rounded-panel border border-dashed border-line2 p-4">
+                  <Status cell level={liveLevel(h)} label="" />
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{h.name}</span><span className="block truncate font-mono text-xs text-fg3">{h.ip}</span></span>
+                  <Button onClick={() => adopt(h)}>{t("Add to inventory")}</Button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </Section>
+    </>
+  )
+}
+
 export function Hardware() {
   const { cols: base } = useHardwareCols()
-  const cols = withLive(base, useLiveHosts())
-  return <CrudPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+  const live = useLiveHosts()
+  const [mode, setMode] = useStored("nyx.inventory.mode", "table")
+  const toggle = <Tabs tabs={[{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }]} value={mode} onChange={setMode} />
+  if (mode === "cards") return <InventoryCards toggle={toggle} live={live} />
+  return <CrudPage title={t("Hardware")} heading={t("Inventory")} variables={toggle} singular="hardware" collection="hardware" cols={withLive(base, live)} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+}
+
+// The parts inside the hardware, after GLPI's components: what they are, where they are
+// fitted, and whether they are used, kept as spares or decommissioned.
+export const PART_TYPES: Record<string, Icon> = { "Hard disk": CircleStackIcon, SSD: RectangleStackIcon, CPU: CpuChipIcon, RAM: ViewColumnsIcon, GPU: ComputerDesktopIcon, "Network card": ArrowsRightLeftIcon, "Power supply": BoltIcon, Other: CubeIcon }
+const PART_STATUS: Record<string, Level> = { "In service": "ok", Spare: "info", Decommissioned: "off" }
+const partType = (c: any) => { const I = PART_TYPES[c.type]; return c.type ? <span className="flex items-center gap-2">{I && <I className="size-4" aria-hidden />}{t(c.type)}</span> : "—" }
+const partStatus = (c: any) => c.status ? <Status cell level={PART_STATUS[c.status] ?? "off"} label={c.status} /> : "—"
+
+function partCols(devices: any[]): Col[] {
+  const name = (id: string) => devices.find((h) => h.id === id)?.name
+  return [
+    { key: "type", label: "Type", type: "select", options: Object.keys(PART_TYPES), icons: PART_TYPES, formOnly: true },
+    { key: "name", label: "Name", required: true, section: "Identity", hint: "Such as Disk 2 of nas-01." },
+    { key: "type", label: "Type", type: "select", options: Object.keys(PART_TYPES), render: partType, listOnly: true },
+    { key: "manufacturer", label: "Manufacturer", suggest: true },
+    { key: "model", label: "Model", suggest: true },
+    { key: "capacity", label: "Capacity", suggest: true, hint: "Size, speed or cores, such as 8 TB, 32 GB DDR4-3200 or 8 cores." },
+    { key: "serial", label: "Serial number", mono: true, formOnly: true },
+    { key: "device", label: "Fitted in", type: "select", section: "Where it is", choices: sortRows(devices.map((h) => ({ value: h.id, label: h.name })), (o) => o.label),
+      render: (c) => name(c.device) ? <Link to={`/hardware/${c.device}`} className="hover:text-accent">{name(c.device)}</Link> : <span className="text-fg3">{t("On a shelf")}</span>, hint: "Leave it empty for a part waiting on a shelf." },
+    { key: "slot", label: "Slot", hint: "Bay, memory slot or PCIe slot." },
+    { key: "status", label: "Status", type: "select", options: Object.keys(PART_STATUS), render: partStatus },
+    { key: "decommissioned_at", label: "Decommissioned on", type: "date", formOnly: true, when: { key: "status", in: ["Decommissioned"] } },
+    { key: "purchased_at", label: "Purchased", type: "date", formOnly: true, section: "Purchase and warranty" },
+    { key: "warranty_until", label: "Warranty until", type: "date", formOnly: true },
+    { key: "tags", label: "Tags", type: "tags", formOnly: true },
+    { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
+  ]
+}
+export const PART_DEFAULTS = { type: "Hard disk", status: "In service" }
+
+export function Components() {
+  const hw = useApi("/api/c/hardware?sort=name&perPage=500", { poll: false })
+  return <CrudPage title={t("Components")} singular="component" collection="components" cols={partCols(hw.data?.items ?? [])} defaults={PART_DEFAULTS} facet="type" />
+}
+
+/** The parts fitted in one device, on its page. */
+function Fitted({ device, parts }: { device: any; parts: ReturnType<typeof useApi<any>> }) {
+  const [edit, setEdit] = useState<any | null | undefined>()
+  const rows: any[] = parts.data?.items ?? []
+  const cols = partCols([device])
+  const remove = async (c: any) => { if (await ask(t("Delete {name}?", { name: c.name }), { action: "Delete", danger: true })) { await api(`/api/c/components/${c.id}`, { method: "DELETE" }); parts.reload() } }
+  return <>
+    {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit} collection="components" rows={rows} title={edit ? t("Edit {name}", { name: edit.name }) : "Add component"}
+      defaults={{ ...PART_DEFAULTS, device: device.id }} onDone={() => { setEdit(undefined); parts.reload() }} />}
+    <Panel title={t(rows.length === 1 ? "{n} component" : "{n} components", { n: rows.length })} flush actions={[{ label: "Add component", onClick: () => setEdit(null) }, { label: "All components", onClick: () => navigate("/components") }]}>
+      <ErrorNote>{parts.error}</ErrorNote>
+      {rows.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No component yet. Add its disks, memory or CPU to know what it holds, what is spare and what was decommissioned.")}</Empty></div> : (
+        <Table head={["Component", "Type", "Capacity", "Slot", "Status", ""]}>
+          {rows.map((c) => (
+            <tr key={c.id} className={c.status === "Decommissioned" ? "text-fg3" : ""}>
+              <Td className="font-medium"><span className="block">{c.name}</span><span className="block text-xs font-normal text-fg3">{[c.manufacturer, c.model, c.serial].filter(Boolean).join(" · ")}</span></Td>
+              <Td className="text-fg2">{partType(c)}</Td>
+              <Td className="text-fg2">{c.capacity || "—"}</Td>
+              <Td className="text-fg2">{c.slot || "—"}</Td>
+              <Td>{partStatus(c)}</Td>
+              <Td className="w-24 whitespace-nowrap text-right">
+                <IconButton label={t("Edit {name}", { name: c.name })} icon={PencilSquareIcon} onClick={() => setEdit(c)} />
+                <IconButton label={t("Delete {name}", { name: c.name })} icon={TrashIcon} onClick={() => remove(c)} />
+              </Td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </Panel>
+  </>
 }
 
 /** What the warranty of a device says today: gone, ending within 60 days, or running. */
@@ -126,7 +305,7 @@ function HardwareAside(form: any, rack: string) {
         <dt className="text-fg2">{t("Warranty")}</dt><dd className={w ? levelText[w.level] : "text-fg3"}>{w?.label ?? "Not set"}</dd>
         <dt className="text-fg2">{t("Age")}</dt><dd>{age == null || Number.isNaN(age) ? "—" : age < 1 ? t("Under a year") : t(age > 1 ? "{n} years" : "{n} year", { n: age })}</dd>
         <dt className="text-fg2">{t("Location")}</dt><dd className="truncate">{form.location || "—"}</dd>
-        <dt className="text-fg2">{t("Rack")}</dt><dd className="truncate">{rack ? <Link to="/racks" className="text-accent">{rack}</Link> : "—"}</dd>
+        <dt className="text-fg2">{t("Place")}</dt><dd className="truncate">{rack ? <Link to="/racks" className="text-accent">{rack}</Link> : "—"}</dd>
         {form.mgmt_ip && <><dt className="text-fg2">{t("Management")}</dt><dd><a className="font-mono text-accent" href={/^https?:\/\//.test(form.mgmt_ip) ? form.mgmt_ip : `https://${form.mgmt_ip}`} target="_blank" rel="noreferrer noopener">{form.mgmt_ip}</a></dd></>}
       </dl>
     </Panel>
@@ -179,7 +358,7 @@ function Ports({ device, onChange }: { device: any; onChange: () => void }) {
   return <>
     {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={cols} row={edit && { ...edit, peer: peerOf(edit, all)?.id ?? "" }} collection="ports" title={edit ? t("Edit port {name}", { name: edit.name }) : "Add port"}
       defaults={{ device: device.id }} rows={all} onSaved={tidy} onDone={() => { setEdit(undefined); changed() }} />}
-    <Panel title={`${mine.length} ${mine.length === 1 ? "port" : "ports"}`} flush actions={[{ label: "Add port", onClick: () => setEdit(null) }]}>
+    <Panel title={t(mine.length === 1 ? "{n} port" : "{n} ports", { n: mine.length })} flush actions={[{ label: "Add port", onClick: () => setEdit(null) }]}>
       <ErrorNote>{ports.error}</ErrorNote>
       {mine.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No port yet. Add them to cable this device to others; cables show on the network map.")}</Empty></div> : (
         <Table head={["Port", "Speed", "MAC", "VLAN", "Cabled to", ""]}>
@@ -207,7 +386,9 @@ function Ports({ device, onChange }: { device: any; onChange: () => void }) {
 
 export function HardwareRecord({ id }: { id: string }) {
   const ports = useApi(id === "new" ? null : `/api/c/ports?filter=${encodeURIComponent(`device = '${id}'`)}&perPage=500`, { poll: false })
+  const parts = useApi(id === "new" ? null : `/api/c/components?filter=${encodeURIComponent(`device = '${id}'`)}&sort=type,name&perPage=500`, { poll: false })
   const tabs = [
+    { id: "Components", label: "Components", count: parts.data?.totalItems, render: (_: any, row: any) => <Fitted device={row} parts={parts} /> },
     { id: PORT_TAB, label: PORT_TAB, count: ports.data?.totalItems, render: (_: any, row: any) => <Ports device={row} onChange={ports.reload} /> },
     { id: "Links", label: "Links", render: (form: any) => <><LinkedAddresses device={form.name} /><RunsHere host={form.name} /></> },
   ]
@@ -449,6 +630,7 @@ export function Vpn() {
 
 const SEARCHED = [
   { coll: "hardware", to: "/hardware", fields: ["name", "serial", "model", "location"], record: true },
+  { coll: "components", to: "/components", fields: ["name", "serial", "model", "capacity"] },
   { coll: "virtual_assets", to: "/virtual", fields: ["name", "hostname", "ip"], record: true },
   { coll: "ip_addresses", to: "/ipam", fields: ["address", "device", "hostname", "mac"] },
   { coll: "subnets", to: "/ipam", fields: ["name", "cidr", "description", "section"] },

@@ -88,7 +88,7 @@ export function StoragePanel({ hosts, allHosts, storage, th, edit }: { hosts: an
   const left = inScope.filter((d) => hidden.includes(mountKey(d))).length
   const toggle = (id: string) => setClosed(closed.includes(id) ? closed.filter((c) => c !== id) : [...closed, id])
   return (
-    <Panel title={t("Storage")} edit={edit} actions={[{ label: "Choose mount points", onClick: () => setChoosing(true) }]} footer={left > 0 ? `${left} mount ${left > 1 ? "points" : "point"} hidden` : undefined}>
+    <Panel title={t("Storage")} edit={edit} actions={[{ label: "Choose mount points", onClick: () => setChoosing(true) }]} footer={left > 0 ? t(left > 1 ? "{n} mount points hidden" : "{n} mount point hidden", { n: left }) : undefined}>
       {!inScope.length ? <Empty>{t("No disks reported.")}</Empty> : !rows.length ? <Empty>{t("Every mount point is hidden.")}</Empty> : (
         // Focusable, so that the keyboard can scroll it too.
         <ul tabIndex={0} aria-label={t("Mount points")} className="flex max-h-96 flex-col overflow-y-auto pr-2">

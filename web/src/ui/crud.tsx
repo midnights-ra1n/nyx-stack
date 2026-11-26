@@ -1,10 +1,10 @@
 import { PencilSquareIcon, PlusIcon, TrashIcon, ViewColumnsIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useEffect, useId, useRef, useState } from "react"
-import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable, ask } from "./components"
-import { t } from "./i18n"
+import { Button, Check, Empty, ErrorNote, type Icon, IconButton, Input, Panel, Select, Table, Td, TextArea, Variable, ask, SearchInput } from "./components"
+import { t, lang } from "./i18n"
 import { api, fmt, sortRows, useApi, useStored } from "./lib"
 import { Link, navigate, PageHeader, Section } from "./shell"
-import { allTags, hasTag, splitTags, TagInput, TagList } from "./tags"
+import { allTags, hasTag, splitTags, TagInput, TagList, tagOptions } from "./tags"
 
 export interface Col {
   key: string
@@ -51,7 +51,7 @@ function Tiles({ col, value, onChange }: { col: Col; value: string; onChange: (v
           return (
             <label key={o} className={`flex h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-box border text-[13px] has-focus-visible:outline-2 has-focus-visible:outline-accent ${value === o ? "border-accent bg-accent-soft text-accent" : "border-line2 bg-raised text-fg2 hover:border-fg3"}`}>
               <input type="radio" className="sr-only" name={col.key} checked={value === o} onChange={() => onChange(o)} />
-              <I className="size-5" aria-hidden />{t(o)}
+              <I className="size-5" aria-hidden />{t(col.choices?.find((c) => c.value === o)?.label ?? o)}
             </label>
           )
         })}
@@ -305,7 +305,7 @@ function History({ collection, id, cols }: { collection: string; id: string; col
         <Table head={["When", "Field", "Before", "After"]}>
           {(data ?? []).flatMap((h) => (h.action === "create" ? [{ k: "", from: "", to: "" }] : (h.changes ?? []).map((c: any) => ({ k: c.field, from: c.from, to: c.to }))).map((c: any, i: number) => (
             <tr key={`${h.id}${i}`}>
-              <Td className="whitespace-nowrap text-fg2">{i === 0 ? <span title={new Date(h.created.replace(" ", "T")).toLocaleString()}>{fmt.ago(h.created)}</span> : ""}</Td>
+              <Td className="whitespace-nowrap text-fg2">{i === 0 ? <span title={new Date(h.created.replace(" ", "T")).toLocaleString(lang)}>{fmt.ago(h.created)}</span> : ""}</Td>
               {h.action === "create" ? <Td colSpan={3}>{t("Created")}</Td> : <>
                 <Td className="font-medium">{t(col(c.k)?.label ?? c.k)}</Td>
                 <Td className="text-fg3 line-through decoration-fg3/50">{shown(col(c.k), c.from)}</Td>
@@ -367,10 +367,10 @@ export function CrudPage({ title, heading = title, variables, singular, collecti
         {facet && all.length > 0 && <Facets col={cols.find((c) => c.key === facet && c.icons) ?? cols.find((c) => c.key === facet)!} rows={all} value={picked[facet] ?? ""} onChange={(v) => setPicked({ ...picked, [facet]: v })} />}
         {extra}
         {all.length > 0 && (
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-64 max-sm:w-full"><Input label="Search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} />
             {filters.map((c) => <Variable key={c.key} label={c.label} value={picked[c.key] ?? ""} onChange={(v) => setPicked({ ...picked, [c.key]: v })} options={[{ value: "", label: "All" }, ...[...new Set(all.map((r) => r[c.key]).filter(Boolean))].map((v) => ({ value: v, label: c.choices?.find((o) => o.value === v)?.label ?? v }))]} />)}
-            {tagCol && allTags(all, tagCol.key).length > 0 && <Variable label="Tag" value={picked.$tag ?? ""} onChange={(v) => setPicked({ ...picked, $tag: v })} options={[{ value: "", label: "All" }, ...allTags(all, tagCol.key).map((v) => ({ value: v, label: v }))]} />}
+            {tagCol && allTags(all, tagCol.key).length > 0 && <Variable label="Tag" value={picked.$tag ?? ""} onChange={(v) => setPicked({ ...picked, $tag: v })} options={tagOptions(allTags(all, tagCol.key))} />}
             {/* The table turns into a list on phones, without its headers. */}
             <div className="sm:hidden"><Variable label="Sort by" value={order.key} onChange={sortBy} options={[{ value: "", label: "Default" }, ...shown.map((c) => ({ value: c.key, label: c.label }))]} /></div>
             <details className="relative ml-auto max-sm:ml-0">
@@ -448,18 +448,18 @@ function Bulk({ cols, rows, all, collection, onDone, onClear }: { cols: Col[]; r
 }
 
 /** One tile per value with its count, as a filter: the shape of the inventory at a glance. */
-function Facets({ col, rows, value, onChange }: { col: Col; rows: any[]; value: string; onChange: (v: string) => void }) {
+export function Facets({ col, rows, value, onChange }: { col: Col; rows: any[]; value: string; onChange: (v: string) => void }) {
   const count = (v: string) => rows.filter((r) => r[col.key] === v).length
   const values = (col.options ?? [...new Set(rows.map((r) => r[col.key]).filter(Boolean))]).filter((v) => count(v) > 0)
   const tile = (v: string, label: string, n: number, I?: Icon) => (
     <button key={v || "all"} type="button" aria-pressed={value === v} onClick={() => onChange(value === v && v ? "" : v)}
-      className={`flex h-16 min-w-32 items-center gap-3 rounded-panel border px-4 text-left ${value === v ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface text-fg2 hover:border-line2 hover:text-fg"}`}>
+      className={`flex h-16 min-w-32 shrink-0 items-center gap-3 rounded-panel border px-4 text-left ${value === v ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface text-fg2 hover:border-line2 hover:text-fg"}`}>
       {I && <I className="size-6 shrink-0" aria-hidden />}
-      <span className="flex flex-col"><span className="text-[20px] leading-6 font-medium text-fg">{n}</span><span className="text-xs">{t(label)}</span></span>
+      <span className="flex flex-col"><span className="text-[20px] leading-6 font-medium text-fg">{n}</span><span className="text-xs whitespace-nowrap">{t(label)}</span></span>
     </button>
   )
   return (
-    <nav aria-label={t("Filter by {what}", { what: t(col.label).toLowerCase() })} className="flex gap-2 overflow-x-auto pb-1">
+    <nav aria-label={t("Filter by {what}", { what: t(col.label).toLowerCase() })} className="flex flex-wrap gap-2 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:pb-1">
       {tile("", "All", rows.length)}
       {values.map((v) => tile(v, v, count(v), col.icons?.[v]))}
     </nav>
