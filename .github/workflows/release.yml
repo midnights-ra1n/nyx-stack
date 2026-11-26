@@ -61,8 +61,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - { runner: macos-14, target: aarch64-apple-darwin, file: nyx-mcp-macos-aarch64 }
-          - { runner: macos-14, target: x86_64-apple-darwin, file: nyx-mcp-macos-x86_64 }
+          - { runner: macos-15, target: aarch64-apple-darwin, file: nyx-mcp-macos-aarch64 }
+          - { runner: macos-15, target: x86_64-apple-darwin, file: nyx-mcp-macos-x86_64 }
           - { runner: windows-2022, target: x86_64-pc-windows-msvc, file: nyx-mcp-windows-x86_64.exe }
     runs-on: ${{ matrix.runner }}
     env:
