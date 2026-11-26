@@ -475,7 +475,13 @@ mod tests {
         let server = std::thread::spawn(move || {
             let mut ws = tungstenite::accept(listener.accept().unwrap().0).unwrap();
             serve(&mut ws, 1);
-            drop(ws); // the connection dies without a word
+            // The connection dies without a word. Write side first, then read until the agent
+            // hangs up: closing with its pong unread makes Linux send an RST, which can wipe
+            // the answer before the agent reads it.
+            ws.get_mut().shutdown(std::net::Shutdown::Write).unwrap();
+            let mut buf = [0u8; 256];
+            while ws.get_mut().read(&mut buf).is_ok_and(|n| n > 0) {}
+            drop(ws);
             let mut ws = tungstenite::accept(listener.accept().unwrap().0).unwrap();
             loop {
                 if let Message::Ping(_) = ws.read().unwrap() {
