@@ -1,4 +1,4 @@
-import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { ChevronRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { useEffect, useRef, useState } from "react"
 import { BarGauge, ChartHover, Empty, Status } from "../../ui/components"
 import { fmt, type Level, levelBg, levelSoft, levelText } from "../../ui/lib"
@@ -19,7 +19,7 @@ function Overall({ state }: { state: Level }) {
     <div className={`fit flex h-full items-center justify-center ${levelSoft[state]}`}>
       <div className={`flex items-center gap-3 px-4 font-medium ${levelText[state]}`} style={{ fontSize: "clamp(16px, min(45cqh, 4.5cqw), 72px)" }}>
         <span className={`size-[0.6em] shrink-0 rounded-full ${levelBg[state]}`} aria-hidden />
-        {OVERALL[state]}
+        {t(OVERALL[state])}
       </div>
     </div>
   )
@@ -28,16 +28,29 @@ function Overall({ state }: { state: Level }) {
 function UptimeBars({ days, uptime, generated }: { days: (number | null)[]; uptime: number | null; generated: number }) {
   return (
     <div className="mt-1">
-      <div className="flex h-5 gap-px" role="img" aria-label={uptime == null ? "No uptime data yet" : t("{uptime} percent uptime over 30 days", { uptime })}>
-        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-full ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? t("no data") : `${d} %`}`} />)}
+      <div className="flex h-6 gap-px" role="img" aria-label={uptime == null ? t("No uptime data yet") : t("{uptime} percent uptime over {days} days", { uptime, days: days.length })}>
+        {days.map((d, i) => <span key={i} className={`min-w-0 flex-1 rounded-[2px] ${uptimeBar(d)}`} title={`${dayName(generated, days.length - 1 - i)}: ${d == null ? t("no data") : `${d} %`}`} />)}
       </div>
-      <div className="mt-1 flex justify-between text-xs text-fg3"><span>{t("30 days ago")}</span><span>{uptime == null ? t("No data yet") : t("{n} % uptime", { n: uptime })}</span><span>{t("Today")}</span></div>
+      <div className="mt-1 flex justify-between text-xs text-fg3"><span>{t("{v0} days ago", { v0: days.length })}</span><span>{uptime == null ? t("No data yet") : t("{n} % uptime", { n: uptime })}</span><span>{t("Today")}</span></div>
     </div>
   )
 }
 
-function Services({ rows, generated }: { rows: any[]; generated: number }) {
-  if (!rows?.length) return <Empty>{t("No services selected.")}</Empty>
+const RANK: Level[] = ["off", "ok", "info", "warn", "crit"]
+const worstOf = (rows: any[]): Level => rows.reduce((w: Level, r) => (RANK.indexOf(r.state) > RANK.indexOf(w) ? r.state : w), "ok")
+
+/** Rows by category, in the order the page lists them: rows without one first, with no heading. */
+export function byGroup<T extends { group?: string }>(rows: T[]): { group: string; rows: T[] }[] {
+  const out: { group: string; rows: T[] }[] = []
+  for (const r of rows) {
+    const g = r.group ?? ""
+    const at = out.find((x) => x.group === g) ?? out[out.push({ group: g, rows: [] }) - 1]
+    at.rows.push(r)
+  }
+  return out.sort((a, b) => (a.group ? 1 : 0) - (b.group ? 1 : 0))
+}
+
+function ServiceRows({ rows, generated }: { rows: any[]; generated: number }) {
   return (
     <ul className="flex flex-col divide-y divide-line">
       {rows.map((r, i) => (
@@ -50,17 +63,78 @@ function Services({ rows, generated }: { rows: any[]; generated: number }) {
   )
 }
 
+/** Better Stack style: each category folds, its heading telling the worst state inside. */
+function Services({ rows, generated }: { rows: any[]; generated: number }) {
+  if (!rows?.length) return <Empty>{t("No services selected.")}</Empty>
+  return (
+    <div className="flex flex-col gap-3">
+      {byGroup(rows).map((g) => !g.group ? <ServiceRows key="" rows={g.rows} generated={generated} /> : (
+        <details key={g.group} open={worstOf(g.rows) !== "ok"} className="group rounded-box border border-line">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+            <ChevronRightIcon className="size-4 shrink-0 text-fg3 group-open:rotate-90" aria-hidden />
+            <span className="min-w-0 flex-1 truncate font-medium">{g.group}</span>
+            <span className="text-xs text-fg3">{g.rows.length}</span>
+            <Status cell level={worstOf(g.rows)} />
+          </summary>
+          <div className="border-t border-line px-3"><ServiceRows rows={g.rows} generated={generated} /></div>
+        </details>
+      ))}
+    </div>
+  )
+}
+
 function Tiles({ rows }: { rows: any[] }) {
   if (!rows?.length) return <Empty>{t("Nothing selected.")}</Empty>
+  const groups = byGroup(rows)
   return (
-    <ul className="grid min-h-full auto-rows-fr grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
-      {rows.map((r, i) => (
-        <li key={i} className={`flex min-h-16 flex-col justify-center rounded-box px-3 py-2 ${levelSoft[r.state as Level]}`}>
-          <span className="truncate font-medium" title={r.label}>{r.label}</span>
-          <Status cell level={r.state} />
-        </li>
+    <div className="flex min-h-full flex-col gap-3">
+      {groups.map((g) => (
+        <section key={g.group} aria-label={g.group || undefined} className="flex flex-1 flex-col gap-2">
+          {g.group && <h3 className="flex items-center gap-2 text-[13px] font-medium text-fg2"><span className={`size-2 rounded-full ${levelBg[worstOf(g.rows)]}`} aria-hidden />{g.group}</h3>}
+          <ul className="grid flex-1 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+            {g.rows.map((r, i) => (
+              <li key={i} className={`flex min-h-16 flex-col justify-center rounded-box px-3 py-2 ${levelSoft[r.state as Level]}`}>
+                <span className="truncate font-medium" title={r.label}>{r.label}</span>
+                <Status cell level={r.state} />
+              </li>
+            ))}
+          </ul>
+        </section>
       ))}
-    </ul>
+    </div>
+  )
+}
+
+const span = (s: number) => (s < 3600 ? t("{n} min", { n: Math.max(1, Math.round(s / 60)) }) : s < 172800 ? t("{n} h", { n: fmt.num(s / 3600, 1, 0) }) : t("{n} days", { n: Math.round(s / 86400) }))
+
+/** Past incidents by day, newest first: what was hit, how, when and for how long. Never what the alert said. */
+function Incidents({ rows, generated }: { rows: any[] | null; generated: number }) {
+  if (!rows?.length) return <div className="flex h-full items-center justify-center text-ok">{t("No incidents in the last 90 days.")}</div>
+  const days = byGroup(rows.map((r) => ({ ...r, group: new Date(r.start * 1000).toLocaleDateString(lang, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) })))
+  const time = (s: number) => new Date(s * 1000).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })
+  return (
+    <div className="flex flex-col gap-4">
+      {days.map((d) => (
+        <section key={d.group}>
+          <h3 className="mb-2 border-b border-line pb-1 text-[13px] font-medium text-fg2 first-letter:uppercase">{d.group}</h3>
+          <ul className="flex flex-col gap-2">
+            {d.rows.map((r, i) => (
+              <li key={i} className={`flex items-start gap-3 rounded-box px-3 py-2 ${levelSoft[r.level as Level]}`}>
+                <span className={`mt-1.5 size-2 shrink-0 rounded-full ${levelBg[r.level as Level]}`} aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{r.label} <span className={levelText[r.level as Level]}>{r.end == null ? t(r.what === "down" ? "is down" : "is degraded") : t(r.what === "down" ? "was down" : "was degraded")}</span></span>
+                  <span className="text-xs text-fg2">
+                    {r.end == null
+                      ? <>{t("Since {time}", { time: time(r.start) })} · <span className={levelText[r.level as Level]}>{t("Ongoing")}</span> · {span(generated - r.start)}</>
+                      : <>{time(r.start)} – {time(r.end)} · {t("Resolved after {d}", { d: span(r.end - r.start) })}</>}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   )
 }
 
@@ -199,6 +273,7 @@ function Body({ p, overall, generated, paged }: { p: any; overall: Level; genera
     case "bars": return p.data?.length ? <BarGauge rows={fixed(p.data)} /> : <Empty>{t("No data.")}</Empty>
     case "timeseries": return <Chart data={p.data} />
     case "alerts": return <Alerts rows={p.data} />
+    case "incidents": return <Incidents rows={p.data} generated={generated} />
     case "text": return <p className="whitespace-pre-wrap">{p.text}</p>
     case "clock": return <Clock />
     case "pipelines": return <PipelineView rows={p.data} view={p.metric || "list"} />

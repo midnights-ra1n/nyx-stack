@@ -153,7 +153,7 @@ A rule sends some events to one channel, on a schedule.
 | `temperature` | High temperature |
 | `tempo` | EDF Tempo colour of tomorrow |
 | `pipeline` | A CI/CD pipeline fails, and recovers |
-| `task` | Task and deployment reminders, deploy results |
+| `task` | Task, intervention and deployment reminders |
 
 **Severities** narrows a rule to critical events, warnings, information or resolved
 problems. **Only these hosts** narrows it to some hosts; left empty, it covers every host

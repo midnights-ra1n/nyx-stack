@@ -57,17 +57,35 @@ export const AUTH_LOST = "nyx:auth-lost"
  * arrives when the user comes back, the network returns or the device wakes up.
  */
 export function useApi<T = any>(path: string | null, opts: { poll?: boolean } = {}) {
+  return useLoad<T>(path, () => api<T>(path!), opts)
+}
+
+const inflight = new Map<string, Promise<unknown>>()
+/** A GET that callers asking for the same path at the same time share. Its answer must not be changed. */
+export function sharedGet<T = any>(path: string): Promise<T> {
+  let p = inflight.get(path)
+  if (!p) {
+    p = api<T>(path).finally(() => inflight.delete(path))
+    inflight.set(path, p)
+  }
+  return p as Promise<T>
+}
+
+/** `useApi` for anything that loads: `key` names what `load` fetches, and a new key loads again. */
+export function useLoad<T = any>(path: string | null, load: () => Promise<T>, opts: { poll?: boolean } = {}) {
   const [data, setData] = useState<T>()
   const [error, setError] = useState<string>()
   const [updated, setUpdated] = useState<Date>()
   const ms = useRefresh()
   const live = useRef(path)
   live.current = path
+  const loader = useRef(load)
+  loader.current = load
 
   const reload = useCallback(async () => {
     if (!path) return
     try {
-      const d = await api<T>(path)
+      const d = await loader.current()
       if (live.current === path) { setData(d); setError(undefined); setUpdated(new Date()) }
     } catch (e) {
       if (live.current === path) setError((e as Error).message)

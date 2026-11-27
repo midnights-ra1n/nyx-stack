@@ -89,13 +89,10 @@ browsers stay signed in until their cookie expires, at most 7 days later.
 ## Secrets at rest
 
 - `database.json`, mode 0600, holds the database password.
-- PocketBase holds channel URLs, integration passwords and deploy keys in clear, in
-  collections only the superuser can read. Protect `/var/lib/nyx` and its backups.
-- Deploy keys and webhook secrets are withheld from the generic API. The site details
-  page shows the secret and public key to signed-in users, and the private key is
-  never returned. Settings pages return integration passwords to signed-in users, and
-  every account is an administrator.
-- Deploy keys reach the agent only during a deploy, and sit in tmpfs while in use.
+- PocketBase holds channel URLs and integration passwords in clear, in collections only
+  the superuser can read. Protect `/var/lib/nyx` and its backups.
+- Settings pages return integration passwords to signed-in users, and every account is
+  an administrator.
 - MCP tokens and the manager link token are stored as hashes on the side that checks
   them. The manager keeps the link token in clear to use it.
 

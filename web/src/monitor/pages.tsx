@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ArrowPathIcon, ArrowUpIcon, ChevronRightIcon, DocumentTextIcon, FolderPlusIcon, GlobeAltIcon, PauseIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { ArrowDownIcon, ArrowPathIcon, ArrowUpIcon, BellSlashIcon, ChevronRightIcon, DocumentTextIcon, EyeSlashIcon, FolderPlusIcon, GlobeAltIcon, PauseIcon, PencilSquareIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { useEffect, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { BarGauge, Button, Check, Empty, ErrorNote, IconButton, Input, Modal, Meter, Mono, Panel, RangeSelect, Select, Stat, StateCell, Status, Table, Td, Tabs, TextArea, TimeSeries, Variable, ask, SearchInput, Skeleton } from "../ui/components"
@@ -172,7 +172,9 @@ function ProbeForm({ row, cats, category = "", onDone }: { row: any | null; cats
           </>}
           <TextArea label="Values to read" rows={10} value={items} onChange={(e) => setItems(e.target.value)} hint="Each entry has an oid and a label. Options: unit, walk with agg (sum, min, max, avg, count), matches, rate, scale, warn, crit, low, expect." />
         </>}
-        <Check label="Enabled" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+        <Check label="Enabled" hint="Paused, the probe is not checked at all." checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+        <Check label="Keep out of alerts" hint="Still checked and charted, with no alert and no notification." checked={!!f.muted} onChange={(e) => set("muted", e.target.checked)} />
+        <Check label="Hide from the MCP server" hint="Assistants linked through MCP do not see this probe, nor its alerts." checked={!!f.mcp_hidden} onChange={(e) => set("mcp_hidden", e.target.checked)} />
         <ErrorNote>{error}</ErrorNote>
         <div><Button variant="primary" type="submit">{t("Save")}</Button></div>
       </form>
@@ -291,15 +293,15 @@ function ProbeView({ def, probe, onEdit, onToggle, onDelete }: { def: any; probe
         <Stat label="Response" value={probe?.up ? `${probe.latency_ms.toFixed(0)} ms` : "—"} sub="Current" />
         <Stat label="Average response" value={avg == null ? "—" : `${avg.toFixed(0)} ms`} sub={range} />
         <Stat label="Uptime" value={pct(recent)} level={recent == null ? undefined : uptimeLevel(recent)} sub={probe?.history.length === 1 ? t("Last check") : t("Last {n} checks", { n: probe?.history.length ?? 0 })} />
-        <Stat label="Uptime" value={pct(probe?.uptime_30d)} level={probe?.uptime_30d == null ? undefined : uptimeLevel(probe.uptime_30d)} sub="30 days" />
+        <Stat label="Uptime" value={pct(probe?.uptime_90d)} level={probe?.uptime_90d == null ? undefined : uptimeLevel(probe.uptime_90d)} sub="90 days" />
         {probe?.cert_days != null && <Stat label="Certificate" value={probe.cert_days < 0 ? t("Expired") : `${probe.cert_days} ${t("d")}`} level={probe.cert_days <= 7 ? "crit" : probe.cert_days <= probe.warn_days ? "warn" : "ok"} sub="Until it expires" />}
       </div>
       {days.some((d) => d != null) && (
         <div className="flex flex-col gap-1">
-          <span className="flex h-8 items-stretch gap-[2px]" role="img" aria-label={t("Uptime of each of the last 30 days")}>
+          <span className="flex h-8 items-stretch gap-[2px]" role="img" aria-label={t("Uptime of each of the last 90 days")}>
             {days.map((d, i) => <span key={i} title={`${days.length - 1 - i === 0 ? t("Today") : t("{v0} days ago", { v0: days.length - 1 - i })}: ${d == null ? t("no data") : `${d} %`}`} className={`min-w-0 flex-1 rounded-sm ${uptimeBar(d)}`} />)}
           </span>
-          <div className="flex justify-between text-xs text-fg3"><span>{t("30 days ago")}</span><span>{t("Today")}</span></div>
+          <div className="flex justify-between text-xs text-fg3"><span>{t("90 days ago")}</span><span>{t("Today")}</span></div>
         </div>
       )}
       {probe?.readings.length > 0 && (
@@ -369,6 +371,8 @@ function ProbeList({ rows, cats, current, onPick, onAdd, reload }: { rows: any[]
           className={`flex h-9 max-sm:h-11 w-full min-w-0 items-center gap-2.5 border-l-2 pl-3.5 pr-3 text-left text-[13px] hover:bg-raised ${current === d.id ? "border-accent bg-raised" : "border-transparent"}`}>
           <span className={`size-2 shrink-0 rounded-full ${levelBg[level as Level]}`} aria-hidden /><span className="sr-only">{t(WORD[level as Level])}</span>
           <span className="min-w-0 flex-1 truncate"><span className="font-medium">{d.name}</span> <span className="font-mono text-xs text-fg3">{d.target}</span></span>
+          {d.muted && <BellSlashIcon className="size-4 shrink-0 text-fg3" aria-label={t("Excluded from alerts")} />}
+          {d.mcp_hidden && <EyeSlashIcon className="size-4 shrink-0 text-fg3" aria-label={t("Hidden from the MCP server")} />}
           <span className="w-12 shrink-0 text-right text-xs tabular-nums text-fg2">{d.enabled && p?.up ? `${fmt.num(p.latency_ms, 0)} ms` : "—"}</span>
           <span className={`w-12 shrink-0 text-right text-xs tabular-nums ${up == null ? "text-fg3" : levelText[uptimeLevel(up)]}`}>{pct(up, 1)}</span>
           <span className="w-24 shrink-0 max-sm:hidden"><Heartbeats values={p?.history} count={24} /></span>
@@ -505,9 +509,14 @@ export function Network() {
   )
 }
 
+/** Resolved alerts are kept 90 days, whatever the retention of metrics: status pages show them as incidents. */
+const HISTORY_DAYS = 90
+
 export function Alerts() {
+  const [shown, setShown] = useState(100)
+  const since = new Date(Date.now() - HISTORY_DAYS * 864e5).toISOString().replace("T", " ").slice(0, 10)
   const open = useApi("/api/c/alerts?filter=open%3Dtrue&sort=-created&perPage=200")
-  const past = useApi("/api/c/alerts?filter=open%3Dfalse&sort=-resolved_at&perPage=50")
+  const past = useApi(`/api/c/alerts?filter=${encodeURIComponent(`open=false && resolved_at>="${since}"`)}&sort=-resolved_at&perPage=${shown}`)
   const row = (a: any, resolved: boolean) => (
     <tr key={a.id}>
       <Td>{tn(a.message)}</Td>
@@ -523,8 +532,9 @@ export function Alerts() {
       </Panel>
     ) },
     { id: "resolved", title: "Resolved", render: (edit: any) => (
-      <Panel title={t("Resolved")} flush edit={edit}>
+      <Panel title={t("Resolved")} badge={past.data ? <span className="text-xs text-fg3">{t("{n} in {days} days", { n: past.data.totalItems ?? 0, days: HISTORY_DAYS })}</span> : undefined} flush edit={edit}>
         {past.data?.items.length ? <Table head={["Alert", "Host", "Resolved", "State"]}>{past.data.items.map((a: any) => row(a, true))}</Table> : <div className="px-4 pb-4"><Empty>{t("No history yet.")}</Empty></div>}
+        {past.data?.totalItems > past.data?.items.length && shown < 500 && <div className="px-4 py-3"><Button onClick={() => setShown(shown + 100)}>{t("Show {n} more", { n: Math.min(100, past.data.totalItems - past.data.items.length) })}</Button></div>}
       </Panel>
     ) },
   ]

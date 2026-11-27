@@ -6,7 +6,7 @@ import { AboutPanel, AccountSettings, BackupSettings, AppearanceSettings, McpSet
 import { NextDnsSettings } from "../ui/nextdns"
 import { t } from "../ui/i18n"
 
-const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "map_nodes", "map_links"]
+const INVENTORY = ["hardware", "virtual_assets", "subnets", "ip_addresses", "vlans", "vrfs", "routes", "deployments", "interventions", "map_nodes", "map_links"]
 
 /** These collections hold no secrets, so the file is safe to pass around. */
 async function exportInventory() {
@@ -35,9 +35,9 @@ function Sync() {
   return (
     <Panel title={t("Synchronisation")}>
       <div className="flex flex-col gap-3">
-        <p className="text-fg2">{t("Nextcloud syncs every 30 seconds and the inventory every 5 minutes, without you doing anything.")}</p>
+        <p className="text-fg2">{t("Nextcloud syncs every 30 seconds without you doing anything.")}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => run(async () => { const hosts = await api("/api/monitor/hosts"); return hosts ? `Connected: ${hosts.length} hosts.` : "No monitor linked." })}>{t("Test the monitor link")}</Button>
+          <Button onClick={() => run(async () => { const o = await api("/api/monitor/overview"); return o ? `Connected: ${o.hosts_total} hosts.` : "No monitor linked." })}>{t("Test the monitor link")}</Button>
           <Button onClick={() => run(async () => { await api("/api/sync", { method: "POST" }); return "Synchronised." })}>{t("Sync now")}</Button>
           <span className="text-[13px] text-fg2">{note}</span>
         </div>
@@ -53,7 +53,7 @@ function Data() {
     <>
       <Panel title={t("Export the inventory")}>
         <div className="flex flex-col gap-3">
-          <p className="text-fg2">{t("Hardware, virtual assets, IPAM, deployments and the network map as one JSON file. Nothing secret is included. This is for reading or for another tool: restoring goes through a backup.")}</p>
+          <p className="text-fg2">{t("Hardware, virtual assets, IPAM, deployments, interventions and the network map as one JSON file. Nothing secret is included. This is for reading or for another tool: restoring goes through a backup.")}</p>
           <div className="flex items-center gap-3"><Button onClick={save}>{t("Download JSON")}</Button><span className="text-[13px] text-fg2">{note}</span></div>
         </div>
       </Panel>
@@ -79,7 +79,7 @@ export function Settings() {
           { key: "url", label: "Monitor URL", hint: "For example https://monitor.lan:8081." },
           { key: "token", label: "Link token", type: "password", hint: "Create it in the monitor, under Settings, Integrations." },
           { key: "relay_key", label: "Monitor's relay key", type: "password", hint: "Only when the URL above is the monitor's Cloudflare relay: the part after #relay= of the link in the monitor's Settings, This server. Calls are then sealed, so Cloudflare cannot read them." }]}>
-          <p className="text-fg2">{t("Fills the inventory and IPAM from agents, and deploys sites through them.")}</p>
+          <p className="text-fg2">{t("Shows the fleet's health, EDF Tempo and the pipelines on the overview. It only reads: the monitor's hosts stay in the monitor.")}</p>
         </SettingForm>
         <SettingForm title={t("Nextcloud tasks")} setting="nextcloud" needs={["url", "user", "password", "calendar"]} fields={[
           { key: "url", label: "Nextcloud URL" }, { key: "user", label: "User" },

@@ -10,7 +10,6 @@ Le manager sera une interface web claire. Elle s'inspirera notamment de GLPI car
 - IPAM (gestion d'adressage IP, détection de conflits dans l'attribution d'adresses IP et simulation de routage, etc...)
 - Suivi de déploiements
 - carte réseau (avec export dans plusieurs formats)
-- Plateforme Node.js. Si l'utilisateur a Node.js d'installé dans sa VM et s'en sert pour déployer des applications web. Il va falloir détecter ça et avoir une très bonne gestion des sites et déploiement notamment aussi avec git, pouvoir ajouter une clé SSH, redéployer lors d'un nouveau commit et push.
 
 
 

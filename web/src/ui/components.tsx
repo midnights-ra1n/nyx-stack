@@ -114,19 +114,19 @@ export function Stat({ label, value, sub, level }: { label: string; value: React
 }
 
 /** 180° arc coloured by the threshold reached. */
-export function Gauge({ label, value, warn = 75, crit = 90 }: { label: string; value: number; warn?: number; crit?: number }) {
+export function Gauge({ label, value, warn = 75, crit = 90, unit = " %" }: { label: string; value: number; warn?: number; crit?: number; unit?: string }) {
   const R = 54, len = Math.PI * R, v = Math.min(100, Math.max(0, value))
   const arc = `M ${70 - R} 70 A ${R} ${R} 0 0 1 ${70 + R} 70`
   return (
     <figure className="flex flex-col items-center">
       <div className="relative">
-        <svg viewBox="0 0 140 84" className="w-36" role="img" aria-label={`${t(label)} ${v.toFixed(0)} %`}>
+        <svg viewBox="0 0 140 84" className="w-36" role="img" aria-label={`${t(label)} ${v.toFixed(0)}${unit}`}>
           <path d={arc} fill="none" stroke="var(--color-line)" strokeWidth="9" strokeLinecap="round" />
           {v > 0 && <path d={arc} fill="none" stroke={`var(--color-${levelOf(v, warn, crit)})`} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${(v / 100) * len} ${len}`} />}
           <text x="11" y="82" fontSize="9" fill="var(--color-fg3)" textAnchor="middle">0</text>
           <text x="127" y="82" fontSize="9" fill="var(--color-fg3)" textAnchor="middle">100</text>
         </svg>
-        <div className="absolute inset-x-0 top-[38px] text-center text-[26px] leading-8 font-medium">{v.toFixed(0)} %</div>
+        <div className="absolute inset-x-0 top-[38px] text-center text-[26px] leading-8 font-medium">{v.toFixed(0)}{unit}</div>
       </div>
       <figcaption className="mt-1 text-[13px] text-fg2">{t(label)}</figcaption>
     </figure>
@@ -216,9 +216,16 @@ export function ChartHover({ series, top, unit, colors, format }: { series: { na
  */
 export function TimeSeries({ series, max = 100, unit = " %", format, fill = true, compact }: { series: Series[]; max?: number; unit?: string; format?: (v: number) => string; fill?: boolean; compact?: boolean }) {
   const W = 600, H = 180
+  const [hidden, setHidden] = useState<string[]>([])
   const show = format ?? ((v: number) => `${v.toFixed(0)}${unit}`)
   const all = series.flatMap((s) => s.values)
-  const drawn = series.filter((s) => s.values.length)
+  const shown = series.filter((s) => !hidden.includes(s.name))
+  const drawn = shown.filter((s) => s.values.length)
+  const names = series.map((s) => s.name)
+  // As in Grafana: a click keeps only that series, or brings every series back; with Ctrl, ⌘ or Shift it toggles just that one.
+  const pick = (name: string, e: React.MouseEvent) => setHidden(e.ctrlKey || e.metaKey || e.shiftKey
+    ? (hidden.includes(name) ? hidden.filter((n) => n !== name) : [...hidden, name])
+    : hidden.length === names.length - 1 && !hidden.includes(name) ? [] : names.filter((n) => n !== name))
   if (all.length < 2) return <Empty>{t("Not enough data yet.")}</Empty>
   const t0 = Math.min(...all.map((p) => p.t)), t1 = Math.max(...all.map((p) => p.t))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W, y = (v: number) => H - (Math.min(v, max) / max) * H
@@ -230,7 +237,7 @@ export function TimeSeries({ series, max = 100, unit = " %", format, fill = true
         <div className="relative h-44">
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-44 w-full" role="img" aria-label={t("Chart of {names}", { names: series.map((s) => s.name).join(", ") })}>
             {[0, 0.5, 1].map((f) => <line key={f} x1="0" x2={W} y1={f * H} y2={f * H} stroke="var(--color-line)" vectorEffect="non-scaling-stroke" />)}
-            {series.map((s) => {
+            {drawn.map((s) => {
               const line = s.values.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ")
               const last = s.values[s.values.length - 1], first = s.values[0]
               return (
@@ -250,9 +257,12 @@ export function TimeSeries({ series, max = 100, unit = " %", format, fill = true
         <tbody>
           {series.map((s) => {
             const vs = s.values.map((p) => p.v)
+            const off = hidden.includes(s.name)
             return (
-              <tr key={s.name}>
-                <td className="py-1"><span className="mr-2 inline-block h-0.5 w-3 align-middle" style={{ background: s.color }} />{s.name}</td>
+              <tr key={s.name} className={off ? "opacity-40" : ""}>
+                <td className="py-1">{series.length > 1
+                  ? <button type="button" aria-pressed={!off} title={tr("Click to show only this series, Ctrl-click to hide or show it")} onClick={(e) => pick(s.name, e)} className="text-left hover:text-fg"><span className="mr-2 inline-block h-0.5 w-3 align-middle" style={{ background: s.color }} />{s.name}</button>
+                  : <><span className="mr-2 inline-block h-0.5 w-3 align-middle" style={{ background: s.color }} />{s.name}</>}</td>
                 <td className="text-right text-fg2">{vs.length ? show(vs.reduce((a, b) => a + b, 0) / vs.length) : "—"}</td>
                 <td className="text-right text-fg2">{vs.length ? show(Math.max(...vs)) : "—"}</td>
                 <td className="text-right font-medium">{vs.length ? show(vs[vs.length - 1]) : "—"}</td>
@@ -305,7 +315,7 @@ export const ErrorNote = ({ children }: { children: ReactNode }) => (children ? 
 
 // 16 px on phones: iOS zooms the page into any smaller input.
 const fieldBase = "max-sm:text-base w-full border border-line2 bg-raised px-4 text-fg placeholder:text-fg3 hover:border-fg3"
-const fieldClass = `field h-9 max-sm:h-11 rounded-control ${fieldBase}`
+export const fieldClass = `field h-9 max-sm:h-11 rounded-control ${fieldBase}`
 
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: (id: string) => ReactNode }) {
   const id = useId()
@@ -354,14 +364,17 @@ export function Check({ label, hint, ...p }: { label: ReactNode; hint?: string }
 }
 
 /** The guide's variable control: label on raised, value on surface. A `raw` option, such as a tag, shows as typed. */
-export function Variable({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string; raw?: boolean }[] }) {
+export interface VarOption { value: string; label: string; raw?: boolean; /** Heading the option sits under. */ group?: string }
+
+export function Variable({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: VarOption[] }) {
   const id = useId()
+  const opt = (o: VarOption) => <option key={o.value} value={o.value} className="bg-surface">{o.raw ? o.label : t(o.label)}</option>
   return (
     <div className="flex h-9 max-sm:h-11 items-stretch overflow-hidden rounded-control border border-line2">
       <label htmlFor={id} className="flex items-center bg-raised pl-4 pr-3 text-fg2">{t(label)}</label>
       <div className="relative flex items-center bg-surface">
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-full appearance-none bg-transparent pl-3 pr-8 text-fg">
-          {options.map((o) => <option key={o.value} value={o.value} className="bg-surface">{o.raw ? o.label : t(o.label)}</option>)}
+          {[...new Set(options.map((o) => o.group))].map((g) => (g ? <optgroup key={g} label={t(g)}>{options.filter((o) => o.group === g).map(opt)}</optgroup> : options.filter((o) => !o.group).map(opt)))}
         </select>
         <ChevronUpDownIcon className="pointer-events-none absolute right-2 size-4 text-fg2" aria-hidden />
       </div>

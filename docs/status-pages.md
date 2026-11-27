@@ -41,19 +41,28 @@ Phones show panels one above the other, from top to bottom and left to right.
 | Panel | Shows |
 | --- | --- |
 | Overall status | One banner: operational, degraded or disrupted |
-| Service list | Name and state, with optional 30-day uptime bars |
-| State tiles | One coloured tile per host or probe |
+| Service list | Name and state, with optional 90-day uptime bars, one per day. Items with a category are listed under it, in a block that folds and shows the worst state inside; it opens by itself when something in it is wrong |
+| State tiles | One coloured tile per host or probe, under their category |
 | Big number | One value, with a small history curve for live metrics |
 | Gauges | One arc per selected item |
 | Bar gauges | One bar per selected item |
 | Time series | The last hour of a metric, one line per item |
 | Open alerts | Current alerts, the most serious first. Wall displays only |
+| Incident history | Outages and slowdowns of the last 90 days, newest first and grouped by day: which item, *down* or *degraded*, from when to when, or *ongoing*. Alerts of one item that overlap make one incident. With nothing ticked, it covers every item of the page's other panels |
 | Text | Plain text. HTML is shown as text, never run |
 | Clock | Time and date of the viewing device |
 | Live map | The [map](monitoring.md#map) of the homelab, updated at the page's refresh rate |
 | EDF Tempo | Colour of today and tomorrow, and the days left |
 | CI/CD pipelines | Name, branch and result of the [pipelines](monitoring.md#cicd-pipelines) followed. Repositories and addresses stay private |
 | NextDNS | Queries, blocked queries and their curves over 24 hours, 7, 30 or 90 days (set in the panel). The ten most blocked domains show on walls only, since they tell what people browse. Needs the [NextDNS integration](integrations.md#nextdns); the monitor refreshes it every 5 minutes |
+
+### Categories
+
+Like Better Stack's, a status page can sort what it lists into categories, such as
+*Websites*, *Servers* or *DNS*. In a service list or state tiles, give each ticked item a
+category next to its public name; items sharing one are listed together. Items without a
+category come first. A new status page starts with the overall banner, a service list
+and the incident history.
 
 ### Live map
 
@@ -76,9 +85,9 @@ the Map page.
 
 | For | Metrics |
 | --- | --- |
-| Groups (Big number) | Number online, number down, running containers, availability over 30 days, and open alerts on walls |
-| Hosts | CPU, memory, swap, fullest disk, temperature, network in and out, uptime over 30 days |
-| Probes | Latency, certificate days left, uptime over 30 days, and any SNMP value by its label |
+| Groups (Big number) | Number online, number down, running containers, availability over 90 days, and open alerts on walls |
+| Hosts | CPU, memory, swap, fullest disk, temperature, network in and out, uptime over 90 days |
+| Probes | Latency, certificate days left, uptime over 90 days, and any SNMP value by its label |
 
 Time series cover CPU, memory, disk, temperature, network and probe latency. SNMP
 values can be shown in numbers and gauges, for instance a UPS charge.
@@ -163,11 +172,12 @@ Answers to anonymous visitors are built field by field. They contain:
 They never contain addresses, hostnames, probe targets, disk paths, error messages or
 internal identifiers. The real name of an item appears only if you gave it no public
 name. Alert texts can mention hosts and paths, so they exist on wall displays only,
-which always need their key.
+which always need their key. The incident history tells only the public name, *down* or
+*degraded*, and the times.
 
 ## Uptime
 
-Uptime comes from the rollups, and always covers the last 30 days, whatever the
+Uptime comes from the rollups, and always covers the last 90 days, whatever the
 retention. Days without data stay blank rather than counting as an outage.
 
 - **Probes:** successful checks out of all checks.

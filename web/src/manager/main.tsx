@@ -1,15 +1,15 @@
 import "../ui/tokens.css"
-import { CalendarDaysIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, ServerStackIcon, RocketLaunchIcon, ServerIcon, Squares2X2Icon, CodeBracketIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
+import { ClipboardDocumentListIcon, CpuChipIcon, GlobeAltIcon, LockClosedIcon, MapIcon, RectangleStackIcon, ServerStackIcon, ServerIcon, Squares2X2Icon, ExclamationTriangleIcon } from "@heroicons/react/24/outline"
 import { t } from "../ui/i18n"
 import { useApi } from "../ui/lib"
 import { App, mount, type NavConfig } from "../ui/shell"
-import { Components, Deployments, Hardware, HardwareRecord, SearchPage, Tasks, Virtual, VirtualRecord, Vpn } from "./inventory"
+import { Components, Hardware, HardwareRecord, SearchPage, Virtual, VirtualRecord, Vpn } from "./inventory"
 import { Ipam, SubnetPage } from "./ipam"
 import { NetworkMap } from "./map"
 import { Overview } from "./overview"
 import { Racks } from "./racks"
 import { Settings } from "./settings"
-import { Sites } from "./sites"
+import { Work } from "./work"
 
 function route(path: string) {
   if (path === "/") return <Overview />
@@ -23,9 +23,11 @@ function route(path: string) {
   if (path.startsWith("/ipam/subnet/")) return <SubnetPage id={path.slice(13)} />
   if (path === "/map") return <NetworkMap />
   if (path === "/vpn") return <Vpn />
-  if (path === "/deployments") return <Deployments />
-  if (path === "/sites") return <Sites />
-  if (path === "/tasks") return <Tasks />
+  if (path === "/work") return <Work />
+  // Older links, each opening its tab of the work page.
+  if (path === "/tasks") return <Work initial="task" />
+  if (path === "/interventions") return <Work initial="intervention" />
+  if (path === "/deployments") return <Work initial="deployment" />
   if (path === "/settings") return <Settings />
   if (path === "/search") return <SearchPage />
   return <p className="text-fg2">{t("Page not found.")}</p>
@@ -37,7 +39,7 @@ function useNav(): NavConfig {
   return {
     name: "Nyx",
     role: "Manager",
-    tabs: ["/", "/hardware", "/ipam", "/tasks"],
+    tabs: ["/", "/hardware", "/ipam", "/work"],
     groups: [
       // GLPI's menus: the assets, the network they sit on, then the work done on them.
       { label: "Assets", items: [
@@ -53,15 +55,13 @@ function useNav(): NavConfig {
         { to: "/vpn", label: "VPN links", icon: LockClosedIcon },
       ] },
       { label: "Management", items: [
-        { to: "/tasks", label: "Tasks", icon: CalendarDaysIcon, badge: data?.open_tasks },
-        { to: "/deployments", label: "Deployments", icon: RocketLaunchIcon },
-        { to: "/sites", label: "Node.js sites", icon: CodeBracketIcon },
+        { to: "/work", label: "Work", icon: ClipboardDocumentListIcon, badge: (data?.open_tasks ?? 0) + (data?.open_interventions ?? 0) },
       ] },
     ],
     footer: data && (
       <div className={`flex items-center gap-2 text-xs ${conflicts ? "text-warn" : "text-fg3"}`}>
         {conflicts > 0 ? <ExclamationTriangleIcon className="size-4" aria-hidden /> : <CpuChipIcon className="size-4" aria-hidden />}
-        {conflicts ? t(conflicts > 1 ? "{n} addressing conflicts" : "{n} addressing conflict", { n: conflicts }) : t(data.linked ? "Linked to monitoring" : "Standalone")}
+        {conflicts ? t(conflicts > 1 ? "{n} addressing conflicts" : "{n} addressing conflict", { n: conflicts }) : t("Inventory only")}
       </div>
     ),
   }

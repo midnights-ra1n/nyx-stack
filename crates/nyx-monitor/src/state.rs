@@ -47,6 +47,65 @@ impl Default for Thresholds {
     }
 }
 
+/// Checks a host can alert on, and those on until the host picks its own.
+pub const CHECKS: [&str; 12] = ["offline", "cpu", "mem", "swap", "disk", "temp", "smart", "services", "containers", "vpn", "updates", "reboot"];
+const DEFAULT_CHECKS: [&str; 9] = ["offline", "mem", "disk", "temp", "smart", "services", "containers", "vpn", "updates"];
+/// A CPU alert needs this long above its threshold: a busy minute is no problem.
+const CPU_WINDOW_S: i64 = 300;
+
+/// What a host alerts on. Unset fields follow the global settings.
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct Alerting {
+    /// The checks that alert, `None` for [`DEFAULT_CHECKS`].
+    pub checks: Option<Vec<String>>,
+    /// Thresholds of this host, 0 to keep the global ones.
+    pub warn: f32,
+    pub crit: f32,
+    pub temp_warn: f32,
+    pub temp_crit: f32,
+    /// Minutes of silence before an offline alert, 0 for the usual two missed reports.
+    pub offline_min: u32,
+    /// Mount points, services and containers never alerted on.
+    pub ignore: Vec<String>,
+}
+
+impl Alerting {
+    pub fn on(&self, check: &str) -> bool {
+        self.checks.as_ref().map_or(DEFAULT_CHECKS.contains(&check), |c| c.iter().any(|x| x == check))
+    }
+
+    pub fn ignores(&self, name: &str) -> bool {
+        self.ignore.iter().any(|i| i == name)
+    }
+
+    /// The global thresholds with this host's own on top.
+    pub fn thresholds(&self, global: &Thresholds) -> Thresholds {
+        let pick = |own: f32, g: f32| if own > 0.0 { own } else { g };
+        Thresholds { warn: pick(self.warn, global.warn), crit: pick(self.crit, global.crit), temp_warn: pick(self.temp_warn, global.temp_warn), temp_crit: pick(self.temp_crit, global.temp_crit) }
+    }
+
+    /// Trust boundary: it comes from the browser.
+    pub fn clean(mut self) -> Result<Self, String> {
+        if let Some(c) = &mut self.checks {
+            c.retain(|x| CHECKS.contains(&x.as_str()));
+            c.sort_unstable();
+            c.dedup();
+        }
+        for v in [self.warn, self.crit, self.temp_warn, self.temp_crit] {
+            if !(0.0..=200.0).contains(&v) {
+                return Err("thresholds go from 0 to 200".into());
+            }
+        }
+        if (self.warn > 0.0 && self.crit > 0.0 && self.warn > self.crit) || (self.temp_warn > 0.0 && self.temp_crit > 0.0 && self.temp_warn > self.temp_crit) {
+            return Err("a warning threshold must stay under the critical one".into());
+        }
+        self.offline_min = self.offline_min.min(7 * 24 * 60);
+        self.ignore = self.ignore.iter().map(|i| i.trim().chars().take(200).collect::<String>()).filter(|i| !i.is_empty()).take(50).collect();
+        Ok(self)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Maintenance {
@@ -119,7 +178,6 @@ pub struct Live {
     pub containers: Vec<Container>,
     pub smart: Vec<SmartDisk>,
     pub updates: Vec<PackageUpdate>,
-    pub node: Option<NodeInfo>,
     pub guests: Vec<Guest>,
     pub vpn: Vec<VpnLink>,
     pub firewall: Option<nyx_proto::Firewall>,
@@ -177,6 +235,9 @@ pub struct Host {
     pub pve_node: String,
     /// Kept out of alerts and their notifications, still measured and shown.
     pub muted: bool,
+    /// Left out of what the MCP server answers.
+    pub mcp_hidden: bool,
+    pub alerting: Alerting,
     /// Free labels to group, filter and chart hosts by.
     pub tags: Vec<String>,
     pub last_seen: i64,
@@ -198,6 +259,12 @@ impl Host {
     pub fn online(&self, now: i64) -> bool {
         let pace = if self.interval_s == 0 { IDLE_INTERVAL_S } else { self.interval_s.max(REPORT_INTERVAL_S) };
         now - self.last_seen <= offline_after(pace)
+    }
+
+    /// Silent for long enough to alert about, as this host is set up.
+    pub fn down_for_alerts(&self, now: i64) -> bool {
+        let wait = (self.alerting.offline_min as i64 * 60).max(0);
+        !self.muted && self.alerting.on("offline") && !self.online(now) && now - self.last_seen > wait
     }
 }
 
@@ -281,6 +348,8 @@ impl Host {
             agent_version: s("agent_version"),
             pve_node: s("pve_node"),
             muted: r["muted"].as_bool().unwrap_or(false),
+            mcp_hidden: r["mcp_hidden"].as_bool().unwrap_or(false),
+            alerting: serde_json::from_value(r["alerting"].clone()).unwrap_or_default(),
             tags: parse_tags(r["tags"].as_str().unwrap_or_default().split(',')),
             last_seen: chrono::DateTime::parse_from_rfc3339(&s("last_seen").replacen(' ', "T", 1)).map_or(0, |d| d.timestamp()),
             live: None,
@@ -339,13 +408,14 @@ pub fn host_status(h: &Host, now: i64, th: &Thresholds) -> &'static str {
 /// Each metric past its threshold, with its level, so a badge can say why it is not green.
 pub fn host_issues(h: &Host, th: &Thresholds) -> Vec<(&'static str, String)> {
     let Some(live) = h.live.as_ref() else { return vec![] };
+    let th = &h.alerting.thresholds(th);
     let r = &live.report;
     let mut out = vec![];
     let mut add = |l: &'static str, what: String| if l != "ok" { out.push((l, what)) };
     add(level(r.cpu_pct, th.warn, th.crit), format!("CPU at {:.0} %", r.cpu_pct));
     let mem = pct(r.mem_used, r.mem_total);
     add(level(mem, th.warn, th.crit), format!("Memory at {mem:.0} %"));
-    for d in &r.disks {
+    for d in r.disks.iter().filter(|d| !h.alerting.ignores(&d.mount)) {
         let p = pct(d.used, d.total);
         add(level(p, th.warn, th.crit), format!("Disk {} at {p:.0} %", d.mount));
     }
@@ -356,7 +426,7 @@ pub fn host_issues(h: &Host, th: &Thresholds) -> Vec<(&'static str, String)> {
         let l = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
         add(l, if d.reason.is_empty() { format!("SMART {}", d.device) } else { format!("SMART {}: {}", d.device, d.reason) });
     }
-    for s in live.services.iter().filter(|s| s.active == "failed") {
+    for s in live.services.iter().filter(|s| s.active == "failed" && !h.alerting.ignores(&s.name)) {
         add("warn", format!("Service {} failed", s.name));
     }
     out
@@ -392,6 +462,18 @@ const MAX_RETENTION_DAYS: u32 = 365;
 /// Five-minute points for the raw week, hourly ones for the rest of a year.
 const FLEET_POINTS: usize = 2016 + 8760;
 
+/// How far back status pages show incidents. Resolved alerts are kept at least this long.
+pub const INCIDENT_DAYS: i64 = 90;
+
+/// An alert as status pages tell it: what it was about and when, never its text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Incident {
+    pub key: String,
+    pub severity: String,
+    pub start: i64,
+    pub end: Option<i64>,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct FleetPoint {
     pub t: i64,
@@ -420,6 +502,8 @@ pub struct State {
     /// Version of the agents fetched from GitHub, while beta agents are on.
     pub beta_agent: Option<String>,
     pub uptime: crate::pages::Uptime,
+    /// Alerts of the last [`INCIDENT_DAYS`], oldest first, for the history of status pages.
+    pub incidents: Vec<Incident>,
     /// Fleet-wide average of each flush, so that the overview chart needs no read
     /// of every host's rollups.
     pub fleet: VecDeque<FleetPoint>,
@@ -448,9 +532,17 @@ impl App {
             st.by_token.insert(h.token.clone(), h.id.clone());
             st.hosts.insert(h.id.clone(), h);
         }
-        for r in core.pb.list("alerts", "open = true", "").await? {
+        let since = pb_date(Utc::now() - Duration::days(INCIDENT_DAYS));
+        let at = |v: &Value| v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(&t.replacen(' ', "T", 1)).ok()).map(|d| d.timestamp());
+        for r in core.pb.list("alerts", &format!("open = true || resolved_at >= {}", nyx_srv::pb_quote(&since)), "created").await? {
             let s = |k: &str| r[k].as_str().unwrap_or_default().to_string();
-            st.alerts.insert(s("key"), OpenAlert { id: s("id"), severity: s("severity"), message: s("message"), opened: s("created") });
+            let open = r["open"].as_bool().unwrap_or(false);
+            if let Some(start) = at(&r["created"]) {
+                st.incidents.push(Incident { key: s("key"), severity: s("severity"), start, end: if open { None } else { at(&r["resolved_at"]).or(Some(start)) } });
+            }
+            if open {
+                st.alerts.insert(s("key"), OpenAlert { id: s("id"), severity: s("severity"), message: s("message"), opened: s("created") });
+            }
         }
         let pages = crate::pages::load(&core).await?;
         let app = Self {
@@ -518,6 +610,7 @@ impl App {
         };
         let pb = &self.core.pb;
         for (key, id) in resolved {
+            self.lock().end_incident(&key, Utc::now().timestamp());
             let row = pb.update("alerts", &id, &json!({"open": false, "resolved_at": pb_date(Utc::now())})).await?;
             let (kind, msg, host) = (row["type"].as_str().unwrap_or("state"), row["message"].as_str().unwrap_or(&key), row["host"].as_str().unwrap_or(""));
             notify::emit(&self.core, kind, "ok", &format!("Resolved: {msg}"), "", host).await;
@@ -528,7 +621,11 @@ impl App {
                 Some(id) => pb.update("alerts", &id, &body).await?["id"].as_str().unwrap_or_default().to_string(),
                 None => pb.create("alerts", &body).await?["id"].as_str().unwrap_or_default().to_string(),
             };
-            self.lock().alerts.insert(w.key.clone(), OpenAlert { id, severity: w.severity.to_string(), message: w.message.clone(), opened: pb_date(Utc::now()) });
+            {
+                let mut st = self.lock();
+                st.open_incident(&w.key, w.severity, Utc::now().timestamp());
+                st.alerts.insert(w.key.clone(), OpenAlert { id, severity: w.severity.to_string(), message: w.message.clone(), opened: pb_date(Utc::now()) });
+            }
             notify::emit(&self.core, w.kind, w.severity, &w.message, "", &w.host).await;
         }
         Ok(())
@@ -536,16 +633,34 @@ impl App {
 
     /// Closes the open alerts of a host without telling anyone: muting it is no recovery.
     pub async fn silence(&self, id: &str) -> anyhow::Result<()> {
+        let (state, prefix) = (format!("offline:{id}"), format!("host:{id}:"));
+        self.close_quietly(|k| k == state || k.starts_with(&prefix)).await
+    }
+
+    /// Closes the open alerts `which` picks, with no notice: a change of settings is no recovery.
+    pub async fn close_quietly(&self, which: impl Fn(&str) -> bool) -> anyhow::Result<()> {
+        let now = Utc::now();
         let ids: Vec<String> = {
             let mut st = self.lock();
-            let (state, prefix) = (format!("offline:{id}"), format!("host:{id}:"));
-            let keys: Vec<String> = st.alerts.keys().filter(|k| **k == state || k.starts_with(&prefix)).cloned().collect();
-            keys.iter().filter_map(|k| st.alerts.remove(k)).map(|a| a.id).collect()
+            let keys: Vec<String> = st.alerts.keys().filter(|k| which(k)).cloned().collect();
+            keys.iter().filter_map(|k| { st.end_incident(k, now.timestamp()); st.alerts.remove(k) }).map(|a| a.id).collect()
         };
         for aid in ids {
-            self.core.pb.update("alerts", &aid, &json!({"open": false, "resolved_at": pb_date(Utc::now())})).await?;
+            self.core.pb.update("alerts", &aid, &json!({"open": false, "resolved_at": pb_date(now)})).await?;
         }
         Ok(())
+    }
+
+    /// Quietly closes what a host's new alert settings no longer want open.
+    pub async fn settle_alerts(&self, id: &str) -> anyhow::Result<()> {
+        let (wanted, offline): (Vec<String>, bool) = {
+            let st = self.lock();
+            let Some(h) = st.hosts.get(id) else { return Ok(()) };
+            let w = if h.muted { vec![] } else { evaluate(h, &st.thresholds, &st.alerts, Utc::now().timestamp()) };
+            (w.into_iter().map(|w| w.key).collect(), h.down_for_alerts(Utc::now().timestamp()))
+        };
+        let (state, prefix) = (format!("offline:{id}"), format!("host:{id}:"));
+        self.close_quietly(|k| (k == state && !offline) || (k.starts_with(&prefix) && !wanted.iter().any(|w| w == k))).await
     }
 
     pub async fn sweep_offline(&self) -> anyhow::Result<()> {
@@ -556,7 +671,7 @@ impl App {
         let hosts: Vec<(String, String, bool)> = {
             let st = self.lock();
             // A host that never reported is pending installation, not down.
-            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), !h.muted && !h.online(now))).collect()
+            st.hosts.values().filter(|h| h.last_seen > 0).map(|h| (h.id.clone(), h.name.clone(), h.down_for_alerts(now))).collect()
         };
         for (id, name, down) in hosts {
             let wanted = down.then(|| Wanted { key: format!("offline:{id}"), kind: "state", severity: "crit", message: format!("{name} is not responding"), host: name.clone() });
@@ -645,11 +760,48 @@ impl App {
         pb.prune("rollups", "t", cutoff).await?;
         pb.prune("probe_rollups", "t", cutoff).await?;
         pb.prune("power_samples", "t", cutoff).await?;
-        pb.prune("alerts", "resolved_at", cutoff).await
+        self.lock().incidents.retain(|i| i.end.is_none_or(|e| e >= now.timestamp() - INCIDENT_DAYS * 86400));
+        // Status pages show three months of incidents, whatever the retention of metrics.
+        pb.prune("alerts", "resolved_at", now - Duration::days(days.max(INCIDENT_DAYS))).await
     }
 }
 
+/// The host or probe an alert is about, from its key: `("host", id)` or `("probe", id)`.
+pub fn alert_target(key: &str) -> Option<(&'static str, &str)> {
+    if let Some(id) = key.strip_prefix("offline:") {
+        return Some(("host", id));
+    }
+    if let Some(rest) = key.strip_prefix("host:") {
+        return rest.split(':').next().map(|id| ("host", id));
+    }
+    key.strip_prefix("probe:").and_then(|rest| rest.split(':').next()).map(|id| ("probe", id))
+}
+
 impl State {
+    /// Whether the MCP server keeps quiet about this alert's host or probe.
+    pub fn mcp_hides(&self, alert_key: &str) -> bool {
+        match alert_target(alert_key) {
+            Some(("host", id)) => self.hosts.get(id).is_some_and(|h| h.mcp_hidden),
+            Some((_, id)) => self.probes.get(id).is_some_and(|p| p.def.mcp_hidden),
+            None => false,
+        }
+    }
+
+    /// An alert opened, or changed severity: an incident keeps the worst it reached.
+    pub fn open_incident(&mut self, key: &str, severity: &str, now: i64) {
+        match self.incidents.iter_mut().rev().find(|i| i.key == key && i.end.is_none()) {
+            Some(i) if severity == "crit" => i.severity = severity.into(),
+            Some(_) => {}
+            None => self.incidents.push(Incident { key: key.into(), severity: severity.into(), start: now, end: None }),
+        }
+    }
+
+    pub fn end_incident(&mut self, key: &str, now: i64) {
+        if let Some(i) = self.incidents.iter_mut().rev().find(|i| i.key == key && i.end.is_none()) {
+            i.end = Some(now);
+        }
+    }
+
     /// The fetched beta, for as long as beta agents are on.
     pub fn beta(&self) -> Option<&str> {
         self.beta_agent.as_deref().filter(|_| self.maintenance.agent_beta)
@@ -715,7 +867,6 @@ impl State {
         let mut new_updates = false;
         if let Some(c) = r.containers.take() { live.containers = c; }
         if let Some(s) = r.smart.take() { live.smart = s; }
-        if let Some(n) = r.node.take() { live.node = Some(n); }
         if let Some(f) = r.firewall.take() { live.firewall = Some(f); }
         if let Some(f) = r.repos.take() { live.repos = f; }
         if let Some(s) = r.services.take() { live.services = s; }
@@ -806,9 +957,10 @@ pub fn container_problem(c: &Container) -> Option<(&'static str, &'static str)> 
 }
 
 /// Alerts a host's latest data should have open.
-pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) -> Vec<Wanted> {
+pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>, now: i64) -> Vec<Wanted> {
     let Some(live) = &h.live else { return vec![] };
     let r = &live.report;
+    let (a, th) = (&h.alerting, &h.alerting.thresholds(th));
     let mut out = vec![];
     let held = |suffix: &str, value: f32, warn: f32, crit: f32| {
         held_level(value, warn, crit, open.get(&format!("host:{}:{suffix}", h.id)).map(|a| a.severity.as_str()))
@@ -818,19 +970,36 @@ pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) ->
             out.push(Wanted { key: format!("host:{}:{suffix}", h.id), kind, severity, message, host: h.name.clone() });
         }
     };
-    let mem = pct(r.mem_used, r.mem_total);
-    push("mem".into(), "state", held("mem", mem, th.warn, th.crit), format!("{}: memory at {mem:.0}%", h.name));
-    for d in &r.disks {
+    if a.on("cpu") {
+        // The average of the window, once it is covered: one busy report is no alert.
+        let recent: Vec<f32> = live.series.iter().filter(|p| p.t > now - CPU_WINDOW_S).map(|p| p.cpu).collect();
+        if live.series.front().is_some_and(|p| p.t <= now - CPU_WINDOW_S + REPORT_INTERVAL_S as i64) && recent.len() >= 3 {
+            let cpu = recent.iter().sum::<f32>() / recent.len() as f32;
+            push("cpu".into(), "state", held("cpu", cpu, th.warn, th.crit), format!("{}: CPU at {cpu:.0}% for 5 minutes", h.name));
+        }
+    }
+    if a.on("mem") {
+        let mem = pct(r.mem_used, r.mem_total);
+        push("mem".into(), "state", held("mem", mem, th.warn, th.crit), format!("{}: memory at {mem:.0}%", h.name));
+    }
+    if a.on("swap") && r.swap_total > 0 {
+        let swap = pct(r.swap_used, r.swap_total);
+        push("swap".into(), "state", held("swap", swap, th.warn, th.crit), format!("{}: swap at {swap:.0}%", h.name));
+    }
+    for d in r.disks.iter().filter(|d| a.on("disk") && !a.ignores(&d.mount)) {
         let p = pct(d.used, d.total);
         push(format!("disk:{}", d.mount), "state", held(&format!("disk:{}", d.mount), p, th.warn, th.crit), format!("{}: {} at {p:.0}%", h.name, d.mount));
     }
-    if let Some(t) = r.temp_c {
+    if let Some(t) = r.temp_c.filter(|_| a.on("temp")) {
         push("temp".into(), "temperature", held("temp", t, th.temp_warn, th.temp_crit), format!("{}: {t:.0} °C", h.name));
     }
-    for v in live.vpn.iter().filter(|v| !v.up) {
+    if a.on("reboot") && r.reboot_required {
+        push("reboot".into(), "update", "warn", format!("{}: restart required", h.name));
+    }
+    for v in live.vpn.iter().filter(|v| a.on("vpn") && !v.up && !a.ignores(&v.iface)) {
         push(format!("vpn:{}", v.iface), "state", "warn", format!("{}: VPN {} ({}) is down", h.name, v.iface, v.kind));
     }
-    for c in &live.containers {
+    for c in live.containers.iter().filter(|c| a.on("containers") && !a.ignores(&c.name)) {
         if let Some((severity, what)) = container_problem(c) {
             push(format!("ct:{}", c.name), "state", severity, format!("{}: container {} {what}", h.name, c.name));
         }
@@ -840,11 +1009,11 @@ pub fn evaluate(h: &Host, th: &Thresholds, open: &HashMap<String, OpenAlert>) ->
             push(suffix.clone(), "state", held(&suffix, p, th.warn, th.crit), format!("{}: container {} uses {p:.0}% of its memory limit", h.name, c.name));
         }
     }
-    for d in &live.smart {
+    for d in live.smart.iter().filter(|d| a.on("smart") && !a.ignores(&d.device)) {
         let severity = match d.health { Health::Ok => "ok", Health::Warn => "warn", Health::Crit => "crit" };
         push(format!("smart:{}", d.device), "smart", severity, format!("{}: {} {}", h.name, d.device, d.reason));
     }
-    for s in live.services.iter().filter(|s| s.active == "failed") {
+    for s in live.services.iter().filter(|s| a.on("services") && s.active == "failed" && !a.ignores(&s.name)) {
         push(format!("svc:{}", s.name), "state", "warn", format!("{}: service {} failed ({})", h.name, s.name, s.result));
     }
     out
@@ -956,7 +1125,7 @@ mod tests {
         let h = &st.hosts["h1"];
         assert_eq!(h.live.as_ref().unwrap().services.len(), 2);
         assert_eq!(host_issues(h, &Thresholds::default()), [("warn", "Service nginx failed".to_string())]);
-        let wanted = evaluate(h, &Thresholds::default(), &HashMap::new());
+        let wanted = evaluate(h, &Thresholds::default(), &HashMap::new(), 0);
         assert!(wanted.iter().any(|w| w.key == "host:h1:svc:nginx" && w.severity == "warn"));
     }
 
@@ -1130,8 +1299,82 @@ mod tests {
             ..report(1.0, 80, 10)
         };
         st.apply("h1", r, 1);
-        let w = evaluate(&st.hosts["h1"], &Thresholds::default(), &HashMap::new());
+        let w = evaluate(&st.hosts["h1"], &Thresholds::default(), &HashMap::new(), 0);
         let keys: Vec<(&str, &str)> = w.iter().map(|w| (w.key.as_str(), w.severity)).collect();
         assert_eq!(keys, [("host:h1:mem", "warn"), ("host:h1:temp", "crit"), ("host:h1:smart:/dev/sda", "warn")]);
+    }
+
+    fn keys(st: &State, now: i64) -> Vec<String> {
+        evaluate(&st.hosts["h1"], &Thresholds::default(), &HashMap::new(), now).into_iter().map(|w| w.key).collect()
+    }
+
+    #[test]
+    fn a_host_picks_what_it_alerts_on_and_its_own_thresholds() {
+        let mut st = state();
+        st.apply("h1", Report { temp_c: Some(95.0), swap_used: 95, swap_total: 100, reboot_required: true, ..report(1.0, 80, 80) }, 1);
+        assert_eq!(keys(&st, 1), ["host:h1:mem", "host:h1:disk:/", "host:h1:temp"], "swap and restarts stay quiet by default");
+        let h = st.hosts.get_mut("h1").unwrap();
+        h.alerting = Alerting { checks: Some(vec!["swap".into(), "reboot".into(), "disk".into()]), warn: 85.0, ignore: vec!["/".into()], ..Alerting::default() };
+        assert_eq!(keys(&st, 1), ["host:h1:swap", "host:h1:reboot"]);
+        assert!(host_issues(&st.hosts["h1"], &Thresholds::default()).iter().all(|(_, m)| !m.contains("Memory") && !m.starts_with("Disk")), "80% is fine under 85, and / is ignored");
+    }
+
+    #[test]
+    fn cpu_alerts_only_after_five_busy_minutes() {
+        let mut st = state();
+        st.hosts.get_mut("h1").unwrap().alerting.checks = Some(vec!["cpu".into()]);
+        for t in (0..=120).step_by(15) {
+            st.apply("h1", report(99.0, 1, 1), t);
+        }
+        assert!(keys(&st, 120).is_empty(), "two minutes are not enough");
+        for t in (135..=300).step_by(15) {
+            st.apply("h1", report(99.0, 1, 1), t);
+        }
+        assert_eq!(keys(&st, 300), ["host:h1:cpu"]);
+        for t in (315..=600).step_by(15) {
+            st.apply("h1", report(5.0, 1, 1), t);
+        }
+        assert!(keys(&st, 600).is_empty());
+    }
+
+    #[test]
+    fn alert_settings_are_checked_at_the_boundary() {
+        let a = Alerting { checks: Some(vec!["cpu".into(), "rm -rf".into(), "cpu".into()]), offline_min: 999_999, ignore: vec![" /boot ".into(), "".into()], ..Alerting::default() }.clean().unwrap();
+        assert_eq!((a.checks.unwrap(), a.offline_min, a.ignore), (vec!["cpu".to_string()], 7 * 24 * 60, vec!["/boot".to_string()]));
+        assert!(Alerting { warn: 95.0, crit: 90.0, ..Alerting::default() }.clean().is_err());
+        assert!(Alerting { temp_crit: -1.0, ..Alerting::default() }.clean().is_err());
+    }
+
+    #[test]
+    fn an_offline_alert_waits_for_the_host_delay() {
+        let mut h = Host { last_seen: 1000, interval_s: 15, ..host() };
+        assert!(h.down_for_alerts(1100));
+        h.alerting.offline_min = 10;
+        assert!(!h.down_for_alerts(1100) && h.down_for_alerts(1000 + 601));
+        h.alerting.checks = Some(vec![]);
+        assert!(!h.down_for_alerts(5000));
+    }
+
+    #[test]
+    fn an_alert_key_names_its_host_or_probe() {
+        assert_eq!(alert_target("offline:h1"), Some(("host", "h1")));
+        assert_eq!(alert_target("host:h1:disk:/srv:data"), Some(("host", "h1")));
+        assert_eq!(alert_target("probe:p1"), Some(("probe", "p1")));
+        assert_eq!(alert_target("probe:p1:snmp:Battery"), Some(("probe", "p1")));
+        assert_eq!(alert_target("pipeline:x"), None);
+    }
+
+    #[test]
+    fn an_incident_keeps_its_worst_severity_until_it_ends() {
+        let mut st = State::default();
+        st.open_incident("offline:h1", "warn", 10);
+        st.open_incident("offline:h1", "crit", 20);
+        st.open_incident("offline:h1", "warn", 30);
+        st.end_incident("offline:h1", 40);
+        st.open_incident("offline:h1", "warn", 50);
+        assert_eq!(st.incidents, [
+            Incident { key: "offline:h1".into(), severity: "crit".into(), start: 10, end: Some(40) },
+            Incident { key: "offline:h1".into(), severity: "warn".into(), start: 50, end: None },
+        ]);
     }
 }

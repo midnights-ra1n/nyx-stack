@@ -7,6 +7,7 @@ import { t, tn } from "../ui/i18n"
 
 const LIFE_WARN = 20, LIFE_CRIT = 10
 const DEFAULT_TH = { warn: 75, crit: 90 }
+const TOP = ["capacity", "attention", "hosts"]
 const lifeLevel = (life: number): Level => (life <= LIFE_CRIT ? "crit" : life <= LIFE_WARN ? "warn" : "ok")
 const powerOn = (h?: number | null) => (h == null ? "—" : h >= 8760 ? t("{n} years", { n: fmt.num(h / 8760) }) : t("{n} days", { n: Math.round(h / 24) }))
 
@@ -128,7 +129,7 @@ export function Storage() {
   const panels = [
     { id: "capacity", title: "Capacity", render: (edit: any) => (
       <Panel title={t("Capacity")} edit={edit}>
-        <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-4">
           <Stat label="Used" value={fmt.bytes(used)} sub={t("of {size}", { size: fmt.bytes(total) })} />
           <Stat label="Free" value={fmt.bytes(free)} sub={t("on {n} file systems", { n: disks.length })} />
           <Stat label="Physical disks" value={smart.length ? `${smart.length - unhealthy} / ${smart.length}` : "—"} level={!smart.length ? undefined : unhealthy ? "warn" : "ok"} sub="healthy" />
@@ -157,9 +158,15 @@ export function Storage() {
     <>
       <PageHeader title={t("Storage")} subtitle="Space on every file system and health of every physical disk" onRefresh={reload} actions={<CustomizeButton />}
         variables={<Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />} />
-      <Board id="storage" panels={panels}
-        desktop={{ cols: [["capacity", "attention", "files", "smart"]], hidden: ["hosts"] }}
-        phone={{ cols: [["capacity", "attention", "smart", "files"]], hidden: ["hosts"] }} />
+      {/* Two bands: the short panels side by side, the long ones across the page. */}
+      <Board id="storage.top" panels={panels.filter((p) => TOP.includes(p.id))}
+        desktop={{ cols: [["capacity"], ["attention"]], hidden: ["hosts"] }}
+        phone={{ cols: [["capacity", "attention"]], hidden: ["hosts"] }} />
+      <div className="mt-4">
+        <Board id="storage" panels={panels.filter((p) => !TOP.includes(p.id))}
+          desktop={{ cols: [["files", "smart"]], hidden: [] }}
+          phone={{ cols: [["smart", "files"]], hidden: [] }} />
+      </div>
     </>
   )
 }

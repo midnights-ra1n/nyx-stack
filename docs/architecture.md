@@ -166,5 +166,5 @@ so this one piece is TypeScript, as the notifier is Go. See [cloudflare.md](clou
 
 Monitor and manager share no code path at runtime. Each has its own binary, web
 interface and port, and by default its own database. The optional
-link is a read API plus a deploy endpoint on the monitor, protected by a token you
+link is a read API on the monitor, protected by a token you
 create there. See [separate machines](deployment.md#monitor-and-manager-on-separate-machines).

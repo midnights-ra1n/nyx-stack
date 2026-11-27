@@ -2,7 +2,7 @@ import { CheckCircleIcon, ExclamationTriangleIcon } from "@heroicons/react/24/ou
 import { Empty, Progress } from "../ui/components"
 import { t } from "../ui/i18n"
 import { isOverdue, useApi } from "../ui/lib"
-import { parseTags } from "./work"
+import { splitTags as parseTags } from "../ui/tags"
 
 export interface Item { text: string; done: boolean }
 const LINE = /^\s*- \[( |x|X)\] ?(.*)$/

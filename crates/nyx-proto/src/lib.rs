@@ -76,7 +76,6 @@ pub struct Report {
     pub containers: Option<Vec<Container>>,
     pub smart: Option<Vec<SmartDisk>>,
     pub updates: Option<Vec<PackageUpdate>>,
-    pub node: Option<NodeInfo>,
     pub guests: Option<Vec<Guest>>,
     pub logs: Vec<String>,
     pub results: Vec<CommandResult>,
@@ -399,48 +398,6 @@ pub struct PackageUpdate {
     pub security: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct NodeInfo {
-    pub version: String,
-    pub apps: Vec<NodeApp>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct NodeApp {
-    pub name: String,
-    pub path: String,
-    pub pid: u32,
-    /// Version of the runtime of this app. The fields below are absent from older agents.
-    #[serde(default)]
-    pub version: String,
-    /// Origin of its Git clone, without credentials.
-    #[serde(default)]
-    pub repo: String,
-    #[serde(default)]
-    pub branch: String,
-    #[serde(default)]
-    pub user: String,
-    /// `systemd`, `pm2` or `docker`. Empty when it was started by hand.
-    #[serde(default)]
-    pub manager: String,
-    /// What restarts it: a systemd unit, or `pm2:<name>`.
-    #[serde(default)]
-    pub service: String,
-    #[serde(default)]
-    pub install_cmd: String,
-    #[serde(default)]
-    pub build_cmd: String,
-    #[serde(default)]
-    pub start_cmd: String,
-    /// What the app's processes use, summed. CPU is the average since the previous scan.
-    #[serde(default)]
-    pub cpu_pct: f32,
-    #[serde(default)]
-    pub mem_bytes: u64,
-    #[serde(default)]
-    pub uptime_s: u64,
-}
-
 /// A Proxmox guest seen by an agent of kind `proxmox`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Guest {
@@ -526,8 +483,6 @@ pub enum Action {
     CleanSystem,
     /// Replace the agent binary with the one served by the monitor.
     UpdateAgent,
-    /// Clone or pull a Node.js site, build it and restart its service.
-    Deploy(Deploy),
     /// Undone by the agent when it cannot reach the monitor afterwards.
     Firewall(FirewallChange),
     /// Write these package source files, then refresh the index. Undone when it fails.
@@ -535,46 +490,10 @@ pub enum Action {
     /// Proxmox host only: install the agent inside one of its containers with `pct`, so that
     /// the container reports for itself. The container reaches the monitor at the host's address.
     InstallInCt { vmid: u32, token: String, key: String },
-    /// Restart, stop, start a Node.js site's service, or read its recent logs.
-    Site(SiteControl),
     /// `start`, `stop`, `restart` or `logs` of a Docker container.
     Container { op: String, name: String },
     /// `start`, `stop`, `restart`, `logs`, `status` or `cat` (its unit file) of a systemd service.
     Service { op: String, name: String },
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct SiteControl {
-    /// `restart`, `stop`, `start` or `logs`.
-    pub op: String,
-    /// A systemd unit or `pm2:<name>`.
-    pub service: String,
-    pub user: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Deploy {
-    pub site: String,
-    pub repo: String,
-    pub branch: String,
-    pub path: String,
-    pub user: String,
-    pub install_cmd: String,
-    pub build_cmd: String,
-    pub start_cmd: String,
-    pub ssh_private_key: String,
-    /// The service already running this site, see [`NodeApp::service`]. Empty: Nyx creates its own.
-    #[serde(default)]
-    pub service: String,
-    /// Seconds of HTTP cache forced on the site's answers, `0` to always revalidate. `None`: the app's own.
-    #[serde(default)]
-    pub cache_max_age: Option<u32>,
-    /// `KEY=value` lines for the site's service. Empty: none.
-    #[serde(default)]
-    pub env: String,
-    /// Deploy this commit instead of the head of the branch (a rollback). Empty: the head.
-    #[serde(default)]
-    pub commit: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -606,13 +525,6 @@ pub fn verify(key: &str, ts: u64, payload: &[u8], sig: &str) -> bool {
         Some(bytes) => mac(key, ts, payload).verify_slice(&bytes).is_ok(),
         None => false,
     }
-}
-
-/// Plain HMAC check over `body`, the scheme Git forges use for webhooks.
-pub fn verify_webhook(secret: &str, body: &[u8], sig_hex: &str) -> bool {
-    let mut m = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    m.update(body);
-    unhex(sig_hex).is_some_and(|b| m.verify_slice(&b).is_ok())
 }
 
 /// True for 100.64.0.0/10 (RFC 6598), where Tailscale and NetBird take their addresses.
@@ -681,17 +593,17 @@ mod tests {
     }
 
     #[test]
-    fn webhook_signature_matches_the_github_scheme() {
-        // Known answer computed with `openssl dgst -sha256 -hmac secret`.
-        let sig = "88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b";
-        assert!(verify_webhook("secret", b"hello", sig));
-        assert!(!verify_webhook("secret", b"hello!", sig));
-    }
-
-    #[test]
     fn mesh_addresses_are_the_whole_shared_range() {
         assert!(is_vpn_ip("100.64.0.1") && is_vpn_ip("100.101.102.103") && is_vpn_ip("100.127.255.254"));
         assert!(!is_vpn_ip("100.63.0.1") && !is_vpn_ip("100.128.0.1") && !is_vpn_ip("192.168.1.1") && !is_vpn_ip("") && !is_vpn_ip("fd7a::1"));
+    }
+
+    #[test]
+    fn a_1_0_report_with_node_apps_still_reads() {
+        let mut v = serde_json::to_value(Report { hostname: "web".into(), ..Default::default() }).unwrap();
+        v["node"] = serde_json::json!({"version": "v22.21.0", "apps": [{"name": "blog", "path": "/srv/blog", "pid": 42}]});
+        let r: Report = serde_json::from_value(v).expect("an agent 1.0 must still be read");
+        assert_eq!(r.hostname, "web");
     }
 
     #[test]

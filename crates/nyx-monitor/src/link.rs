@@ -1,13 +1,14 @@
-//! Optional link used by nyx-manager, authenticated with a bearer token.
+//! Optional link used by nyx-manager, authenticated with a bearer token: read-only, for
+//! the manager's overview panels.
 
 use crate::{api, integrations, state::App};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
-use nyx_proto::{sha256_hex, Action, Deploy, SiteControl};
+use nyx_proto::sha256_hex;
 use nyx_srv::{auth::Session, random_hex, ApiError, ApiResult};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -19,27 +20,10 @@ async fn authorize(app: &App, headers: &HeaderMap) -> ApiResult<()> {
     if stored.as_str() == Some(sha256_hex(given.as_bytes()).as_str()) { Ok(()) } else { Err(denied()) }
 }
 
-async fn hosts(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    authorize(&app, &headers).await?;
-    let list: Vec<Value> = api::hosts_json(&app)
-        .into_iter()
-        .map(|mut h| {
-            let detail = h["id"].as_str().and_then(|id| api::host_json(&app, id));
-            if let Some(d) = detail {
-                h["guests"] = d["guests"].clone();
-                h["node"] = d["node"].clone();
-                h["containers"] = d["containers"].clone();
-            }
-            h
-        })
-        .collect();
-    Ok(Json(json!(list)))
-}
-
 /// Fleet health for the manager's dashboard.
 async fn overview(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     authorize(&app, &headers).await?;
-    let mut v = api::overview_json(&app);
+    let mut v = api::overview_json(&app, false);
     v["storage"] = Value::Null; // the manager shows counts, not every mount point
     Ok(Json(v))
 }
@@ -54,25 +38,6 @@ async fn pipelines(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult
     Ok(Json(json!(crate::pipelines::snapshot(&app))))
 }
 
-async fn deploy(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>, Json(d): Json<Deploy>) -> ApiResult<Json<Value>> {
-    authorize(&app, &headers).await?;
-    let cmd = app.enqueue(&id, Action::Deploy(d)).ok_or_else(ApiError::not_found)?;
-    Ok(Json(json!({"id": cmd})))
-}
-
-/// Restart, stop, start or read the logs of a Node.js site on a host.
-async fn site(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>, Json(c): Json<SiteControl>) -> ApiResult<Json<Value>> {
-    authorize(&app, &headers).await?;
-    let cmd = app.enqueue(&id, Action::Site(c)).ok_or_else(ApiError::not_found)?;
-    Ok(Json(json!({"id": cmd})))
-}
-
-async fn result(State(app): State<Arc<App>>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    authorize(&app, &headers).await?;
-    let st = app.lock();
-    st.results.iter().find(|r| r["id"] == id).cloned().map(Json).ok_or_else(ApiError::not_found)
-}
-
 /// Shown once; only the hash is kept.
 async fn new_token(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
     let token = random_hex(32);
@@ -82,13 +47,9 @@ async fn new_token(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Va
 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
-        .route("/api/link/hosts", get(hosts))
         .route("/api/link/overview", get(overview))
         .route("/api/link/tempo", get(tempo))
         .route("/api/link/pipelines", get(pipelines))
-        .route("/api/link/hosts/{id}/deploy", post(deploy))
-        .route("/api/link/hosts/{id}/site", post(site))
-        .route("/api/link/results/{id}", get(result))
         .route("/api/link/token", post(new_token))
         .with_state(app)
 }

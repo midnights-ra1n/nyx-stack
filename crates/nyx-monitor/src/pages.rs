@@ -13,7 +13,7 @@
 
 use crate::{
     probes::ProbeLive,
-    state::{host_status, pct, worst, App, FleetPoint, Host, Point, State as Fleet},
+    state::{alert_target, host_status, pct, worst, App, FleetPoint, Host, Point, State as Fleet, INCIDENT_DAYS},
 };
 use axum::{
     body::Bytes,
@@ -34,14 +34,16 @@ use std::{
     time::Instant,
 };
 
-const DAYS: usize = 30;
+/// Days of uptime a status page shows, one bar each.
+const DAYS: usize = 90;
+const MAX_INCIDENTS: usize = 100;
 const CACHE_S: u64 = 5;
 const SPARK_POINTS: usize = 60;
 const MAX_PANELS: usize = 64;
 const MAX_TEXT: usize = 20_000;
 const MAX_LOGO: usize = 350_000; // about 256 KB once decoded
 const COLS: i64 = 24;
-const PANEL_TYPES: [&str; 14] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "text", "clock", "tempo", "map", "pipelines", "nextdns"];
+const PANEL_TYPES: [&str; 15] = ["overall", "services", "tiles", "stat", "gauge", "bars", "timeseries", "alerts", "incidents", "text", "clock", "tempo", "map", "pipelines", "nextdns"];
 const PRESETS: [&str; 3] = ["nyx", "graphite", "light"];
 /// The id of the monitor's own heartbeat among the probe rollups.
 pub const MONITOR: &str = "_monitor";
@@ -137,6 +139,8 @@ pub struct Item {
     pub id: String,
     /// Name shown instead of the real one.
     pub label: String,
+    /// The category it is listed under, empty for none.
+    pub group: String,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -366,13 +370,16 @@ pub async fn load_history(app: Arc<App>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 enum Target<'a> {
     Host(&'a Host),
     Probe(&'a ProbeLive),
 }
 
+#[derive(Clone)]
 struct Row<'a> {
     label: String,
+    group: String,
     id: &'a str,
     state: &'static str,
     target: Target<'a>,
@@ -410,15 +417,15 @@ fn target_row<'a>(c: &Ctx<'a>, it: &Item) -> Option<Row<'a>> {
         }
         _ => return None,
     };
-    Some(Row { label: if it.label.is_empty() { name.to_string() } else { it.label.clone() }, id, state, target })
+    Some(Row { label: if it.label.is_empty() { name.to_string() } else { it.label.clone() }, group: it.group.trim().chars().take(80).collect(), id, state, target })
 }
 
 /// A status page shows only what was picked, unless its map was told to show it all.
 /// On a wall, no selection means everything.
 fn rows<'a>(c: &Ctx<'a>, p: &Panel) -> Vec<Row<'a>> {
     if p.items.is_empty() && (c.wall || (p.kind == "map" && p.metric == "all")) {
-        let hosts = c.st.hosts.keys().map(|id| Item { kind: "host".into(), id: id.clone(), label: String::new() });
-        let probes = c.st.probes.keys().map(|id| Item { kind: "probe".into(), id: id.clone(), label: String::new() });
+        let hosts = c.st.hosts.keys().map(|id| Item { kind: "host".into(), id: id.clone(), ..Item::default() });
+        let probes = c.st.probes.keys().map(|id| Item { kind: "probe".into(), id: id.clone(), ..Item::default() });
         let mut all: Vec<Row> = hosts.chain(probes).filter_map(|i| target_row(c, &i)).collect();
         all.sort_by(|a, b| a.label.cmp(&b.label));
         return all;
@@ -578,6 +585,9 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
         "services" | "tiles" => json!(rows.iter().map(|r| {
             let host = matches!(r.target, Target::Host(_));
             let mut v = json!({"label": r.label, "state": r.state});
+            if !r.group.is_empty() {
+                v["group"] = json!(r.group);
+            }
             if p.uptime {
                 v["days"] = json!(c.st.uptime.series(r.id, c.today, host));
                 v["uptime"] = json!(uptime_of(c, r));
@@ -604,6 +614,32 @@ fn panel_data(c: &Ctx, p: &Panel) -> Value {
         }
         _ => Value::Null,
     }
+}
+
+/// Outages and slowdowns of `rows` over [`INCIDENT_DAYS`], newest first. Alerts of one item
+/// that overlap make one incident. Only labels and times: never what an alert said.
+fn incidents(c: &Ctx, rows: &[Row]) -> Value {
+    struct Inc { row: usize, down: bool, crit: bool, start: i64, end: Option<i64> }
+    let since = c.now - INCIDENT_DAYS * 86400;
+    let mut out: Vec<Inc> = vec![];
+    for i in c.st.incidents.iter().filter(|i| i.end.is_none_or(|e| e >= since)) {
+        let Some((kind, id)) = alert_target(&i.key) else { continue };
+        let found = rows.iter().position(|r| r.id == id && matches!((&r.target, kind), (Target::Host(_), "host") | (Target::Probe(_), "probe")));
+        let Some(row) = found else { continue };
+        let down = i.key.starts_with("offline:") || i.key.strip_prefix("probe:") == Some(id);
+        let crit = i.severity == "crit";
+        match out.iter_mut().rev().find(|o| o.row == row && o.end.is_none_or(|e| e >= i.start)) {
+            Some(o) => {
+                o.end = o.end.zip(i.end).map(|(a, b)| a.max(b));
+                (o.down, o.crit) = (o.down || down, o.crit || crit);
+            }
+            None => out.push(Inc { row, down, crit, start: i.start, end: i.end }),
+        }
+    }
+    json!(out.iter().rev().take(MAX_INCIDENTS).map(|o| json!({
+        "label": rows[o.row].label, "what": if o.down { "down" } else { "degraded" }, "level": if o.crit { "crit" } else { "warn" },
+        "start": o.start, "end": o.end,
+    })).collect::<Vec<_>>())
 }
 
 /// The period of a NextDNS panel, in days, kept in its `metric`.
@@ -647,14 +683,15 @@ pub fn build(st: &Fleet, kind: &str, cfg: &Config, now: DateTime<Local>) -> Valu
         today: now.date_naive(),
         wall: kind == "wall",
     };
-    let panels: Vec<Value> = cfg.panels.iter().map(|p| json!({
-        "id": p.id, "type": p.kind, "title": p.title, "x": p.x, "y": p.y, "w": p.w, "h": p.h,
-        "text": p.text, "uptime": p.uptime, "metric": p.metric, "data": panel_data(&c, p),
-    })).collect();
-
     let mut selected: Vec<Row> = cfg.panels.iter().flat_map(|p| rows(&c, p)).collect();
     selected.sort_by_key(|r| r.id);
     selected.dedup_by_key(|r| r.id);
+    let panels: Vec<Value> = cfg.panels.iter().map(|p| json!({
+        "id": p.id, "type": p.kind, "title": p.title, "x": p.x, "y": p.y, "w": p.w, "h": p.h,
+        "text": p.text, "uptime": p.uptime, "metric": p.metric,
+        // Without a pick of its own, the history covers everything else the page shows.
+        "data": if p.kind == "incidents" { incidents(&c, &if p.items.is_empty() { selected.clone() } else { rows(&c, p) }) } else { panel_data(&c, p) },
+    })).collect();
     let overall = if selected.is_empty() {
         "off"
     } else {
@@ -833,7 +870,7 @@ mod tests {
         let mut st = Fleet::default();
         st.hosts.insert("h1".into(), Host::from_record(&json!({"id": "h1", "name": "pve-secret", "hostname": "pve.lan", "ip": "192.0.2.10", "token": "tok", "key": "k"})));
         st.apply("h1", Report { cpu_pct: 42.0, mem_used: 50, mem_total: 100, disks: vec![Disk { mount: "/data/private".into(), used: 10, total: 100, ..Disk::default() }], kind: HostKind::Vm, ..Report::default() }, now);
-        let def = ProbeDef { id: "p1".into(), name: "Website".into(), kind: "http".into(), target: "https://internal.example.lan/admin".into(), interval_s: 60, dns_server: String::new(), watch_cert: false, warn_days: 14, expect_status: 200, snmp: None };
+        let def = ProbeDef { id: "p1".into(), name: "Website".into(), kind: "http".into(), target: "https://internal.example.lan/admin".into(), interval_s: 60, dns_server: String::new(), watch_cert: false, warn_days: 14, expect_status: 200, snmp: None, muted: false, mcp_hidden: false };
         let mut p = ProbeLive::new(def);
         p.up = Some(true);
         p.latency_ms = 12.0;
@@ -844,7 +881,7 @@ mod tests {
     }
 
     fn panel(kind: &str, items: &[(&str, &str, &str)], metric: &str) -> Panel {
-        Panel { id: kind.into(), kind: kind.into(), w: 12, h: 4, metric: metric.into(), uptime: true, items: items.iter().map(|(k, i, l)| Item { kind: (*k).into(), id: (*i).into(), label: (*l).into() }).collect(), ..Panel::default() }
+        Panel { id: kind.into(), kind: kind.into(), w: 12, h: 4, metric: metric.into(), uptime: true, items: items.iter().map(|(k, i, l)| Item { kind: (*k).into(), id: (*i).into(), label: (*l).into(), ..Item::default() }).collect(), ..Panel::default() }
     }
 
     fn page(kind: &str, panels: Vec<Panel>) -> Value {
@@ -1010,7 +1047,7 @@ mod tests {
     fn a_saved_history_survives_the_round_trip_and_drops_stale_items() {
         let mut u = Uptime::default();
         u.add("kept", day(5), 3, 4);
-        u.add("deleted", day(1) - Duration::days(40), 1, 1);
+        u.add("deleted", day(1) - Duration::days(DAYS as i64 + 10), 1, 1);
         let saved = json!({"at": "2026-01-05 10:00:00.000Z", "uptime": u, "fleet": [{"t": 1, "cpu": 2.0, "mem": 3.0}]});
         let mut back: History = serde_json::from_value(saved).unwrap();
         back.uptime.forget_old(day(5));
@@ -1037,6 +1074,42 @@ mod tests {
     }
 
     #[test]
+    fn incidents_tell_what_and_when_under_the_page_label_only() {
+        let now = Local::now();
+        let mut st = fleet(now.timestamp());
+        let t = now.timestamp() - 3600;
+        st.open_incident("host:h1:disk:/data/private", "warn", t);
+        st.open_incident("offline:h1", "crit", t + 60);
+        st.end_incident("host:h1:disk:/data/private", t + 120);
+        st.end_incident("offline:h1", t + 180);
+        st.open_incident("probe:p1:cert", "warn", t + 600);
+        st.open_incident("probe:zz", "crit", t);
+        st.incidents.push(crate::state::Incident { key: "offline:h1".into(), severity: "crit".into(), start: t - 100 * 86400, end: Some(t - 95 * 86400) });
+        st.incidents.sort_by_key(|i| i.start);
+        let mut cfg = Config { panels: vec![panel("services", &[("host", "h1", "Main server"), ("probe", "p1", "")], ""), panel("incidents", &[], "")], ..Config::default() };
+        cfg = clean_config(cfg).unwrap();
+        let out = build(&st, "status", &cfg, now);
+        assert_eq!(out["panels"][1]["data"], json!([
+            {"label": "Website", "what": "degraded", "level": "warn", "start": t + 600, "end": null},
+            {"label": "Main server", "what": "down", "level": "crit", "start": t, "end": t + 180},
+        ]));
+        let text = out.to_string();
+        for private in ["/data/private", "pve-secret", "\"h1\"", "zz"] {
+            assert!(!text.contains(private), "{private} leaked: {text}");
+        }
+    }
+
+    #[test]
+    fn a_status_page_lists_items_under_their_category() {
+        let mut p = panel("services", &[("host", "h1", "Main server"), ("probe", "p1", "")], "");
+        p.items[0].group = " Servers ".into();
+        let out = page("status", vec![p]);
+        assert_eq!(out["panels"][0]["data"][0]["group"], "Servers");
+        assert!(out["panels"][0]["data"][1].get("group").is_none());
+        assert_eq!(out["panels"][0]["data"][0]["days"].as_array().unwrap().len(), DAYS);
+    }
+
+    #[test]
     fn uptime_memory_stays_bounded() {
         let mut u = Uptime::default();
         for i in 0..120 {
@@ -1054,7 +1127,7 @@ mod tests {
     }
 
     fn pick(id: &str, kind: &str, label: &str) -> Item {
-        Item { kind: kind.into(), id: id.into(), label: label.into() }
+        Item { kind: kind.into(), id: id.into(), label: label.into(), ..Item::default() }
     }
 
     #[test]

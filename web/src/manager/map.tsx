@@ -1,12 +1,11 @@
 import { ArrowDownTrayIcon, ArrowsRightLeftIcon, ChevronDoubleLeftIcon, ChevronDoubleRightIcon, CircleStackIcon, CloudArrowUpIcon, CloudIcon, ComputerDesktopIcon, CpuChipIcon, CubeIcon, CubeTransparentIcon, GlobeAltIcon, RectangleGroupIcon, ServerIcon, ServerStackIcon, ShieldCheckIcon, SignalIcon, Squares2X2Icon, TrashIcon, WifiIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import { useEffect, useId, useRef, useState } from "react"
 import { MapControls, matches, useFullscreen, usePanZoom } from "../ui/canvas"
-import { findHost, liveLevel } from "./live"
-import { Button, Empty, IconButton, Input, Meter, Panel, Select, Status, Table, Td, Tabs, ask } from "../ui/components"
+import { Button, Empty, IconButton, Input, Panel, Select, Table, Td, Tabs, ask } from "../ui/components"
 import { t } from "../ui/i18n"
 import { GroupedView, MAP_VIEWS, TreeView, type ViewNode } from "../ui/mapviews"
-import { api, download, fmt, type Level, useApi, useStored } from "../ui/lib"
-import { DistroIcon, osName, ProxmoxIcon } from "../ui/brand-icons"
+import { api, download, useApi, useStored } from "../ui/lib"
+import { ProxmoxIcon } from "../ui/brand-icons"
 import { Link, PageHeader } from "../ui/shell"
 import { arrange, curve, frame, H, parents, treePath, W } from "./map-layout"
 
@@ -25,7 +24,6 @@ export const LINK_KINDS: Record<string, { label: string; className: string; dash
 }
 /** Zone colours, as theme colours. */
 const ZONE_COLORS: Record<string, [string, string]> = { blue: ["Blue", "info"], green: ["Green", "ok"], yellow: ["Yellow", "warn"], red: ["Red", "crit"], orange: ["Orange", "accent"], grey: ["Grey", "fg3"] }
-const STATE_WORDS: Record<Level, string> = { ok: "Operational", warn: "Warning", crit: "Critical", off: "Offline", info: "Information" }
 const fit = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 const FORMATS = [["svg", "SVG"], ["drawio", "draw.io"], ["mermaid", "Mermaid"], ["dot", "Graphviz"], ["json", "JSON"]]
 const snap = (v: number) => Math.round(v / 8) * 8 // on the 8 px grid, so cards line up
@@ -63,8 +61,6 @@ export function NetworkMap() {
   const ports = useApi("/api/c/ports?perPage=500", { poll: false })
   const hardware = useApi("/api/c/hardware?perPage=500", { poll: false })
   const virtual = useApi("/api/c/virtual_assets?perPage=500", { poll: false })
-  // With a linked monitor, devices named like a monitored host show its state.
-  const live = useApi<any[] | null>("/api/monitor/hosts")
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({})
   const [shaped, setShaped] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({})
   const [note, setNote] = useState("")
@@ -98,16 +94,13 @@ export function NetworkMap() {
   const parent = parents(list, links.data?.items ?? [])
   const isTree = (l: any) => !l.vpn && (parent[l.source] === l.target || parent[l.target] === l.source)
   const hosts = list.filter((n) => Object.values(parent).includes(n.id))
-  const hostOf = (n: any) => findHost(live.data, n)
-  const stateOf = (n: any): Level | undefined => { const h = hostOf(n); return h && liveLevel(h) }
-  // Without a monitored host behind it, nothing says a device is up: neutral blue, not a green that would claim it.
-  const viewNodes: ViewNode[] = list.map((n) => ({ label: n.name, state: stateOf(n) ?? "info", type: n.type || "other", parent: parent[n.id] ? list.findIndex((p) => p.id === parent[n.id]) : null, sub: n.ip }))
+  // Nothing here says a device is up: neutral blue, not a green that would claim it.
+  const viewNodes: ViewNode[] = list.map((n) => ({ label: n.name, state: "info", type: n.type || "other", parent: parent[n.id] ? list.findIndex((p) => p.id === parent[n.id]) : null, sub: n.ip }))
   const icons = Object.fromEntries(Object.entries(TYPE_ICONS).map(([k, icon]) => [k, { label: t(TYPE_LABELS[k]), icon }]))
   const found = query.trim() ? list.filter((n) => matches(query, n.name, n.ip, t(TYPE_LABELS[n.type] ?? n.type ?? ""))).map((n) => n.id) : null
   // A hovered device brings forward what it is linked to, and its host or guests.
   const near = hover ? new Set([hover, ...allLinks.flatMap((l: any) => (l.source === hover ? [l.target] : l.target === hover ? [l.source] : []))]) : null
   const lit = (id: string) => (near ? near.has(id) : found ? found.includes(id) : true)
-  const states = list.map(stateOf).filter(Boolean) as Level[]
   const at = (p: { x: number; y: number }) => list.find((n) => p.x >= n.x && p.x <= n.x + W && p.y >= n.y && p.y <= n.y + H)
   const selNode = sel && "node" in sel ? byId[sel.node] : undefined
   const selLink = sel && "link" in sel ? allLinks.find((l) => l.id === sel.link) : undefined
@@ -222,7 +215,7 @@ export function NetworkMap() {
     if (!await ask("Place every device again: network gear on top, each host with its guests under it, the rest below? Places you set by hand are replaced.", { action: "Arrange", danger: true })) return
     try { await tidy(list, links.data?.items ?? []); setNote(t("Map arranged.")); done() } catch (e) { fail(e) }
   }
-  const importHosts = async () => {
+  const importInventory = async () => {
     try {
       const r = await api("/api/map/import", { method: "POST" })
       // A first import is arranged right away; later ones leave your places alone.
@@ -230,7 +223,7 @@ export function NetworkMap() {
         const [n, l] = await Promise.all([api("/api/c/map_nodes?perPage=500"), api("/api/c/map_links?perPage=500")])
         await tidy(n.items, l.items)
       }
-      setNote(`${t("{n} hosts added.", { n: r.added })}${list.length && r.added ? ` ${t("Press Arrange to place them.")}` : ""}`)
+      setNote(`${t("{n} devices added.", { n: r.added })}${list.length && r.added ? ` ${t("Press Arrange to place them.")}` : ""}`)
       done()
     } catch (e) { fail(e) }
   }
@@ -241,14 +234,13 @@ export function NetworkMap() {
   const swatch = (k: string, cable = false) => { const v = LINK_KINDS[k]; return <svg width="22" height="6" aria-hidden className="shrink-0"><line x1="0" x2="22" y1="3" y2="3" strokeWidth={cable ? 1.5 : v.width ?? 1.5} strokeDasharray={cable ? undefined : v.dash} className={cable ? "stroke-fg3" : v.className} /></svg> }
 
   const inspector = selNode ? (() => {
-    const n = selNode, I = TYPE_ICONS[n.type] ?? CubeIcon, h = hostOf(n), state = stateOf(n)
+    const n = selNode, I = TYPE_ICONS[n.type] ?? CubeIcon
     const hw = hardware.data?.items.find((r: any) => same(r.name, n.name))
     const va = virtual.data?.items.find((r: any) => same(r.name, n.name))
-    const meter = (label: string, pct?: number | null) => <><dt className="text-fg2">{t(label)}</dt><dd className="flex items-center gap-2">{pct == null ? "—" : <><span className="flex-1"><Meter pct={pct} /></span><span className="w-10 text-right tabular-nums">{fmt.pct(pct)}</span></>}</dd></>
     return <>
       <div className="flex items-start gap-3">
         <span className={`relative flex size-11 shrink-0 items-center justify-center rounded-box ${FAMILY[n.type] ?? "text-fg2"}`}><span className="absolute inset-0 rounded-box bg-current opacity-15" /><I className="size-6" aria-hidden /></span>
-        <div className="min-w-0 flex-1"><div className="truncate font-medium">{n.name}</div><div className="truncate text-xs text-fg3">{t(TYPE_LABELS[n.type] ?? "Other")}{state ? ` · ${t(STATE_WORDS[state])}` : ""}</div></div>
+        <div className="min-w-0 flex-1"><div className="truncate font-medium">{n.name}</div><div className="truncate text-xs text-fg3">{t(TYPE_LABELS[n.type] ?? "Other")}</div></div>
         <IconButton label="Close" icon={XMarkIcon} onClick={() => setSel(null)} />
       </div>
       <div className="flex flex-col gap-3">
@@ -256,16 +248,6 @@ export function NetworkMap() {
         <Inline key={`i${n.id}`} label="Address" value={n.ip} placeholder="10.0.0.2" onSave={(v) => patch("map_nodes", n.id, { ip: v })} />
         <Select label="Type" value={n.type || "other"} onChange={(e) => patch("map_nodes", n.id, { type: e.target.value })} options={Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label: t(label) }))} />
       </div>
-      {h && (
-        <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-[13px]">
-          <dt className="text-fg2">{t("State")}</dt><dd><Status cell level={liveLevel(h)} /></dd>
-          {meter("CPU", h.status === "off" ? null : h.cpu)}
-          {meter("Memory", h.status === "off" ? null : h.mem)}
-          {meter("Disk", h.status === "off" ? null : h.disk)}
-          <dt className="text-fg2">{t("Up for")}</dt><dd>{h.status === "off" ? "—" : fmt.uptime(h.uptime_s)}</dd>
-          {h.os && <><dt className="text-fg2">{t("System")}</dt><dd className="flex min-w-0 items-center gap-1.5"><DistroIcon os={h.os} className="size-4 text-fg3" /><span className="truncate">{osName(h.os)}</span></dd></>}
-        </dl>
-      )}
       <section>
         <h3 className="mb-1 text-[13px] font-medium text-fg2">{t("Connections ({n})", { n: linksOf(n).length })}</h3>
         {linksOf(n).length ? <ul className="flex flex-col">{linksOf(n).map((l) => { const o = byId[l.source === n.id ? l.target : l.source]; return o && (
@@ -353,11 +335,11 @@ export function NetworkMap() {
         {wire && byId[wire.from] && <line x1={byId[wire.from].x + W} y1={byId[wire.from].y + H / 2} x2={wire.x} y2={wire.y} strokeWidth={2} strokeDasharray={LINK_KINDS[kind].dash} className={`pointer-events-none ${LINK_KINDS[kind].className}`} />}
         {list.map((n) => {
           const I = TYPE_ICONS[n.type] ?? CubeIcon
-          const host = hosts.includes(n), state = stateOf(n), on = selNode?.id === n.id
+          const host = hosts.includes(n), on = selNode?.id === n.id
           return (
             <g key={n.id} transform={`translate(${n.x} ${n.y})`} opacity={lit(n.id) ? 1 : 0.25} className="group cursor-grab touch-none transition-opacity" onPointerDown={(e) => down(e, n)} onPointerMove={move} onPointerUp={up}
               onPointerEnter={() => !drag.current && !wire && setHover(n.id)} onPointerLeave={() => setHover(undefined)}>
-              <title>{`${n.name}${n.ip ? ` · ${n.ip}` : ""}${n.type ? ` · ${t(TYPE_LABELS[n.type] ?? n.type)}` : ""}${state ? ` · ${t(STATE_WORDS[state])}` : ""}`}</title>
+              <title>{`${n.name}${n.ip ? ` · ${n.ip}` : ""}${n.type ? ` · ${t(TYPE_LABELS[n.type] ?? n.type)}` : ""}`}</title>
               {found?.includes(n.id) && <rect x={-5} y={-5} width={W + 10} height={H + 10} rx={13} fill="none" strokeWidth={2} strokeDasharray="5 4" className="stroke-accent" />}
               <rect width={W} height={H} rx={10} strokeWidth={on ? 2 : 1} className={`fill-raised ${on ? "stroke-accent" : host ? "stroke-accent/60 group-hover:stroke-accent" : "stroke-line2 group-hover:stroke-fg3"}`} />
               <g className={FAMILY[n.type] ?? "text-fg2"}>
@@ -366,7 +348,6 @@ export function NetworkMap() {
               </g>
               <text x={52} y={n.ip ? 23 : 31} className="fill-fg text-[13px] font-medium">{fit(n.name, 16)}</text>
               {n.ip && <text x={52} y={40} className="fill-fg3 font-mono text-[11px]">{n.ip}</text>}
-              {state && <circle cx={W - 12} cy={12} r={4.5} fill={`var(--color-${state})`} stroke="var(--color-raised)" strokeWidth={2} />}
               <circle cx={W} cy={H / 2} r={6} className={`cursor-crosshair fill-surface stroke-accent ${on ? "" : "opacity-0 group-hover:opacity-100"}`} onPointerDown={(e) => { e.stopPropagation(); svg.current!.setPointerCapture(e.pointerId); setHover(undefined); setWire({ from: n.id, ...toSvg(e) }) }}><title>{t("Drag onto another device to link them")}</title></circle>
             </g>
           )
@@ -378,7 +359,7 @@ export function NetworkMap() {
   return (
     <>
       <PageHeader title={t("Network map")} subtitle={note} actions={<>
-        <Button onClick={importHosts}><ServerStackIcon className="size-5" aria-hidden />{t("Import hosts")}</Button>
+        <Button onClick={importInventory}><ServerStackIcon className="size-5" aria-hidden />{t("Import the inventory")}</Button>
         <Button onClick={arrangeAll} disabled={list.length < 2}><Squares2X2Icon className="size-5" aria-hidden />{t("Arrange")}</Button>
         <details className="relative">
           <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-control border border-line2 px-4 text-fg2 hover:text-fg max-sm:h-11"><ArrowDownTrayIcon className="size-5" aria-hidden />{t("Export")}</summary>
@@ -421,8 +402,8 @@ export function NetworkMap() {
             {view === "diagram" && list.length === 0 && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
                 <div className="pointer-events-auto max-w-sm rounded-panel border border-line bg-surface p-5 text-center">
-                  <p className="mb-3 text-fg2">{t("Drag devices from the list on the left, or bring in the hosts the monitor knows.")}</p>
-                  <Button onClick={importHosts}><ServerStackIcon className="size-5" aria-hidden />{t("Import hosts")}</Button>
+                  <p className="mb-3 text-fg2">{t("Drag devices from the list on the left, or bring in the devices and virtual assets of the inventory.")}</p>
+                  <Button onClick={importInventory}><ServerStackIcon className="size-5" aria-hidden />{t("Import the inventory")}</Button>
                 </div>
               </div>
             )}
@@ -431,7 +412,7 @@ export function NetworkMap() {
         </div>
         {view === "diagram" && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-1.5">
-            <div className="flex gap-3">{(["ok", "warn", "crit", "off"] as Level[]).map((l) => [l, states.filter((x) => x === l).length] as const).filter(([, c]) => c).map(([l, c]) => <Status key={l} cell level={l} label={String(c)} />)}</div>
+            <span />
             <div className="flex flex-wrap items-center gap-1 text-xs text-fg2" role="radiogroup" aria-label={t("New links")}>
               <span className="mr-1 text-fg3">{t("New links")}</span>
               {Object.entries(LINK_KINDS).map(([k, v]) => (

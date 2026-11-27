@@ -1,7 +1,7 @@
 //! Gathers host metrics. Slow-changing data is read on its own schedule and sent
 //! only when it changed, which keeps both CPU use and reports small.
 
-use crate::{config::Config, node, packages, proxmox, smart};
+use crate::{config::Config, packages, proxmox, smart};
 use nyx_proto::*;
 use std::{
     collections::HashMap,
@@ -10,7 +10,7 @@ use std::{
     process::Command,
     time::{Duration, Instant},
 };
-use sysinfo::{Components, Disks, NetworkData, Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
+use sysinfo::{Components, Disks, NetworkData, Networks, System};
 
 const SLOW: Duration = Duration::from_secs(60);
 const RARE: Duration = Duration::from_secs(300);
@@ -49,7 +49,6 @@ pub struct Collector {
     pub progress: Option<Progress>,
     pending_logs: Vec<String>,
     slow: Every,
-    rare: Every,
     smart_every: Every,
     guests_every: Every,
     firewall_every: Every,
@@ -65,7 +64,6 @@ pub struct Collector {
     /// Slow data sent only when it changed; `None` means "must be re-sent".
     updates: Option<Vec<PackageUpdate>>,
     updates_dirty: bool,
-    node: Option<NodeInfo>,
     guests: Option<Vec<Guest>>,
     smart: Option<Vec<SmartDisk>>,
     firewall: Option<nyx_proto::Firewall>,
@@ -84,7 +82,6 @@ impl Collector {
             progress: None,
             pending_logs: vec![],
             slow: Every(SLOW, None),
-            rare: Every(RARE, None),
             smart_every: Every(SMART, None),
             guests_every: Every(RARE, None),
             firewall_every: Every(RARE, None),
@@ -98,7 +95,6 @@ impl Collector {
             services_every: Every(RARE, None),
             updates: None,
             updates_dirty: false,
-            node: None,
             guests: None,
             smart: None,
             firewall: None,
@@ -130,7 +126,6 @@ impl Collector {
         self.containers = None;
         self.services = None;
         self.services_every.reset();
-        self.node = None;
         self.guests = None;
         self.smart = None;
         self.firewall = None;
@@ -139,7 +134,6 @@ impl Collector {
         self.repos_every.reset();
         self.updates_dirty = self.updates.is_some();
         self.slow.reset();
-        self.rare.reset();
         self.smart_every.reset();
         self.guests_every.reset();
     }
@@ -152,7 +146,7 @@ impl Collector {
         logs.drain(..excess);
         self.pending_logs = logs;
         self.pending_results.splice(0..0, failed.results);
-        if failed.containers.is_some() || failed.services.is_some() || failed.node.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() || failed.repos.is_some() {
+        if failed.containers.is_some() || failed.services.is_some() || failed.guests.is_some() || failed.smart.is_some() || failed.updates.is_some() || failed.firewall.is_some() || failed.repos.is_some() {
             self.resync();
         }
     }
@@ -211,10 +205,6 @@ impl Collector {
             }
             r.logs.extend(journal("warning", "100", JOURNAL_CURSOR));
         }
-        if self.rare.due() {
-            let node = self.node_info();
-            r.node = changed(&mut self.node, node);
-        }
         self.guests_every.0 = if cfg.ct_autoinstall { WATCHED_GUESTS } else { RARE };
         if self.guests_every.due() {
             // An empty list tells the monitor when this host stopped being a Proxmox server.
@@ -239,40 +229,6 @@ impl Collector {
             r.updates = self.updates.clone();
         }
         r
-    }
-
-    /// Always `Some`, also without Node.js: "no apps left" must reach the monitor.
-    fn node_info(&mut self) -> Option<NodeInfo> {
-        let out = Command::new("node").arg("--version").output().ok().filter(|o| o.status.success());
-        let version = out.map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        let kind = ProcessRefreshKind::nothing().with_cwd(UpdateKind::Always).with_exe(UpdateKind::Always).with_cmd(UpdateKind::Always).with_user(UpdateKind::Always);
-        self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
-        let users = Users::new_with_refreshed_list().ok();
-        let mut apps: Vec<NodeApp> = self
-            .sys
-            .processes()
-            .iter()
-            .filter(|(_, p)| p.thread_kind().is_none() && node::is_node(p.exe(), &p.name().to_string_lossy()))
-            .filter_map(|(pid, p)| {
-                let user = p.user_id().and_then(|u| users.as_ref()?.get_user_by_id(u)).map_or(String::new(), |u| u.name().to_string());
-                let args: Vec<String> = p.cmd().iter().map(|a| a.to_string_lossy().to_string()).collect();
-                let app = node::inspect(pid.as_u32(), p.cwd()?, p.exe(), &args, &user, &version)?;
-                Some(NodeApp { cpu_pct: p.cpu_usage(), mem_bytes: p.memory(), uptime_s: p.run_time(), ..app })
-            })
-            .collect();
-        apps.sort_by(|a, b| a.path.cmp(&b.path));
-        // Workers of one app add up.
-        apps.dedup_by(|a, b| {
-            let same = a.path == b.path;
-            if same {
-                b.cpu_pct += a.cpu_pct;
-                b.mem_bytes += a.mem_bytes;
-                b.uptime_s = b.uptime_s.max(a.uptime_s);
-            }
-            same
-        });
-        apps.sort_by(|a, b| a.name.cmp(&b.name));
-        Some(NodeInfo { version, apps })
     }
 }
 

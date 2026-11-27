@@ -1,4 +1,4 @@
-//! Network map exporters.
+//! Network map: built from the inventory, and its exporters.
 
 use serde_json::{json, Value};
 
@@ -16,6 +16,26 @@ fn quoted(text: &str) -> String {
 
 fn name_of<'a>(nodes: &'a [Value], id: &str) -> Option<&'a Value> {
     nodes.iter().find(|n| s(n, "id") == id)
+}
+
+/// Map devices for the inventory, as `(name, type, address, runs on)`. Docker services, passive
+/// gear and devices on a shelf (spare or retired) stay off the map: they are on no network.
+pub fn from_inventory(hardware: &[Value], virtual_assets: &[Value]) -> Vec<(String, &'static str, String, String)> {
+    let kind = |c: &str| match c {
+        "Server" => "server",
+        "Switch" => "switch",
+        "Router" => "router",
+        "Firewall" => "firewall",
+        "NAS" => "nas",
+        "Access point" => "ap",
+        _ => "other",
+    };
+    let wired = |h: &&Value| !["Patch panel", "PDU"].contains(&s(h, "category")) && !["Spare", "Retired"].contains(&s(h, "status"));
+    let hw = hardware.iter().filter(wired).map(|h| (s(h, "name").to_string(), kind(s(h, "category")), s(h, "mgmt_ip").to_string(), String::new()));
+    let guests = virtual_assets.iter().filter(|a| s(a, "type") != "docker").map(|a| {
+        (s(a, "name").to_string(), if s(a, "type") == "container" { "lxc" } else { "vm" }, s(a, "ip").to_string(), s(a, "parent").to_string())
+    });
+    hw.chain(guests).filter(|d| !d.0.is_empty()).collect()
 }
 
 /// VPN links are kept on their own page, and join the map through the device names.
@@ -172,6 +192,21 @@ mod tests {
             vec![json!({"id": "a", "name": "r<1>", "ip": "10.0.0.1", "x": 0, "y": 0}), json!({"id": "b", "name": "sw \"core\"", "ip": "", "x": 200, "y": 100})],
             vec![json!({"id": "l", "source": "a", "target": "b", "label": "1 & 2"}), json!({"id": "m", "source": "a", "target": "gone", "label": ""})],
         )
+    }
+
+    #[test]
+    fn the_inventory_becomes_devices_and_guests() {
+        let hw = [
+            json!({"name": "pve", "category": "Server", "mgmt_ip": "10.0.0.2", "status": "In service"}),
+            json!({"name": "ups", "category": "UPS"}),
+            json!({"name": ""}),
+            json!({"name": "panel", "category": "Patch panel"}),
+            json!({"name": "old", "category": "Server", "status": "Retired"}),
+        ];
+        let va = [json!({"name": "web", "type": "vm", "ip": "10.0.0.20", "parent": "pve"}), json!({"name": "dns", "type": "container", "parent": "pve"}), json!({"name": "redis", "type": "docker", "parent": "web"})];
+        let d = from_inventory(&hw, &va);
+        let got: Vec<_> = d.iter().map(|(n, k, ip, p)| (n.as_str(), *k, ip.as_str(), p.as_str())).collect();
+        assert_eq!(got, [("pve", "server", "10.0.0.2", ""), ("ups", "other", "", ""), ("web", "vm", "10.0.0.20", "pve"), ("dns", "lxc", "", "pve")]);
     }
 
     #[test]

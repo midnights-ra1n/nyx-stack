@@ -1,8 +1,9 @@
 /** Page model shared by the viewer and the editor: a 24-column grid, like Grafana. */
 export const COLS = 24
 
-export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "text" | "clock" | "tempo" | "map" | "pipelines" | "nextdns"
-export interface Item { kind: "host" | "probe"; id: string; label: string }
+export type PanelType = "overall" | "services" | "tiles" | "stat" | "gauge" | "bars" | "timeseries" | "alerts" | "incidents" | "text" | "clock" | "tempo" | "map" | "pipelines" | "nextdns"
+/** `group` is the category an item is listed under on a status page. */
+export interface Item { kind: "host" | "probe"; id: string; label: string; group?: string }
 export interface Box { x: number; y: number; w: number; h: number }
 export interface PanelCfg extends Box { id: string; type: PanelType; title: string; items: Item[]; metric: string; text: string; uptime: boolean }
 export interface PageConfig {
@@ -23,6 +24,7 @@ export const PANEL_TYPES: { type: PanelType; label: string; w: number; h: number
   { type: "bars", label: "Bar gauges", w: 8, h: 5, title: "Memory", metric: "mem" },
   { type: "timeseries", label: "Time series", w: 12, h: 6, title: "CPU", metric: "cpu" },
   { type: "alerts", label: "Open alerts", w: 8, h: 6, title: "Open alerts" },
+  { type: "incidents", label: "Incident history", w: 24, h: 8, title: "Past incidents" },
   { type: "text", label: "Text", w: 8, h: 3, title: "Notes" },
   { type: "clock", label: "Clock", w: 4, h: 3, title: "" },
   { type: "tempo", label: "EDF Tempo", w: 24, h: 4, title: "" },
@@ -84,12 +86,12 @@ export const slugify = (name: string) => name.toLowerCase().normalize("NFD").rep
 export function template(kind: "status" | "wall", title: string, start = "standard"): PageConfig {
   const page = { title, description: "", footer: "", notice: "", notice_level: "", logo: "", preset: kind === "wall" ? "graphite" : "nyx", accent: "", refresh_s: kind === "wall" ? 15 : 60, zoom: 1 }
   if (start === "map") return { ...page, panels: [panel("overall", { x: 0, y: 0, w: 24, h: 2 }), panel("map", { x: 0, y: 2, w: 24, h: 18 })] }
-  if (kind === "status") return { ...page, panels: [panel("overall", { x: 0, y: 0, w: 24, h: 2 }), panel("services", { x: 0, y: 2, w: 24, h: 8 })] }
+  if (kind === "status") return { ...page, panels: [panel("overall", { x: 0, y: 0, w: 24, h: 2 }), panel("services", { x: 0, y: 2, w: 24, h: 8 }), panel("incidents", { x: 0, y: 10, w: 24, h: 8 })] }
   return { ...page, panels: [
     panel("stat", { x: 0, y: 0, w: 5, h: 3 }, { title: "Online", metric: "online" }),
     panel("stat", { x: 5, y: 0, w: 5, h: 3 }, { title: "Down", metric: "down" }),
     panel("stat", { x: 10, y: 0, w: 5, h: 3 }, { title: "Open alerts", metric: "alerts" }),
-    panel("stat", { x: 15, y: 0, w: 5, h: 3 }, { title: "Availability, 30 days", metric: "availability" }),
+    panel("stat", { x: 15, y: 0, w: 5, h: 3 }, { title: "Availability, 90 days", metric: "availability" }),
     panel("clock", { x: 20, y: 0, w: 4, h: 3 }),
     panel("tiles", { x: 0, y: 3, w: 16, h: 9 }),
     panel("alerts", { x: 16, y: 3, w: 8, h: 9 }),

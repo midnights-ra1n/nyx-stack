@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const SETTINGS: [&str; 11] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout", "probe_dns", "charts"];
+const SETTINGS: [&str; 12] = ["thresholds", "maintenance", "tempo", "tempo_calendar", "meross", "proxmox", "nextdns", "updates", "map_layout", "probe_dns", "charts", "monitor_dashboard"];
 const MAX_POINTS: usize = 400;
 
 fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
@@ -26,7 +26,7 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     let r = live.map(|l| &l.report);
     json!({
         "id": h.id, "name": h.name, "kind": h.kind, "parent": h.parent, "vmid": h.vmid, "guest_vmid": h.guest_vmid, "hostname": h.hostname, "ip": h.ip,
-        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted, "tags": h.tags,
+        "os": h.os, "kernel": h.kernel, "arch": h.arch, "agent_version": h.agent_version, "pve_node": h.pve_node, "muted": h.muted, "mcp_hidden": h.mcp_hidden, "tags": h.tags,
         "ct_autoinstall": h.ct_autoinstall, "dns": r.map(|r| &r.dns), "last_seen": h.last_seen, "status": host_status(h, now, th),
         "issues": host_issues(h, th).into_iter().map(|(level, message)| json!({"level": level, "message": message})).collect::<Vec<_>>(),
         "installed": h.last_seen > 0,
@@ -50,10 +50,11 @@ fn summary(h: &Host, now: i64, st: &crate::state::State) -> Value {
     })
 }
 
-pub fn hosts_json(app: &App) -> Vec<Value> {
+/// Every host; for the MCP server (`mcp`), those it may tell about.
+pub fn hosts_json(app: &App, mcp: bool) -> Vec<Value> {
     let now = Utc::now().timestamp();
     let st = app.lock();
-    let mut v: Vec<&Host> = st.hosts.values().collect();
+    let mut v: Vec<&Host> = st.hosts.values().filter(|h| !(mcp && h.mcp_hidden)).collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     v.iter().map(|h| summary(h, now, &st)).collect()
 }
@@ -63,17 +64,21 @@ async fn map(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
 }
 
 async fn hosts(_: Session, State(app): State<Arc<App>>) -> Json<Vec<Value>> {
-    Json(hosts_json(&app))
+    Json(hosts_json(&app, false))
 }
 
-pub fn overview_json(app: &App) -> Value {
+/// Fleet totals; for the MCP server (`mcp`), without the hosts and probes it must not tell about.
+pub fn overview_json(app: &App, mcp: bool) -> Value {
     let now = Utc::now().timestamp();
     let st = app.lock();
-    let online = st.hosts.values().filter(|h| host_status(h, now, &st.thresholds) != "off").count();
+    let hosts: Vec<&Host> = st.hosts.values().filter(|h| !(mcp && h.mcp_hidden)).collect();
+    let alerts: Vec<_> = st.alerts.iter().filter(|(k, _)| !(mcp && st.mcp_hides(k))).map(|(_, a)| a).collect();
+    let probes = st.probes.iter().filter(|(_, p)| !(mcp && p.def.mcp_hidden)).map(|(id, _)| id);
+    let online = hosts.iter().filter(|h| host_status(h, now, &st.thresholds) != "off").count();
     let (mut running, mut total) = (0, 0);
     let (mut cpu, mut mem, mut n) = (0.0, 0.0, 0.0);
     let mut storage = vec![];
-    for h in st.hosts.values() {
+    for h in &hosts {
         let Some(l) = h.live.as_ref().filter(|_| h.online(now)) else { continue };
         running += l.containers.iter().filter(|c| c.state == "running").count();
         total += l.containers.len();
@@ -84,20 +89,20 @@ pub fn overview_json(app: &App) -> Value {
             storage.push(json!({"host": h.name, "host_id": h.id, "mount": d.mount, "used": d.used, "total": d.total, "pct": pct(d.used, d.total)}));
         }
     }
-    let crit = st.alerts.values().filter(|a| a.severity == "crit").count();
+    let crit = alerts.iter().filter(|a| a.severity == "crit").count();
     json!({
-        "hosts_online": online, "hosts_total": st.hosts.len(),
-        "alerts": st.alerts.len(), "alerts_crit": crit,
-        "hosts_to_update": st.hosts.values().filter(|h| h.live.as_ref().is_some_and(|l| !l.updates.is_empty())).count(),
+        "hosts_online": online, "hosts_total": hosts.len(),
+        "alerts": alerts.len(), "alerts_crit": crit,
+        "hosts_to_update": hosts.iter().filter(|h| h.live.as_ref().is_some_and(|l| !l.updates.is_empty())).count(),
         "containers_running": running, "containers_total": total,
-        "availability_7d": st.uptime.availability(st.probes.keys(), Local::now().date_naive(), 7),
+        "availability_7d": st.uptime.availability(probes, Local::now().date_naive(), 7),
         "cpu": if n > 0.0 { cpu / n } else { 0.0 }, "mem": if n > 0.0 { mem / n } else { 0.0 },
         "storage": storage, "thresholds": st.thresholds,
     })
 }
 
 async fn overview(_: Session, State(app): State<Arc<App>>) -> Json<Value> {
-    Json(overview_json(&app))
+    Json(overview_json(&app, false))
 }
 
 pub fn host_json(app: &App, id: &str) -> Option<Value> {
@@ -105,12 +110,12 @@ pub fn host_json(app: &App, id: &str) -> Option<Value> {
     let st = app.lock();
     let h = st.hosts.get(id)?;
     let mut v = summary(h, now, &st);
+    v["alerting"] = json!(h.alerting);
     if let Some(l) = &h.live {
         v["disks"] = json!(l.report.disks);
         v["containers"] = json!(l.containers);
         v["smart"] = json!(l.smart);
         v["update_list"] = json!(l.updates);
-        v["node"] = json!(l.node);
         v["firewall"] = json!(l.firewall);
         v["repos"] = json!(l.repos);
         v["guests"] = json!(l.guests);
@@ -218,15 +223,19 @@ async fn delete_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Str
 #[derive(Deserialize)]
 struct HostPatch {
     muted: Option<bool>,
+    mcp_hidden: Option<bool>,
+    alerting: Option<crate::state::Alerting>,
     tags: Option<Vec<String>>,
     /// The name shown in Nyx. The machine's hostname stays as it is.
     name: Option<String>,
 }
 
-/// Renames a host, sets its tags, or keeps it out of alerts and notifications. Muted,
-/// its open alerts close quietly; unmuted, it alerts again from its next report.
+/// Renames a host, sets its tags and what it alerts on, keeps it out of alerts and
+/// notifications or out of the MCP server's answers. Muted, its open alerts close quietly;
+/// unmuted, it alerts again from its next report.
 async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<String>, Json(b): Json<HostPatch>) -> ApiResult<Json<Value>> {
     let tags = b.tags.as_ref().map(|t| crate::state::parse_tags(t.iter().map(String::as_str)));
+    let alerting = b.alerting.map(|a| a.clean().map_err(ApiError::bad_request)).transpose()?;
     let name = b.name.as_deref().map(str::trim);
     let mut rec = serde_json::Map::new();
     if name == Some("") {
@@ -252,6 +261,12 @@ async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Stri
         if let Some(m) = b.muted {
             h.muted = m;
         }
+        if let Some(m) = b.mcp_hidden {
+            h.mcp_hidden = m;
+        }
+        if let Some(a) = &alerting {
+            h.alerting = a.clone();
+        }
         if let Some(t) = &tags {
             h.tags = t.clone();
         }
@@ -262,12 +277,20 @@ async fn patch_host(_: Session, State(app): State<Arc<App>>, Path(id): Path<Stri
     if let Some(m) = b.muted {
         rec.insert("muted".into(), m.into());
     }
+    if let Some(m) = b.mcp_hidden {
+        rec.insert("mcp_hidden".into(), m.into());
+    }
+    if let Some(a) = &alerting {
+        rec.insert("alerting".into(), json!(a));
+    }
     if let Some(t) = &tags {
         rec.insert("tags".into(), t.join(",").into());
     }
     app.core.pb.update("hosts", &id, &Value::Object(rec)).await?;
     if b.muted == Some(true) {
         app.silence(&id).await?;
+    } else if alerting.is_some() {
+        app.settle_alerts(&id).await?;
     }
     Ok(Json(json!({"tags": tags})))
 }
@@ -612,16 +635,20 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
             let app = app.clone();
             Box::pin(async move {
                 match name.as_str() {
-                    "infrastructure_status" => Ok(overview_json(&app)),
-                    "list_hosts" => Ok(json!(hosts_json(&app))),
+                    "infrastructure_status" => Ok(overview_json(&app, true)),
+                    "list_hosts" => Ok(json!(hosts_json(&app, true))),
                     "get_host" => {
                         let wanted = args["name"].as_str().unwrap_or_default();
-                        let id = app.lock().hosts.values().find(|h| h.name == wanted || h.hostname == wanted).map(|h| h.id.clone());
+                        let id = app.lock().hosts.values().find(|h| !h.mcp_hidden && (h.name == wanted || h.hostname == wanted)).map(|h| h.id.clone());
                         id.and_then(|id| host_json(&app, &id)).ok_or_else(|| anyhow::anyhow!("no host named {wanted}"))
                     }
-                    "list_alerts" => Ok(json!(app.core.pb.list("alerts", "open = true", "-created").await?.iter()
-                        .map(|a| json!({"severity": a["severity"], "message": a["message"], "host": a["host"], "since": a["created"]})).collect::<Vec<_>>())),
-                    "list_probes" => Ok(json!(crate::probes::snapshot(&app))),
+                    "list_alerts" => {
+                        let rows = app.core.pb.list("alerts", "open = true", "-created").await?;
+                        let st = app.lock();
+                        Ok(json!(rows.iter().filter(|a| !st.mcp_hides(a["key"].as_str().unwrap_or_default()))
+                            .map(|a| json!({"severity": a["severity"], "message": a["message"], "host": a["host"], "since": a["created"]})).collect::<Vec<_>>()))
+                    }
+                    "list_probes" => Ok(json!(crate::probes::snapshot(&app).into_iter().filter(|p| p["mcp_hidden"] != true).collect::<Vec<_>>())),
                     "list_pipelines" => Ok(json!(crate::pipelines::snapshot(&app))),
                     other => anyhow::bail!("unknown tool {other}"),
                 }

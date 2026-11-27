@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { addressMap, mergePatch } from "./ipam"
 import { ip4, ip4str } from "./ipcalc"
-import { parseLinks } from "./overview"
+import { parseLinks } from "../ui/widgets"
 
 describe("ipam helpers", () => {
   it("converts IPv4 both ways and rejects the rest", () => {

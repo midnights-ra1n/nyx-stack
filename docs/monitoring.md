@@ -4,7 +4,7 @@
 
 Every page made of blocks has a **Customize** button, in the **More** menu on a phone:
 the overview, hosts, host detail, containers, network, storage, alerts and logs in the
-monitor, and the overview, IPAM, network map, sites and tasks in the manager.
+monitor, and the overview, IPAM, network map and work in the manager.
 
 - Slide a block where you want it, by its handle on a phone, or use the arrows from the
   keyboard.
@@ -27,6 +27,82 @@ is filled and how often. Tables follow the width of their block rather than the
 window: tighter cells in a narrow block, one labelled line per field in a very narrow
 one. Numbers, sizes and dates follow the language of the interface, so French shows
 `12,5 Gio` and `3,2 %`.
+
+The overview is a dashboard with tabs, like the manager's: **Add a card** builds
+charts, numbers, gauges and tables from the monitor's rows, the way
+[the manager's cards](manager.md#cards-and-charts) work, and **Add a tab** adds a tab,
+empty or [ready-made](manager.md#tabs): *Performance* (CPU, memory and temperature per
+host, fleet load), *Capacity* (storage used, fullest disks, memory, fullest file systems),
+*Availability* (probes by state, 90-day probe uptime, alerts per day, hosts with the most
+alerts, time to recover), *Containers and services* and *Updates* (pending and security
+updates, restarts required, systems and agent versions). Charts of rows over time follow
+the period at the top of the page unless they set their own.
+
+| Rows | Holds |
+| --- | --- |
+| Hosts | Type, state, system, kernel, architecture, address, the host it runs on, CPU, memory, swap, fullest disk, temperature, uptime, network, updates, containers, services, Proxmox guests, problems, agent version and whether it is outdated, restart required, tags |
+| Host metrics over time | CPU, memory, fullest disk, temperature and network of each host point by point, with its type and tags; the first 24 hosts |
+| Fleet load over time | Average CPU and memory of the hosts reporting |
+| Host problems | What each host has wrong now (full disk, high load, failed service…), its severity and the type of host |
+| Proxmox guests | Every VM and container of the Proxmox hosts, agent or not: VMID, type, state, node, system, address, CPU, memory, disk, uptime, network |
+| Pending updates | One row per package waiting on a host: package, new version, security fix or not |
+| Containers | Docker containers: host, image, state, CPU, memory and its limit |
+| Services | systemd services: state, detail, last result, start at boot, kind, in this state since, CPU, memory, restarts |
+| File systems | Mount point, host, file system, device, used, free, size, whether the host is online |
+| Physical disks | What SMART says: model, health, life left, temperature, hours powered on, bad sectors, power cycles, bytes written, size, serial |
+| Listening ports | Port, protocol, address, program, and whether Docker publishes it |
+| Firewall rules | Action, port, protocol, source, interface, IP version, chain, comment and the firewall holding them |
+| VPN tunnels | Interface, kind of VPN, address, up or not, traffic, last time up |
+| Probes | Type, state, category, target, message, response time, recent and 90-day uptime, certificate days left |
+| Probe response time over time | Response time of each probe, point by point; at most 24 probes at once |
+| Probe uptime per day | Share of successful checks of each probe, day by day over 90 days |
+| SNMP readings | Latest value of each reading of the SNMP probes, its unit and state |
+| Alerts | Message, host, severity, type, open, when opened and resolved, how long it lasted |
+| Notifications sent | Title, message, host, subject and severity of each notification, over the period |
+| Log lines | Time, level, service, host and message of the warnings and errors kept in memory |
+| Pipelines, pipeline runs | Forge, repository, branch, state of the latest run and counts of successes and failures; or one row per recent run |
+| Power plugs | What each Meross plug draws now |
+| EDF Tempo days left | Days left, used and in the season for each colour |
+
+Pending updates, listening ports and firewall rules ask each host for its full record,
+one request per host that has something to show, on each refresh.
+
+Host metrics over time come two ways, both under **Add a card**:
+
+- **Simple**: the **Metrics over time** card, built like [a chart of the Charts
+  page](#charts) from your groups of hosts and the metrics you add.
+- **Advanced**: any chart type on the rows *Host metrics over time* or *Fleet load over
+  time*, with everything the full editor has: filters on type, tags or values, functions,
+  formulas, series, stacking, thresholds.
+
+A simple card opens in the full editor as it is: on its **Type** step, pick a chart type
+and its groups become a filter on tags, its metrics measures, and one line per host a
+series per host. Picking **Metrics over time** again on a chart of these rows brings back
+its metrics, how it folds hosts, its look and its period; its filters are dropped. Both
+follow the period of the page unless they have their own. **One series per** offers no
+dates: they named every series after its year.
+
+### Groups and averages
+
+**Show**, at the top of the overview, picks which hosts its blocks cover: every host, a
+type of host (VM, LXC container, physical server, Proxmox server, VPS), a group, or a
+single host. The choice is remembered by the browser. **Average usage** then shows the
+average CPU and memory of the online hosts shown, and their average temperature when
+some of them have a sensor. VMs and containers report none, so with a group holding VMs
+and physical servers the temperature is the average of the physical ones only; the
+footer of the block says how many hosts each figure comes from. **Load** draws the
+average of the hosts shown (at most 24) over the period, **Hosts** and **Storage** list
+only them.
+
+**Groups**, beside **Show**, creates, renames and deletes groups: give a name, then tick
+hosts, or a whole type at once with the buttons above the list. A group is a
+[tag](#tags) on its hosts, so it also filters the host list, the charts and the updates;
+deleting a group leaves its hosts alone. Types make groups by themselves.
+
+The **By group** block has one line per type and per group with its number of online
+hosts and their average CPU, memory and temperature, a dash where no host has a sensor.
+Click a line to show only that group, again to show every host. On a layout you arranged
+before, it starts among the hidden blocks of **Customize**.
 
 Layouts are stored in your browser, separately for desktop and phone. All host pages
 share one layout. A block a host cannot show, such as SMART on a VM, is skipped there
@@ -117,6 +193,9 @@ one off. Up to 20 per host, 32 characters each. A tag keeps its colour everywher
   does the same. `/hosts?tag=prod` opens the list filtered.
 - The [Updates](#updates) page acts on the hosts of a tag.
 - [Charts](#charts) draw the hosts of a tag, fixed or picked at the top of the page.
+- The overview shows only the hosts of a tag, with their averages: see
+  [groups and averages](#groups-and-averages), which also adds and removes a tag on many
+  hosts at once.
 
 The manager has tags too, on hardware, virtual assets, tasks and deployments: see
 [inventory](manager.md#inventory).
@@ -146,22 +225,47 @@ and the menu shows how many hosts have updates.
 sees the same ones. It starts with four examples; **Bring back the examples** restores
 them.
 
-**Add chart** asks five things, with a live preview beside the form:
+**Add chart** opens the same editor as the cards of the overview, with a live preview, and
+its **Type** step chooses between two ways:
+
+- **Metrics over time**, the simple way: groups of hosts and metrics, described below.
+- Any chart type, the advanced way: the full editor on [every row of the
+  monitor](#customizing-the-pages), host metrics over time included, with filters,
+  functions, formulas, series and thresholds. A simple chart switched to a chart type
+  keeps what it shows.
+
+A simple chart is built from **groups** of hosts you make yourself and **metrics** you add
+by hand:
 
 | Field | Choices |
 | --- | --- |
-| Measure | CPU, memory, fullest disk, temperature, network in, network out |
-| Hosts | All hosts, the **Host** variable, the **Tag** variable, one tag, or hosts ticked in a list |
-| Show | One line per host, their average, or the highest of them |
-| Look | Areas, lines, or bars of the latest value, longest first |
-| Title | Free text; `$host` and `$tag` read as what the variables hold |
+| Groups | **All hosts** and each group you made; **New group** makes one without leaving the form |
+| Metrics | CPU, memory, fullest disk, temperature, network in, network out, as many as you like |
+| Combine | Average of each group, highest of each group, or one line per host |
+| Look | Lines or areas |
+| Period | The page's period, or one of the chart's own |
 
-The variables sit at the top of the page: **Host**, **Tag** and the period. Change one and
-every chart that uses it follows, so one chart "CPU of `$tag`" serves every tag. They are
-remembered by the browser. With a variable left on **All**, its charts take every host.
+A group is a [tag](#tags) on its hosts: make it in **Groups**, on the overview or from
+the chart form, by naming it and ticking its hosts (a whole type at once if you like).
+A chart draws one line per group and metric, named by what tells the lines apart: the
+group when there are several, the metric when several share the chart. Metrics of
+different units are not mixed on one axis: percentages (CPU, memory, disk), the
+temperature and the network each get a chart of their own, one under the other, in the
+same block. A line with no data, such as the temperature of a group of VMs, which have
+no sensor, is left out and named below the chart.
 
-A chart draws at most 24 hosts. Each one's menu edits, duplicates, moves or deletes it,
-and **Full width** gives a chart the whole row.
+The period sits at the top of the page and is remembered by the browser. Charts saved
+before groups existed are read as simple charts: a chart of one tag becomes a chart of
+that group, any other one a chart of all hosts.
+
+The legend under a chart filters it, as in Grafana: click a series to keep only that
+one, click it again to bring them all back, and Ctrl-click (⌘ or Shift too) to hide or
+show one series without touching the others. Every line chart of the interface does
+the same, and the filter lasts until the page is left.
+
+A chart reads at most 24 hosts. Each one's menu edits, duplicates, moves or deletes it,
+and **Full width** gives a chart the whole row (**Half width** gives it back). Dashboards
+offer the same two ways: see [customizing the pages](#customizing-the-pages).
 
 The host list is a tree: guests appear under their Proxmox host. LXC containers only
 appear when that host watches them, with figures from Proxmox and no agent inside: see
@@ -170,10 +274,20 @@ containers too.
 
 ## Map
 
-**Map** draws the whole homelab around one hub, updated at the refresh rate of the
-interface: Proxmox and physical servers first, with their VMs and containers behind
-them, then the probes. A node takes the colour of its state, and so does its link when
-something is wrong. The hub takes the worst state, a stopped guest counting as a warning.
+**Map** draws the whole homelab as cards around one hub, updated at the refresh rate of
+the interface. Top-level hosts and probes are shared between the left and the right of
+the hub so that both columns stay short; a Proxmox or physical server has its VMs and
+containers in the next column out. Each card shows the icon of its type, its name, its
+address (or a probe's target) and a dot in the colour of its state.
+
+Cards are tied to their parent by connectors: a cable that leaves the side of one card
+facing the other, with a port at each end. While a host is up, dots run along its
+connector from the parent to the child, in the colour of its state and faster on a
+warning, faster still on a critical state; an offline host has a dashed connector with
+nothing running. A probe's connector carries its response time. A critical card pulses,
+and the hub, which takes the worst state (a stopped guest counting as a warning),
+breathes in its colour. On load, the cards come in ring after ring from the hub, each
+connector drawing itself first. With reduced motion set in the system, nothing moves.
 
 Three views switch at the top right of the map: the **map** itself, a **tree** (each Proxmox host
 with its VMs and containers under it) and **by type**, one card per kind of device with the
@@ -186,14 +300,16 @@ display stays on the map.
   page: zoom there with the buttons or two fingers.
 - **Find on the map** outlines the nodes whose name or details hold every word typed
   and fades the rest; Enter centres the first one.
-- Hover or focus a node for its address, CPU, memory and temperature, or its target and
+- Hover or focus a card for its address, CPU, memory and temperature, or its target and
   latency for a probe, shown at the bottom right. Its hosts above it and its guests
-  below it stay lit, with their links, and the rest fades.
+  below it stay lit, their connectors turn orange and run twice as fast, and the rest
+  fades.
 - Click a node, or press Enter on it, to open its page. Guests that are watched from
   Proxmox without a host of their own have no page.
-- Drag a node to place it. Places are saved on the monitor, so every browser sees the
-  same map. New nodes find a free spot around the hub, and **Reset layout** forgets all
-  places.
+- Drag a card to place it. Places are saved on the monitor, so every browser sees the
+  same map. New cards find a free row beside the hub, and **Reset layout** forgets all
+  places. Places saved on the earlier round map are kept: press **Reset layout** once
+  to put every card in its column.
 
 Live maps can also be placed on [status pages and wall displays](status-pages.md#live-map).
 
@@ -216,8 +332,10 @@ networking mode, common in unprivileged containers, has no interface and is not 
 Add them in **Network**. The page works like Uptime Kuma: on the left, every probe with
 its uptime over the recent checks and a bar per check, down ones first; on the right,
 the selected probe with its last 60 checks, current and average response time, uptime
-over the recent checks and over 30 days, one bar per day, the response time chart and
-its SNMP readings. **Pause** stops a probe without deleting it. Search and the **Show**
+over the recent checks and over 90 days, one bar per day, the response time chart and
+its SNMP readings. **Pause** stops a probe without deleting it. **Keep out of alerts**, in
+its settings, leaves it running and charted but never alerting: its open alerts close
+without a notice. **Hide from the MCP server** leaves it out of what assistants see. Search and the **Show**
 filter narrow the list.
 
 Each line of the list holds a probe's state, name, target, last response time, uptime
@@ -323,6 +441,26 @@ community in clear text.
 Set warning and critical levels for usage and temperature in **Settings, Monitoring**.
 Alerts need three points of margin to clear, which prevents flapping.
 
+**Alerts** lists the open ones and those resolved over the last 90 days. Resolved alerts
+are kept at least 90 days, whatever the history setting, as status pages show them as
+incidents.
+
+### What a host alerts on
+
+Open a host and press **Alert settings**:
+
+| Setting | Effect |
+| --- | --- |
+| Alert on | The checks that alert: not responding, CPU, memory, swap, disk space, temperature, disk health (SMART, physical hosts), failed services, containers, VPN tunnels, updates available, restart required |
+| Thresholds | This host's own warning and critical levels, in percent and in °C. Empty fields keep those of the settings |
+| Down after | Minutes of silence before *not responding* opens, for a host that sleeps or reboots often. 0 is after two missed reports |
+| Never alert on | Mount points, disks, services, containers or VPN interfaces to leave out, one per line, as Nyx names them |
+
+CPU, swap and *restart required* are off until you tick them. A CPU alert needs five
+minutes above the threshold, averaged, so a busy minute stays quiet. Turning a check off
+closes its open alert without a notice. The host's own thresholds and ignored names also
+decide the colour of its state badge; a check turned off is still measured and shown.
+
 ### Excluding a host
 
 A test machine or a host you switch off at night can stay out of alerts. Open the host
@@ -331,7 +469,17 @@ opens an alert or sends a notification, whether it stops answering, fills up, ru
 has a failing disk or has updates waiting. Its open alerts close without a notice. The
 host list marks it with a muted bell. **Alert again** brings it back from its next report.
 
+Excluding is not pausing: a paused probe is no longer checked, an excluded host or probe
+still is, and its charts and uptime keep filling.
+
 Excluding a Proxmox node does not exclude its containers: each host has its own switch.
+
+### Hiding from the MCP server
+
+**Hide from the MCP server**, in a host's alert settings or a probe's settings, is a
+separate switch: assistants linked through [MCP](integrations.md) no longer see that host
+or probe, nor its alerts, and the totals of `infrastructure_status` leave it out. It still
+alerts, unless you exclude it too. The host and probe lists mark it with a crossed eye.
 
 ## Storage
 
@@ -339,6 +487,11 @@ The **Storage** page lists every file system, fullest first, with its host, moun
 point, type, device, used, free and total space. Filter it by host, or select a host
 name to open its page. An offline host keeps its last known figures, marked Offline.
 Older agents do not send the type and device, which then show a dash.
+
+The page has two bands. On top, side by side, **Capacity** (used and free space, healthy
+disks, the hottest disk) and **Needs attention**; below, across the page, the file
+systems and the physical disks. **Customize** arranges each band on its own: the number
+of columns, the order and the hidden blocks, such as **Usage per host** in the top band.
 
 The **Storage** block of the overview is a tree: hosts under their Proxmox server, and
 mount points under each host. A host with one mount point is one row, and a collapsed
@@ -396,6 +549,10 @@ The **Logs** page shows each line as a time, a level, a service and a message. I
 messages are folded into their latest occurrence with the number of repeats. Filter by
 host, level or text, or select a service under **Noisiest services**. The host page has
 the same journal as a block.
+
+The summary (errors, warnings, services, hosts) and **Noisiest services** sit side by side
+on top, the journal across the page below. As on **Storage**, **Customize** arranges each
+band on its own; **Noisiest hosts** waits among the hidden blocks of the top band.
 
 ### Live logs
 

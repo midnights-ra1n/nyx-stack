@@ -20,7 +20,7 @@ const STARTS = [{ value: "standard", label: "The usual panels" }, { value: "map"
 
 const HOST_METRICS = [["cpu", "CPU"], ["mem", "Memory"], ["swap", "Swap"], ["disk", "Fullest disk"], ["temp", "Temperature"], ["rx", "Network in"], ["tx", "Network out"]]
 const PROBE_METRICS = [["latency", "Latency"], ["cert_days", "Certificate days left"]]
-const COUNTS = [["online", "Number online"], ["down", "Number down"], ["containers", "Running containers"], ["availability", "Availability, 30 days"], ["alerts", "Open alerts"]]
+const COUNTS = [["online", "Number online"], ["down", "Number down"], ["containers", "Running containers"], ["availability", "Availability, 90 days"], ["alerts", "Open alerts"]]
 const SERIES = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["temp", "Temperature"], ["rx", "Network in"], ["tx", "Network out"], ["latency", "Probe latency"]]
 
 function NewPage({ onDone }: { onDone: () => void }) {
@@ -82,22 +82,26 @@ export function PagesList() {
   )
 }
 
-function ItemPicker({ items, onChange, hint }: { items: Item[]; onChange: (i: Item[]) => void; hint: string }) {
+function ItemPicker({ items, onChange, hint, groups }: { items: Item[]; onChange: (i: Item[]) => void; hint: string; groups?: boolean }) {
   const hosts = useApi<any[]>("/api/hosts", { poll: false }).data ?? []
   const probes = useApi<any[]>("/api/probes", { poll: false }).data ?? []
   const all: { kind: Item["kind"]; id: string; name: string }[] = [...hosts.map((h) => ({ kind: "host" as const, id: h.id, name: h.name })), ...probes.map((p) => ({ kind: "probe" as const, id: p.id, name: p.name }))]
+  const known = [...new Set(items.map((i) => i.group?.trim()).filter(Boolean))] as string[]
+  const field = "h-10 min-w-0 rounded-control border border-line2 bg-bg px-3"
   return (
     <fieldset className="col-span-full flex flex-col gap-1">
       <legend className="mb-1 text-[13px] text-fg2">{t("Shows")}</legend>
-      <p className="mb-1 text-xs text-fg3">{hint}</p>
+      <p className="mb-1 text-xs text-fg3">{t(hint)}{groups && <> {t("Items with the same category are listed together, under its name.")}</>}</p>
+      {groups && <datalist id="nyx-page-groups">{known.map((g) => <option key={g} value={g} />)}</datalist>}
       {all.length === 0 && <Empty>{t("No hosts or probes yet.")}</Empty>}
       <ul className="flex max-h-64 flex-col gap-1 overflow-auto">
         {all.map((a) => {
           const on = items.find((i) => i.id === a.id)
           return (
-            <li key={a.id} className="grid min-h-9 max-sm:min-h-11 grid-cols-2 items-center gap-3 max-sm:grid-cols-1">
+            <li key={a.id} className={`grid min-h-9 max-sm:min-h-11 items-center gap-3 max-sm:grid-cols-1 ${groups ? "grid-cols-3" : "grid-cols-2"}`}>
               <Check label={`${a.name} (${a.kind})`} checked={!!on} onChange={(e) => onChange(e.target.checked ? [...items, { kind: a.kind, id: a.id, label: "" }] : items.filter((i) => i.id !== a.id))} />
-              {on && <input aria-label={t("Public name for {name}", { name: a.name })} placeholder={t("Name shown here")} value={on.label} className="h-10 rounded-control border border-line2 bg-bg px-3" onChange={(e) => onChange(items.map((i) => (i.id === a.id ? { ...i, label: e.target.value } : i)))} />}
+              {on && <input aria-label={t("Public name for {name}", { name: a.name })} placeholder={t("Name shown here")} value={on.label} className={field} onChange={(e) => onChange(items.map((i) => (i.id === a.id ? { ...i, label: e.target.value } : i)))} />}
+              {on && groups && <input aria-label={t("Category of {name}", { name: a.name })} placeholder={t("Category")} list="nyx-page-groups" maxLength={80} value={on.group ?? ""} className={field} onChange={(e) => onChange(items.map((i) => (i.id === a.id ? { ...i, group: e.target.value } : i)))} />}
             </li>
           )
         })}
@@ -109,7 +113,7 @@ function ItemPicker({ items, onChange, hint }: { items: Item[]; onChange: (i: It
 function metricOptions(p: PanelCfg, wall: boolean, probes: any[]) {
   if (p.type === "timeseries") return SERIES
   const readings = p.items.filter((i) => i.kind === "probe").flatMap((i) => (probes.find((x) => x.id === i.id)?.readings ?? []).map((r: any) => [`reading:${r.label}`, r.label]))
-  const single = [...HOST_METRICS, ...PROBE_METRICS, ...readings, ["uptime", "Uptime, 30 days"]]
+  const single = [...HOST_METRICS, ...PROBE_METRICS, ...readings, ["uptime", "Uptime, 90 days"]]
   return p.type === "stat" ? [...COUNTS.filter(([k]) => wall || k !== "alerts"), ...single] : single
 }
 
@@ -128,10 +132,11 @@ function PanelForm({ panel, wall, onSave, onClose }: { panel: PanelCfg; wall: bo
         {usesMetric && <Select label="Metric" value={p.metric} onChange={(e) => set({ metric: e.target.value })} options={metricOptions(p, wall, probes).map(([value, label]) => ({ value, label }))} />}
         {p.type === "pipelines" && <Select label="View" value={p.metric || "list"} onChange={(e) => set({ metric: e.target.value })} options={PIPELINE_VIEWS.map((v) => ({ value: v.id, label: v.label }))} />}
         {p.type === "nextdns" && <Select label="Period" value={p.metric || "7"} onChange={(e) => set({ metric: e.target.value })} options={NEXTDNS_PERIODS} hint={wall ? undefined : "The most blocked domains only show on walls."} />}
-        {p.type === "services" && <Check label="Show 30 days of uptime" checked={p.uptime} onChange={(e) => set({ uptime: e.target.checked })} />}
+        {p.type === "services" && <Check label="Show 90 days of uptime" checked={p.uptime} onChange={(e) => set({ uptime: e.target.checked })} />}
         {p.type === "map" && !wall && <div className="col-span-full"><Check label="Show every host and probe, including new ones" hint="Their real names become public." checked={everything} onChange={(e) => set({ metric: e.target.checked ? "all" : "", items: [] })} /></div>}
         {p.type === "text" && <div className="col-span-full"><TextArea label="Text" rows={5} value={p.text} onChange={(e) => set({ text: e.target.value })} /></div>}
-        {usesItems && <ItemPicker items={p.items} onChange={(items) => set({ items })} hint={wall ? "Leave everything unticked to show all hosts and probes." : "Only what you tick is public. Give it another name to hide the real one."} />}
+        {usesItems && <ItemPicker items={p.items} groups={p.type === "services" || p.type === "tiles"} onChange={(items) => set({ items })}
+          hint={p.type === "incidents" ? "Outages and slowdowns of the last 90 days, with when and for how long, never what the alert said. Leave everything unticked to cover what the other panels show." : wall ? "Leave everything unticked to show all hosts and probes." : "Only what you tick is public. Give it another name to hide the real one."} />}
         <div className="col-span-full grid grid-cols-4 gap-3">{num("x", "Column")}{num("y", "Row")}{num("w", "Width")}{num("h", "Height")}</div>
         <div className="col-span-full"><Button variant="primary" type="submit">{t("Apply")}</Button></div>
       </form>

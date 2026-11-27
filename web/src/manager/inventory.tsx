@@ -1,20 +1,14 @@
-import { GlobeAltIcon, MapPinIcon, CpuChipIcon, RectangleStackIcon, ViewColumnsIcon, ArrowPathIcon, ArrowsRightLeftIcon, Bars4Icon, PencilSquareIcon, PowerIcon, TrashIcon, XMarkIcon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CubeIcon, CubeTransparentIcon, PlusIcon, PrinterIcon, ServerIcon, ShieldCheckIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline"
+import { ArrowsRightLeftIcon, Bars4Icon, BoltIcon, CircleStackIcon, CommandLineIcon, ComputerDesktopIcon, CpuChipIcon, CubeIcon, CubeTransparentIcon, PencilSquareIcon, PlusIcon, PowerIcon, PrinterIcon, RectangleStackIcon, ServerIcon, ShieldCheckIcon, SignalIcon, TrashIcon, ViewColumnsIcon, WifiIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
-import { Board, CustomizeButton } from "../ui/board"
-import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Meter, Mono, Panel, Progress, Select, Stat, Status, Table, Tabs, Td, TextArea, Variable, ask, SearchInput, Skeleton } from "../ui/components"
+import { Button, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, SearchInput, Status, Table, Tabs, Td, Variable, ask } from "../ui/components"
 import { t } from "../ui/i18n"
-import { type Item, joinChecklist, ProgressSummary, splitChecklist } from "./progress"
-import { type Col, CrudPage, Editor, EditorGroup, Facets, RecordForm, RecordPage } from "../ui/crud"
+import { type Col, CrudPage, RecordForm, RecordPage } from "../ui/crud"
 import { api, fmt, type Level, levelText, sortRows, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader, Section } from "../ui/shell"
-import { deployLevel } from "./overview"
-import { parseTags, type WorkItem, WorkView } from "./work"
-import { splitTags, TagInput } from "../ui/tags"
-import { findHost, LiveCell, LivePanel, liveLevel, useLiveHosts } from "./live"
 import { spot } from "./racks"
-import { DistroIcon, osName } from "../ui/brand-icons"
+import { DeviceInterventions } from "./work"
 
-const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
+export const STATUS_LEVEL: Record<string, Level> = { "In service": "ok", Spare: "info", Broken: "crit", Retired: "off" }
 export const CATEGORIES: Record<string, Icon> = { Server: ServerIcon, Switch: ArrowsRightLeftIcon, Router: SignalIcon, Firewall: ShieldCheckIcon, NAS: CircleStackIcon, UPS: BoltIcon, "Access point": WifiIcon, "Patch panel": Bars4Icon, PDU: PowerIcon, Printer: PrinterIcon, Other: CubeIcon }
 const categoryCell = (h: any) => {
   const I = CATEGORIES[h.category]
@@ -75,124 +69,91 @@ function useHardwareCols() {
   return { cols, where }
 }
 
-/** The monitoring column, only with a linked monitor. */
-const withLive = (cols: Col[], live: any[] | null | undefined): Col[] =>
-  live ? [...cols, { key: "live", label: "Monitoring", listOnly: true, render: (r) => <LiveCell hosts={live} row={r} /> }] : cols
+const VIRTUAL_LABELS: Record<string, string> = { vm: "Virtual machine", container: "Container", docker: "Docker" }
 
-/** A monitored machine the inventory does not have yet, added as a server under its name. */
-export const adoptHost = (h: any) => api("/api/c/hardware", { body: { ...HW_DEFAULTS, name: h.name, category: "Server" } })
-
-/** One device of the inventory as a card: what it is, where it stands, how it is doing, and what runs on it. */
-function DeviceCard({ h, host, place, guests }: { h: any; host?: any; place?: any; guests: any[] }) {
-  const I = CATEGORIES[h.category] ?? CubeIcon
-  const level = host ? liveLevel(host) : undefined
-  const model = [h.manufacturer, h.model].filter(Boolean).join(" ")
-  const w = warranty(h.warranty_until)
-  const bar = (label: string, pct?: number | null) => pct == null ? null : (
-    <div className="min-w-0"><div className="flex justify-between text-[11px] text-fg3"><span>{t(label)}</span><span className="tabular-nums">{fmt.pct(pct)}</span></div><Meter pct={pct} /></div>
-  )
-  return (
-    <Link to={`/hardware/${h.id}`} className="group flex flex-col gap-3 rounded-panel border border-line bg-surface p-4 hover:border-line2">
-      <div className="flex items-start gap-3">
-        <span className="relative flex size-11 shrink-0 items-center justify-center rounded-box text-accent"><span className="absolute inset-0 rounded-box bg-current opacity-15" /><I className="size-6" aria-hidden /></span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium group-hover:text-accent">{h.name}</span>
-          <span className="block truncate text-xs text-fg3">{model || t(h.category || "Other")}</span>
-        </span>
-        {level ? <Status cell level={level} label="" /> : h.status && h.status !== "In service" ? <Status cell level={STATUS_LEVEL[h.status] ?? "off"} label={h.status} /> : null}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg2">
-        <span className="inline-flex items-center gap-1.5"><MapPinIcon className="size-4 text-fg3" aria-hidden />{place ? `${place.name} · ${spot(place, h)}` : h.location || t("Not placed")}</span>
-        {(host?.ip || h.mgmt_ip) && <span className="inline-flex items-center gap-1.5 font-mono"><GlobeAltIcon className="size-4 text-fg3" aria-hidden />{host?.ip || h.mgmt_ip}</span>}
-        {host?.os && <span className="inline-flex min-w-0 items-center gap-1.5"><DistroIcon os={host.os} className="size-4 text-fg3" /><span className="truncate">{osName(host.os)}</span></span>}
-        {w && w.level !== "ok" && <span className={`inline-flex items-center gap-1.5 ${levelText[w.level]}`}><ShieldCheckIcon className="size-4" aria-hidden />{w.label}</span>}
-      </div>
-      {host && host.status !== "off" && <div className="grid grid-cols-3 gap-3">{bar("CPU", host.cpu)}{bar("Memory", host.mem)}{bar("Disk", host.disk)}</div>}
-      {guests.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 border-t border-line pt-3">
-          {guests.slice(0, 8).map((g) => { const G = VIRTUAL_TYPES[g.type] ?? CubeIcon; return <span key={g.id} className="inline-flex h-6 max-w-40 items-center gap-1 rounded-md bg-raised px-1.5 text-xs text-fg2"><G className="size-3.5 shrink-0" aria-hidden /><span className="truncate">{g.name}</span></span> })}
-          {guests.length > 8 && <span className="inline-flex h-6 items-center px-1 text-xs text-fg3">{t("+{n}", { n: guests.length - 8 })}</span>}
-        </div>
-      )}
-    </Link>
-  )
-}
-
-/** The inventory as cards, grouped by the place each device stands in, with what runs on it. */
-function InventoryCards({ toggle, live }: { toggle: React.ReactNode; live: any[] | null | undefined }) {
+/**
+ * The inventory as one table, grouped by place or category: each device is followed by what
+ * runs on it, and that by what runs inside, as their Runs on field says.
+ */
+function InventoryTree({ toggle }: { toggle: React.ReactNode }) {
   const hw = useApi("/api/c/hardware?sort=name&perPage=500", { poll: false })
   const racks = useApi("/api/c/racks?sort=name&perPage=200", { poll: false })
   const va = useApi("/api/c/virtual_assets?sort=name&perPage=500", { poll: false })
   const [query, setQuery] = useState("")
-  const [category, setCategory] = useState("")
   const [group, setGroup] = useStored("nyx.inventory.group", "place")
-  const [error, setError] = useState("")
   const all: any[] = hw.data?.items ?? []
+  const virtual: any[] = va.data?.items ?? []
   const places: any[] = racks.data?.items ?? []
   const placeOf = (h: any) => places.find((p) => p.id === h.rack && h.rack_u > 0)
-  // What runs on a device: the guests the monitor sees on its host, and the virtual records that name it.
-  const guests = (h: any, host?: any) => {
-    const seen = (live ?? []).filter((g: any) => host && g.parent === host.id).map((g: any) => ({ id: g.id, name: g.name, type: g.kind === "lxc" ? "container" : "vm" }))
-    const named = (va.data?.items ?? []).filter((a: any) => same(a.parent, h.name) || (!!host && (same(a.parent, host.name) || same(a.parent, host.hostname))))
-    return [...seen, ...named.filter((a: any) => !seen.some((g: any) => same(g.name, a.name)))]
-  }
   const needle = query.trim().toLowerCase()
-  const shown = all.filter((h) => (!category || h.category === category) && (!needle || [h.name, h.model, h.manufacturer, h.serial, h.location, h.tags].some((v) => String(v ?? "").toLowerCase().includes(needle))))
-  const unknown = (live ?? []).filter((h: any) => (h.kind === "physical" || h.kind === "proxmox") && !all.some((d) => findHost([h], d)))
+  const hit = (r: any) => !needle || [r.name, r.model, r.manufacturer, r.serial, r.location, r.ip, r.mgmt_ip, r.tags].some((v) => String(v ?? "").toLowerCase().includes(needle))
+  // shortcut: a guest naming itself as its own parent would loop; depth stops at 3, enough for host, VM, Docker.
+  const inside = (name: string, depth = 0): any[] => (depth > 2 ? [] : virtual.filter((g) => same(g.parent, name)))
+  const matches = (r: any, depth = 0): boolean => hit(r) || inside(r.name, depth).some((g) => matches(g, depth + 1))
+  const shown = all.filter((h) => matches(h))
+  const loose = virtual.filter((g) => !g.parent || ![...all, ...virtual].some((r) => same(g.parent, r.name))).filter((g) => matches(g, 1))
   const groups: [string, any[]][] = group === "place"
     ? [...places.map((p) => [p.name, shown.filter((h) => placeOf(h) === p)] as [string, any[]]), [t("Not placed"), shown.filter((h) => !placeOf(h))]]
     : group === "category" ? Object.keys(CATEGORIES).map((c) => [t(c), shown.filter((h) => (h.category || "Other") === c)] as [string, any[]])
     : [["", shown]]
-  const adopt = async (h: any) => { try { await adoptHost(h); hw.reload() } catch (e) { setError((e as Error).message) } }
+  /** A virtual asset, then what runs inside it, indented one step further. */
+  const guestRows = (g: any, depth: number): React.ReactNode[] => {
+    const G = VIRTUAL_TYPES[g.type] ?? CubeIcon
+    return [
+      <tr key={g.id}>
+        <Td><span className="flex items-center gap-2" style={{ paddingLeft: `${Math.max(0, depth - 1) * 1.5}rem` }}>{depth > 0 && <span className="text-fg3" aria-hidden>└</span>}<G className="size-4 shrink-0 text-fg3" aria-hidden /><Link to={`/virtual/${g.id}`} className="hover:text-accent">{g.name}</Link></span>{depth === 0 && g.parent && <span className="block pl-6 text-xs text-fg3">{t("Runs on {name}, not in the inventory", { name: g.parent })}</span>}</Td>
+        <Td className="text-fg2">{t(VIRTUAL_LABELS[g.type] ?? "Other")}</Td>
+        <Td className="text-fg2">{[g.vcpu && `${g.vcpu} vCPU`, g.ram_mb && `${g.ram_mb} MB`, g.disk_gb && `${g.disk_gb} GB`].filter(Boolean).join(" · ") || "—"}</Td>
+        <Td mono>{g.ip || "—"}</Td>
+        <Td className="text-fg2">{g.status || "—"}</Td>
+        <Td className="text-fg3">—</Td>
+      </tr>,
+      ...under(g.name, depth + 1),
+    ]
+  }
+  const under = (name: string, depth: number) => inside(name, depth).filter((g) => matches(g, depth)).flatMap((g) => guestRows(g, depth))
+  const heading = (name: string, n: number) => name ? <tr key={`g:${name}`}><Td colSpan={6} className="bg-bg text-[13px] font-medium text-fg2">{name} <span className="font-normal text-fg3">· {n}</span></Td></tr> : null
   return (
     <>
       <PageHeader title={t("Inventory")} variables={toggle} actions={<Button variant="primary" onClick={() => navigate("/hardware/new")}><PlusIcon className="size-5" aria-hidden />{t("Add hardware")}</Button>} />
       <Section>
-        <ErrorNote>{hw.error || error}</ErrorNote>
-        {all.length > 0 && <Facets col={HARDWARE[0]} rows={all} value={category} onChange={setCategory} />}
-        {all.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchInput placeholder="Name, model or serial number" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <Variable label="Group by" value={group} onChange={setGroup} options={[{ value: "place", label: "Place" }, { value: "category", label: "Category" }, { value: "", label: "None" }]} />
-          </div>
-        )}
-        {!hw.data && <Skeleton lines={6} />}
-        {hw.data && all.length === 0 && unknown.length === 0 && <Panel title={t("Inventory")}><Empty>{t("No hardware yet. Add your servers, switches and other devices, then give them a place.")}</Empty></Panel>}
-        {groups.filter(([, rows]) => rows.length).map(([name, rows]) => (
-          <section key={name || "all"} aria-label={name || t("Inventory")}>
-            {name && <h2 className="mb-2 flex items-baseline gap-2 font-medium">{name}<span className="text-xs font-normal text-fg3">{rows.length}</span></h2>}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
-              {rows.map((h) => { const host = findHost(live, h); return <DeviceCard key={h.id} h={h} host={host} place={placeOf(h)} guests={guests(h, host)} /> })}
-            </div>
-          </section>
-        ))}
-        {unknown.length > 0 && (
-          <section aria-label={t("Seen by the monitor")}>
-            <h2 className="mb-1 font-medium">{t("Seen by the monitor")}</h2>
-            <p className="mb-2 text-[13px] text-fg3">{t("Physical machines the monitor watches that the inventory does not list yet.")}</p>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
-              {unknown.map((h: any) => (
-                <div key={h.id ?? h.name} className="flex items-center gap-3 rounded-panel border border-dashed border-line2 p-4">
-                  <Status cell level={liveLevel(h)} label="" />
-                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{h.name}</span><span className="block truncate font-mono text-xs text-fg3">{h.ip}</span></span>
-                  <Button onClick={() => adopt(h)}>{t("Add to inventory")}</Button>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        <ErrorNote>{hw.error || va.error}</ErrorNote>
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchInput placeholder="Name, model, address or serial number" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Variable label="Group by" value={group} onChange={setGroup} options={[{ value: "place", label: "Place" }, { value: "category", label: "Category" }, { value: "", label: "None" }]} />
+        </div>
+        <Panel title={t("{n} devices, {m} virtual", { n: all.length, m: virtual.length })} flush loading={!hw.data || !va.data}>
+          {all.length === 0 && virtual.length === 0 ? <div className="px-4 pb-4"><Empty>{t("No hardware yet. Add your servers, switches and other devices, then give them a place.")}</Empty></div> : (
+            <Table head={["Name", "Type", "Model or resources", "Address", "Status", "Warranty"]}>
+              {groups.filter(([, rows]) => rows.length).flatMap(([name, rows]) => [heading(name, rows.length), ...rows.flatMap((h) => {
+                const I = CATEGORIES[h.category] ?? CubeIcon, w = warranty(h.warranty_until), place = placeOf(h)
+                return [
+                  <tr key={h.id}>
+                    <Td className="font-medium"><span className="flex items-center gap-2"><I className="size-4 shrink-0 text-fg3" aria-hidden /><Link to={`/hardware/${h.id}`} className="hover:text-accent">{h.name}</Link></span>{group !== "place" && place && <span className="block pl-6 text-xs font-normal text-fg3">{place.name} · {spot(place, h)}</span>}</Td>
+                    <Td className="text-fg2">{t(h.category || "Other")}</Td>
+                    <Td className="text-fg2">{[h.manufacturer, h.model].filter(Boolean).join(" ") || "—"}</Td>
+                    <Td mono>{h.mgmt_ip || "—"}</Td>
+                    <Td>{h.status ? <Status cell level={STATUS_LEVEL[h.status] ?? "off"} label={h.status} /> : "—"}</Td>
+                    <Td className={w ? levelText[w.level] : "text-fg3"}>{w?.label ?? "—"}</Td>
+                  </tr>,
+                  ...under(h.name, 1),
+                ]
+              })])}
+              {loose.length > 0 && [heading(t("Not on a device"), loose.length), ...loose.flatMap((g) => guestRows(g, 0))]}
+            </Table>
+          )}
+        </Panel>
       </Section>
     </>
   )
 }
 
 export function Hardware() {
-  const { cols: base } = useHardwareCols()
-  const live = useLiveHosts()
+  const { cols } = useHardwareCols()
   const [mode, setMode] = useStored("nyx.inventory.mode", "table")
-  const toggle = <Tabs tabs={[{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }]} value={mode} onChange={setMode} />
-  if (mode === "cards") return <InventoryCards toggle={toggle} live={live} />
-  return <CrudPage title={t("Hardware")} heading={t("Inventory")} variables={toggle} singular="hardware" collection="hardware" cols={withLive(base, live)} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
+  const toggle = <Tabs tabs={[{ id: "table", label: "Table" }, { id: "tree", label: "Tree" }]} value={mode === "table" ? "table" : "tree"} onChange={setMode} />
+  if (mode !== "table") return <InventoryTree toggle={toggle} />
+  return <CrudPage title={t("Hardware")} heading={t("Inventory")} variables={toggle} singular="hardware" collection="hardware" cols={cols} defaults={HW_DEFAULTS} path="/hardware" facet="category" />
 }
 
 // The parts inside the hardware, after GLPI's components: what they are, where they are
@@ -390,11 +351,11 @@ export function HardwareRecord({ id }: { id: string }) {
   const tabs = [
     { id: "Components", label: "Components", count: parts.data?.totalItems, render: (_: any, row: any) => <Fitted device={row} parts={parts} /> },
     { id: PORT_TAB, label: PORT_TAB, count: ports.data?.totalItems, render: (_: any, row: any) => <Ports device={row} onChange={ports.reload} /> },
+    { id: "Interventions", label: "Interventions", render: (_: any, row: any) => <DeviceInterventions name={row.name} /> },
     { id: "Links", label: "Links", render: (form: any) => <><LinkedAddresses device={form.name} /><RunsHere host={form.name} /></> },
   ]
   const { cols, where } = useHardwareCols()
-  const live = useLiveHosts()
-  return <RecordPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={(form) => <>{HardwareAside(form, where(form))}<LivePanel hosts={live} row={form} /></>} tabs={tabs} history />
+  return <RecordPage title={t("Hardware")} singular="hardware" collection="hardware" cols={cols} path="/hardware" id={id} defaults={HW_DEFAULTS} aside={(form) => HardwareAside(form, where(form))} tabs={tabs} history />
 }
 
 function consoleUrl(pve: string, a: any) {
@@ -416,21 +377,19 @@ const VIRTUAL: Col[] = [
   { key: "disk_gb", label: "Disk (GB)", type: "number", formOnly: true },
   { key: "vmid", label: "Proxmox VMID", type: "number", formOnly: true, section: "Proxmox", when: { key: "type", in: ["vm", "container"] } },
   { key: "pve_node", label: "Proxmox node", formOnly: true, when: { key: "type", in: ["vm", "container"] } },
-  { key: "source", label: "Source", listOnly: true },
   { key: "tags", label: "Tags", type: "tags", hint: "Free labels such as lab, prod or rack-A, to group and filter." },
   { key: "notes", label: "Notes", type: "area", formOnly: true, section: "Notes" },
 ]
 
 export function Virtual() {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
-  const cols: Col[] = withLive([...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>{t("Console")}</a> : "—" } }], useLiveHosts())
+  const cols: Col[] = [...VIRTUAL, { key: "console", label: "Console", listOnly: true, render: (a) => { const url = consoleUrl(proxmox.data?.url ?? "", a); return url ? <a className="text-accent" target="_blank" rel="noreferrer" href={url}>{t("Console")}</a> : "—" } }]
   return <CrudPage title={t("Virtual")} singular="asset" collection="virtual_assets" cols={cols} path="/virtual" facet="type" defaults={{ type: "vm" }} />
 }
 
 export function VirtualRecord({ id }: { id: string }) {
   const proxmox = useApi("/api/settings/proxmox", { poll: false })
   const devices = useApi("/api/c/hardware?perPage=500", { poll: false })
-  const live = useLiveHosts()
   const aside = (form: any) => {
     const url = consoleUrl(proxmox.data?.url ?? "", form)
     const host = devices.data?.items.find((h: any) => same(h.name, form.parent))
@@ -444,139 +403,13 @@ export function VirtualRecord({ id }: { id: string }) {
         </dl>
         {url && <a href={url} target="_blank" rel="noreferrer" className="mt-4 inline-block"><Button><CommandLineIcon className="size-5" aria-hidden />{t("Console")}</Button></a>}
       </Panel>
-      <LivePanel hosts={live} row={form} />
     </>
   }
-  const tabs = [{ id: "Links", label: "Links", render: (form: any) => <LinkedAddresses device={form.name} /> }]
+  const tabs = [
+    { id: "Interventions", label: "Interventions", render: (_: any, row: any) => <DeviceInterventions name={row.name} /> },
+    { id: "Links", label: "Links", render: (form: any) => <LinkedAddresses device={form.name} /> },
+  ]
   return <RecordPage title={t("Virtual")} singular="asset" collection="virtual_assets" cols={VIRTUAL} path="/virtual" id={id} defaults={{ type: "vm" }} aside={aside} tabs={tabs} history />
-}
-
-const DEPLOYMENTS: Col[] = [
-  { key: "name", label: "Name", required: true },
-  { key: "target", label: "Target" },
-  { key: "version", label: "Version", mono: true },
-  { key: "status", label: "State", type: "select", options: ["planned", "running", "ok", "failed"] },
-  { key: "scheduled_at", label: "Due date", type: "date" },
-  { key: "done_at", label: "Done", type: "date" },
-  { key: "owner", label: "Owner" },
-  { key: "tags", label: "Tags", type: "tags" },
-  { key: "notes", label: "Notes", type: "area" },
-]
-const DEPLOY_STATES = [{ id: "planned", label: "Planned", level: "off" as const }, { id: "running", label: "Running", level: "info" as const }, { id: "ok", label: "Succeeded", level: "ok" as const }, { id: "failed", label: "Failed", level: "crit" as const }]
-
-export function Deployments() {
-  const { data, reload, error } = useApi("/api/c/deployments?sort=-created&perPage=500")
-  const [edit, setEdit] = useState<any | null | undefined>()
-  const done = () => { setEdit(undefined); reload() }
-  const move = async (d: any, status: string) => {
-    const finished = (status === "ok" || status === "failed") && !d.done_at
-    await api(`/api/c/deployments/${d.id}`, { method: "PATCH", body: { status, ...(finished ? { done_at: new Date().toISOString().replace("T", " ") } : {}) } })
-    reload()
-  }
-  const remove = async (d: any) => { if (await ask(`Delete ${d.name}?`, { action: "Delete", danger: true })) { await api(`/api/c/deployments/${d.id}`, { method: "DELETE" }); reload() } }
-  const items: WorkItem[] = (data?.items ?? []).map((d: any) => ({
-    id: d.id, title: d.name, state: d.status || "planned", tags: parseTags(d.tags), due: d.scheduled_at, open: d.status === "planned" || !d.status,
-    detail: [d.target, d.version].filter(Boolean).join(" · "), row: d,
-  }))
-  return (
-    <>
-      <PageHeader title={t("Deployments")} onRefresh={reload} actions={<Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add deployment")}</Button>} />
-      {edit !== undefined && <RecordForm key={edit?.id ?? "new"} cols={DEPLOYMENTS} row={edit} collection="deployments" onDone={done} title={edit ? t("Edit {name}", { name: edit.name }) : "Add deployment"} defaults={{ status: "planned" }} />}
-      <Panel title={t("Deployments")}>
-        <ErrorNote>{error}</ErrorNote>
-        <WorkView id="deployments" states={DEPLOY_STATES} items={items} empty="No deployments yet." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "Target", value: (w) => w.row.target }, { label: "Version", value: (w) => w.row.version }]} />
-      </Panel>
-    </>
-  )
-}
-
-const TASK_STATES = [{ id: "todo", label: "To do", level: "off" as const }, { id: "doing", label: "In progress", level: "info" as const }, { id: "done", label: "Done", level: "ok" as const }, { id: "cancelled", label: "Cancelled", level: "warn" as const }]
-const taskState = (t: any) => t.status || (t.done ? "done" : "todo")
-
-function TaskForm({ row, onDone }: { row: any | null; onDone: () => void }) {
-  const split = splitChecklist(row?.description)
-  const [f, setF] = useState({ title: row?.title ?? "", notes: split.notes, due: row?.due?.slice(0, 10) ?? "", status: row ? taskState(row) : "todo", tags: row?.tags?.replaceAll(",", ", ") ?? "" })
-  const [items, setItems] = useState<Item[]>(split.items)
-  const [error, setError] = useState("")
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const { notes, ...rest } = f
-    const body = { ...rest, description: joinChecklist(notes, items), due: f.due ? `${f.due} 00:00:00.000Z` : "" }
-    try { await api(row ? `/api/tasks/${row.id}` : "/api/tasks", { method: row ? "PATCH" : "POST", body }); onDone() } catch (err) { setError((err as Error).message) }
-  }
-  const setItem = (i: number, patch: Partial<Item>) => setItems(items.map((x, j) => (j === i ? { ...x, ...patch } : x)))
-  const done = items.filter((i) => i.done && i.text.trim()).length, total = items.filter((i) => i.text.trim()).length
-  return (
-    <Editor title={row ? t("Edit {name}", { name: row.title }) : "Add task"} onCancel={onDone} onSubmit={save} error={error}>
-      <EditorGroup title={t("Task")}>
-        <div className="col-span-full"><Input label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-        <Select label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} options={TASK_STATES.map((s) => ({ value: s.id, label: s.label }))} />
-        <Input label="Due date" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
-        <div className="col-span-full"><TagInput label="Tags" value={splitTags(f.tags)} onChange={(v) => setF({ ...f, tags: v.join(", ") })} hint="They sync with Nextcloud as categories, and the progress is shown per tag." /></div>
-      </EditorGroup>
-      <EditorGroup title={t("Checklist")}>
-        <div className="col-span-full flex flex-col gap-2">
-          {total > 0 && <div className="flex items-center gap-3 text-[13px] text-fg2"><div className="flex-1"><Progress thin pct={Math.round((done / total) * 100)} label={t("Checklist")} /></div>{done}/{total}</div>}
-          {items.map((it, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input type="checkbox" aria-label={t("Done")} checked={it.done} onChange={(e) => setItem(i, { done: e.target.checked })} className="size-5 shrink-0 accent-[var(--color-accent)]" />
-              <input aria-label={t("Step {n}", { n: i + 1 })} value={it.text} onChange={(e) => setItem(i, { text: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setItems([...items.slice(0, i + 1), { text: "", done: false }, ...items.slice(i + 1)]) } }}
-                className={`field h-9 max-sm:h-11 flex-1 rounded-control border border-line2 bg-raised px-3 ${it.done ? "text-fg3 line-through" : "text-fg"}`} />
-              <IconButton label="Remove" icon={XMarkIcon} onClick={() => setItems(items.filter((_, j) => j !== i))} />
-            </div>
-          ))}
-          <div><Button onClick={() => setItems([...items, { text: "", done: false }])}><PlusIcon className="size-5" aria-hidden />{t("Add a step")}</Button></div>
-          <p className="text-xs text-fg3">{t("Steps are saved in the description as a Markdown checklist, so Nextcloud shows them too.")}</p>
-        </div>
-      </EditorGroup>
-      <EditorGroup title={t("Notes")}>
-        <div className="col-span-full"><TextArea label="Description" rows={4} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
-      </EditorGroup>
-    </Editor>
-  )
-}
-
-export function Tasks() {
-  const { data, reload, error } = useApi<any[]>("/api/tasks")
-  const [edit, setEdit] = useState<any | null | undefined>()
-  const [note, setNote] = useState("")
-  const [quick, setQuick] = useState("")
-  const done = () => { setEdit(undefined); reload() }
-  const move = async (task: any, status: string) => { await api(`/api/tasks/${task.id}`, { method: "PATCH", body: { ...task, status } }); reload() }
-  const remove = async (task: any) => { if (await ask(t("Delete {name}?", { name: task.title }), { action: "Delete", danger: true })) { await api(`/api/tasks/${task.id}`, { method: "DELETE" }); reload() } }
-  const sync = async () => { try { await api("/api/sync", { method: "POST" }); setNote(t("Synced.")); reload() } catch (e) { setNote((e as Error).message) } }
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!quick.trim()) return
-    try { await api("/api/tasks", { body: { title: quick.trim(), status: "todo", description: "", due: "", tags: "" } }); setQuick(""); reload() } catch (err) { setNote((err as Error).message) }
-  }
-  const items: WorkItem[] = (data ?? []).map((task) => {
-    const list = splitChecklist(task.description).items
-    return {
-      id: task.id, title: task.title, state: taskState(task), tags: parseTags(task.tags), due: task.due, open: !task.done, readOnly: task.kind === "event", row: task,
-      detail: task.kind === "event" ? t("Calendar") : task.uid ? "Nextcloud" : "", checklist: { done: list.filter((i) => i.done).length, total: list.length },
-    }
-  })
-  return (
-    <>
-      <PageHeader title={t("Tasks")} subtitle={note} actions={<>
-        <Button onClick={sync}><ArrowPathIcon className="size-5" aria-hidden />{t("Sync")}</Button>
-        <Button variant="primary" onClick={() => setEdit(null)}><PlusIcon className="size-5" aria-hidden />{t("Add task")}</Button>
-      </>} />
-      {edit !== undefined && <TaskForm key={edit?.id ?? "new"} row={edit} onDone={done} />}
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] items-start gap-4 max-lg:grid-cols-1">
-        <Panel title={t("Tasks and events")}>
-          <ErrorNote>{error}</ErrorNote>
-          <form onSubmit={add} className="mb-4 flex gap-2">
-            <input aria-label={t("New task")} placeholder={t("Add a task and press Enter…")} value={quick} onChange={(e) => setQuick(e.target.value)} className="field h-9 max-sm:h-11 flex-1 rounded-control border border-line2 bg-raised px-4 placeholder:text-fg3 max-sm:text-base" />
-            <Button type="submit" disabled={!quick.trim()}>{t("Add")}</Button>
-          </form>
-          <WorkView id="tasks" states={TASK_STATES} items={items} empty="No tasks. Add one, or link Nextcloud in Settings to sync them." onMove={(w, state) => move(w.row, state)} onOpen={(w) => setEdit(w.row)} onRemove={(w) => remove(w.row)} columns={[{ label: "From", value: (w) => w.detail || "Nyx" }]} />
-        </Panel>
-        <Panel title={t("Progress")}><ProgressSummary /></Panel>
-      </div>
-    </>
-  )
 }
 
 const VPN: Col[] = [
@@ -590,42 +423,7 @@ const VPN: Col[] = [
   { key: "notes", label: "Notes", type: "area", formOnly: true },
 ]
 
-/** Hand-kept links, and the tunnels agents report that could become one. */
-export function Vpn() {
-  const monitor = useApi<any[] | null>("/api/monitor/hosts", { poll: false })
-  const known = useApi("/api/c/vpn_links?perPage=500", { poll: false })
-  const [track, setTrack] = useState<any>()
-  const [version, setVersion] = useState(0)
-  const changed = () => { known.reload(); setVersion(version + 1) }
-  const tracked = (host: string, v: any) => known.data?.items.some((l: any) => l.side_a === host && l.kind === v.kind)
-  const seen = (monitor.data ?? []).flatMap((h) => (h.vpn ?? []).map((v: any) => ({ ...v, host: h.name, hostId: h.id })))
-  const detected = (
-    <Panel title={t("Detected on your hosts")} flush>
-      {seen.length === 0 ? <div className="px-4 pb-4"><Empty>{monitor.data ? "No agent reports a tunnel." : "Link a monitor in Settings to detect VPN tunnels."}</Empty></div> : (
-        <Table head={["Host", "Interface", "Type", "Address", "State", ""]}>
-          {seen.map((v) => (
-            <tr key={`${v.hostId}${v.iface}`}>
-              <Td className="font-medium">{v.host}</Td>
-              <Td mono>{v.iface}</Td>
-              <Td className="text-fg2">{v.kind}</Td>
-              <Td mono>{v.ip || "—"}</Td>
-              <Td><Status level={v.up ? "ok" : "crit"} label={v.up ? "Up" : "Down"} /></Td>
-              <Td className="text-right">{tracked(v.host, v) ? <span className="text-fg3">{t("Tracked")}</span> : <Button variant="ghost" onClick={() => setTrack({ name: `${v.host} ${v.kind}`, kind: v.kind, side_a: v.host, status: "Active" })}>{t("Track")}</Button>}</Td>
-            </tr>
-          ))}
-        </Table>
-      )}
-    </Panel>
-  )
-  return (
-    <>
-      <CrudPage key={version} title={t("VPN links")} singular="VPN link" collection="vpn_links" cols={VPN} defaults={{ status: "Active" }} onChanged={known.reload} extra={<>
-        {track && <RecordForm cols={VPN} row={null} collection="vpn_links" title={t("Track VPN link")} defaults={track} rows={known.data?.items} onDone={() => { setTrack(undefined); changed() }} />}
-        {detected}
-      </>} />
-    </>
-  )
-}
+export const Vpn = () => <CrudPage title={t("VPN links")} singular="VPN link" collection="vpn_links" cols={VPN} defaults={{ status: "Active" }} />
 
 
 const SEARCHED = [
@@ -635,7 +433,8 @@ const SEARCHED = [
   { coll: "ip_addresses", to: "/ipam", fields: ["address", "device", "hostname", "mac"] },
   { coll: "subnets", to: "/ipam", fields: ["name", "cidr", "description", "section"] },
   { coll: "vlans", to: "/ipam", fields: ["name", "domain", "description"] },
-  { coll: "sites", to: "/sites", fields: ["name", "repo"] },
+  { coll: "interventions", to: "/work", fields: ["title", "asset", "type"] },
+  { coll: "deployments", to: "/work", fields: ["name", "target", "version"] },
   { coll: "vpn_links", to: "/vpn", fields: ["name", "side_a", "side_b", "subnet"] },
 ]
 

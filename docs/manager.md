@@ -3,7 +3,8 @@
 ## Navigation and language
 
 The menu follows GLPI's: **Assets** (overview, hardware, racks, virtual), **Network**
-(IPAM, network map, VPN links) and **Management** (tasks, deployments, Node.js sites).
+(IPAM, network map, VPN links) and **Management** ([work](#work): tasks, interventions and
+deployments).
 Every page starts with its path, such as *Home › Assets › Hardware*.
 
 The interface is in English and French. It follows the browser's language at first;
@@ -12,19 +13,22 @@ sign-in screen changes it. The choice is kept on this device.
 
 ## Inventory
 
+The manager keeps an inventory of its own, typed by you: what you own, where it stands and
+what runs on it. The hosts of a [linked monitor](deployment.md#linking-manager-and-monitor)
+stay in the monitor and are never copied here, so the two can differ on purpose: a spare
+server, a switch with no agent or a VM you plan are records, not hosts.
+
 **Inventory** tracks physical equipment, with serial numbers, locations and warranty
 dates. The overview flags warranties ending within 60 days. The add form starts from
 the category, and offers the manufacturers, models and locations already in use.
 
 It opens on the **table**, with a tile per category on top, a search, filters, the
-columns you choose and bulk edits. **Cards** shows the same devices grouped by
-[place](#places), by category or not at all. Each card gives the device's icon, name
-and model, where it stands, its address, a warranty ending soon, and with a linked monitor
-its state, its Linux distribution with its logo, CPU, memory and disk, and the guests it runs: the VMs and containers the monitor
-sees on that host, and the virtual records that name it under **Runs on**. **Seen by the
-monitor** lists the physical machines the monitor watches that the inventory lacks, each
-added in one click as a server under its name. The choice between table and cards is
-remembered on this device.
+columns you choose and bulk edits. **Tree** shows the whole inventory as one table,
+grouped by [place](#places), by category or not at all: each device is followed by the
+virtual assets whose **Runs on** names it, indented, and those by what runs inside them,
+such as the Docker services of a VM. Virtual assets that run on nothing of the inventory
+come last, under **Not on a device**. The search keeps a device when it or one of its
+guests matches. The choice between table and tree is remembered on this device.
 
 ### Components
 
@@ -43,15 +47,10 @@ The tiles on top count each type; filter by device or status, or select several 
 change them at once, for example to decommission them. A device's page lists its parts
 under **Components**, where you add one already fitted in it.
 
-Hardware, virtual assets, tasks and deployments take **tags**: type one and press Enter,
+Hardware, virtual assets, tasks, interventions and deployments take **tags**: type one and press Enter,
 or a comma, and the tags already in use are offered. Lists show them as coloured chips,
 the same colour for the same tag everywhere, and a **Tag** filter appears once one is in
 use. The monitor has its own tags on hosts, see [tags](monitoring.md#tags).
-
-With a [linked monitor](deployment.md#linking-manager-and-monitor), the hardware and
-virtual lists gain a **Monitoring** column, and a record's page a **Monitoring** panel:
-state, CPU, memory, fullest disk, uptime, pending updates and the host's tags. A record
-matches the monitored host with the same name or hostname, or else the same address.
 
 The category decides which specifications the form asks for:
 
@@ -108,33 +107,71 @@ the [network map](#network-map) are drawn there.
 Each save on a hardware or virtual page, and each change made in bulk, adds one line per
 field that actually changed, with its value before and after. Long text is cut to 200
 characters. A save that changes nothing writes nothing, and nothing is written in the
-background: the inventory sync from a linked monitor and imports are not recorded. The
+background: imports are not recorded. The
 history of a deleted record stays in the database, without a page to read it.
 
-**Virtual** tracks VMs, containers and Docker services. With a linked monitor these
-fill themselves every five minutes, and rows marked `monitor` follow the agents: they
-disappear when the host does. Manual rows are never touched. Physical hosts are not
-copied into **Hardware**, because agents do not report serial or warranty data.
+**Virtual** tracks VMs, containers and Docker services, typed by hand like the hardware.
+**Runs on** holds the name of the device or VM it runs on, which builds the tree of the
+inventory and the guests of the [network map](#network-map).
 
 Virtual assets have the same tiles, per type, and pages of their own at
-`/virtual/<id>`, with their resources and the console, a **Links** tab with their
-addresses, and a **History** tab. **Runs on** links to the hardware page of that name.
+`/virtual/<id>`, with their resources and the console, an **Interventions** tab, a
+**Links** tab with their addresses, and a **History** tab. **Runs on** links to the hardware page of that name.
 
 With a Proxmox URL in the settings, assets with a VMID and node get a noVNC **Console**
 button. You sign in to Proxmox itself.
 
 ## Overview
 
-The overview sums up the inventory: every figure opens its page. Panels show the
-progress of tasks and deployments, hardware per category, the fullest subnets,
+The overview sums up the inventory: every figure opens its page. Its header says when
+it was last refreshed, like the monitor's. Panels show the
+progress of the [work](#work), hardware per category, the fullest subnets,
 addressing conflicts, tasks due within seven days, recent deployments and warranties
 ending soon. **Customize** moves and hides them;
 the layout is kept per device.
 
-**Add widget** puts your own panels next to them. Widgets are kept on the server, so
-every browser sees the same ones; open a widget's menu to edit or remove it.
+### Cards and charts
 
-| Widget | Shows |
+**Add a card** puts your own cards next to the built-in panels, as GLPI's dashboards do.
+Cards are kept on the server, so every browser sees the same ones. A card's menu edits,
+duplicates, moves it to another tab, shows the figures behind a chart, downloads them as
+CSV or removes it.
+
+A chart is built in three steps, with a live preview beside them:
+
+1. **Type**: columns, bars, histogram, waterfall, columns and line, lines, areas, steps,
+   scatter, pie, doughnut, half doughnut, treemap, funnel, radar, big number, several
+   numbers, gauge, progress bars, summary table or a list of rows.
+2. **Data**: the rows to read, filters on them, what to group by (a field, or a date by
+   minute, hour, day, week, month, quarter, year, day of the week or month of the year,
+   or a number cut into ranges), one series per value of another field, and the
+   measures: count, count distinct, sum, average, minimum, maximum, median or last
+   value, each with its own filters, as Excel's `COUNTIF` and `SUMIF`. A formula
+   combines measures by their letter, such as `B / A * 100` or `round(A / 1024, 1)`,
+   with `+ - * / % ^`, parentheses, `round`, `abs`, `min`, `max`, `sqrt`, `floor` and
+   `ceil`. Results can show as values, shares of the total, a running total or the change
+   from the previous one; keep the first few and gather the rest as **Other**.
+3. **Look**: stacking, legend, labels, palette (or the colour of each state, so that
+   *failed* is red), number format, decimals, prefix and suffix, scale, a reference line,
+   warning and critical levels, smoothing, points, grid lines and height.
+
+Filters take `is`, `is not`, `contains`, comparisons, `in the last … days`, `in the next …
+days`, `is past`, `is empty` and more; several values are separated by commas. Points,
+bars and list rows open the record they come from.
+
+| Rows | Holds |
+| --- | --- |
+| Hardware | Category, status, place, rack, maker, model, supplier, price, height, dates, tags |
+| Virtual assets | Type, status, host, Proxmox node, vCPU, memory, disk, address, tags |
+| Components | Type, status, device, maker, model, capacity, dates, tags |
+| IP addresses | State, device, hostname, owner, shared, last seen |
+| Subnets | Network, section, place, VRF, VLAN, size, addresses in use, use in percent, threshold |
+| Tasks, interventions, deployments | State, type, owner, target, version, dates, tags |
+| Racks and shelves | Kind, place, height, devices |
+
+The other cards need no rows:
+
+| Card | Shows |
 | --- | --- |
 | EDF Tempo | Today's and tomorrow's colour and the days left. Read from the linked monitor, where the RTE keys are set |
 | Pipelines | State of the latest CI/CD run of each repository followed by the monitor |
@@ -146,6 +183,27 @@ every browser sees the same ones; open a widget's menu to edit or remove it.
 
 Tempo, Pipelines and Monitoring need a [linked monitor](deployment.md#linking-manager-and-monitor). Without one, they say so.
 
+### Tabs
+
+**Add a tab**, after the tabs, splits a large dashboard: capacity on one, warranty and
+purchases on another. Start from an empty tab or from a ready-made one, whose cards are
+ordinary charts you can then edit, move or remove:
+
+| Ready-made tab | Cards |
+| --- | --- |
+| Hardware fleet | Devices, value of the fleet, devices by category, status and place, purchases per year |
+| Warranty and lifecycle | Warranties ending within 90 days, warranties over, the list of those ending soon, endings per year, components out of warranty |
+| Virtualization | Virtual assets, vCPU allocated, assets by type and status, memory and vCPU each host gives |
+| IP addressing | Use of each subnet, addresses by state, addresses in use per place, subnets per section |
+| Work | Late tasks, tasks by state, tasks due within 14 days, deployments per month and by state, interventions by type |
+
+Its names are saved in the language of whoever adds it. Double-click a tab, or use the
+arrow next to the open tab, to rename it, move it or delete it with its cards. The first
+tab holds the built-in panels; the others hold only your cards. Each tab keeps its own
+layout.
+
+Widgets made before tabs existed stay on the first tab.
+
 ## Forms
 
 Hardware and virtual assets are added and edited on a page of their own (**Add hardware**
@@ -155,7 +213,7 @@ when you switch tabs, and **Save** saves every tab at once; a required field lef
 on another tab opens that tab. Saving stays on the page; adding a record opens its new
 page, where the other tabs appear. **Escape** or **Back** goes back to the list.
 
-Other records (deployments, tasks, IPAM, VPN links) open a form at the top of their page,
+Other records (work, IPAM, VPN links) open a form at the top of their page,
 above the list. **Escape** or **Cancel** closes it without saving.
 
 ## IPAM
@@ -301,9 +359,8 @@ PCs share one unit, or several devices one shelf. In a rack a device is as tall 
   port holds one cable, so plugging it elsewhere unplugs it first. These are the same
   [network ports](#network-ports) as on the hardware page, and they are drawn on the
   [network map](#network-map) too.
-- With a linked monitor, the left edge of a device takes the state of the monitored host
-  of the same name, and **Seen by the monitor** offers the physical machines the inventory
-  lacks.
+- A spare, broken or retired device shows its status on its left edge; one in service
+  needs no mark.
 
 Switches and patch panels show their ports, servers and NAS their bays, a UPS its screen,
 so that a front reads at a glance. The hardware form shows the place under **Where it
@@ -326,9 +383,12 @@ firewall down to the switches and access points, then one column per host with i
 in name order (`PVE-2` before `PVE-10`), then the devices that stand alone, such as a VPS.
 It replaces the places you set by hand, so it asks first.
 
-**Import hosts** adds monitored hosts and links guests to their parents. The first import
-arranges the map; later ones put new hosts in free spots and leave the rest alone, so
-press **Arrange** when you want them tidied.
+**Import the inventory** adds the hardware and the VMs and containers of the inventory,
+each guest linked to the device its **Runs on** names. Spare and retired devices, patch
+panels, PDUs and Docker services are left out, as they are on no network. A device already
+on the map, by name, is not added twice. The first import arranges the map; later ones put
+new devices in free spots and leave the rest alone, so press **Arrange** when you want
+them tidied.
 
 ### Devices and links
 
@@ -336,11 +396,10 @@ Drag a type from **Devices** onto the canvas, or click it to add one in the midd
 router, firewall, switch, access point, server, Proxmox, NAS, VM, LXC container, Docker,
 VPS, cloud service or IoT device. It is named after its type, selected, and ready to be
 renamed. Each card shows the type's icon on a tile coloured by family (network gear,
-machines, storage, guests, things outside), the name, the address and, with a linked
-monitor, a state dot. The arrow at the top of the list folds it to icons.
+machines, storage, guests, things outside), the name and the address. The arrow at the top of the list folds it to icons.
 
 Click a device to select it. The side panel edits its name, address and type in place,
-shows the monitored host's CPU, memory, disk and uptime, lists its connections (click one
+lists its connections (click one
 to select that link), links it to another device from **Link to**, and opens the hardware
 or virtual record of the same name. Drag a device to move it; its place is saved when you
 let go. Delete, or the Delete key once the map has focus, removes the selection.
@@ -378,11 +437,6 @@ type holds every word typed, fades the others, and Enter centres and selects the
 one. Hovering a device keeps it, what it is linked to and their links lit, and fades the
 rest. **Devices and links as a list**, under the map, gives the same data as tables.
 
-With a [linked monitor](deployment.md#linking-manager-and-monitor), a device named like a
-monitored host, or with its address, shows the host's state: a dot in its corner, and a
-count per state under the map. The tree and by-type views use the same states. Other
-devices stay neutral, since nothing says they are up.
-
 A VPN link whose **From** and **To** are both device names of the map is drawn there as
 a dashed orange line, and exported the same way.
 
@@ -399,125 +453,71 @@ zones behind the devices, and JSON lists them; Mermaid and Graphviz leave them o
 **VPN links** records tunnels by hand: type, both ends, tunnel subnet and public
 endpoint. Leave **To** empty for a mesh such as Tailscale or NetBird.
 
-With a linked monitor, **Detected on your hosts** lists the tunnels agents report, and
-**Track** starts a record from one. Tracked links are your own records: they do not
-follow the agents, and their state is watched on the monitor. See
+The tunnels agents report, and their state, are on the monitor: see
 [VPN links](monitoring.md#vpn-links).
 
-Addresses in 100.64.0.0/10, the range Tailscale and NetBird use, only mean something
-inside the VPN. They stay out of IPAM, the inventory and the map, and rows imported
-before this rule are removed at the next sync. Addresses you typed yourself are kept.
+## Work
 
-## Deployments
+**Work** holds everything to do on the homelab in one table: **tasks**, **interventions**
+on the devices of the inventory, and **deployments**. The tabs on top narrow it to one
+kind and count what is still to do in each; the subtitle says how much is left and how
+much is late.
 
-A log of what was deployed where, with due dates, as a board or a list. See
-[boards and lists](#boards-and-lists). Planned deployments trigger a reminder ahead of
-time, a day by default. Site deploys appear here on their own and follow their deploy.
+- The table lists the title, its target (the device of an intervention, where a
+  deployment goes), the state, the due date and the tags. Click a header to sort on it.
+  On **All**, an icon before the title tells the kind.
+- **Show** keeps what is **To do** (the default), what is **Finished**, or all of it.
+  The search looks in titles, targets and tags; click a tag to show only that tag.
+- Change the state from the menu on each row, which also works from the keyboard and on
+  a phone. A past due date on something still open shows as late.
+- Type a title in the field above the table and press Enter to add one at once, of the
+  kind of the tab (a task on **All**); open it later for the rest. **Add** opens the full
+  form.
+- On one kind, **Board** shows one column per state; drag a card to change its state.
 
-## Node.js sites
+An intervention or a deployment moved to a closing state (done or cancelled, succeeded or
+failed) gets today as its done date, unless it has one.
 
-Sites need a linked monitor: deploys run through the agent on the target host.
-
-1. Agents look for Node.js apps every five minutes. These appear in **Detected Node.js
-   apps**, with their directory, Git origin and what runs them. **Manage** opens the
-   form filled in with what the agent saw: repository, branch, user and commands, from
-   the lock file and the scripts of `package.json`.
-2. Create the site. Leave the private key empty to generate an ed25519 deploy key, or
-   paste an unencrypted OpenSSH key.
-3. Copy the public key to the repository as a read-only deploy key.
-4. Add the webhook URL and secret to the repository, for push events, as JSON.
-
-A push to the configured branch then deploys. **Deploy** does the same by hand.
-
-The agent fetches the branch as the run user, runs the install and build commands,
-and writes and restarts a `nyx-site-<name>` systemd service. The run user must exist
-on the host. The default is `www-data`.
-
-### Running sites
-
-Each site shows what it takes on its host: CPU (averaged since the agent's last look, every
-five minutes) and memory, summed over its processes. **Show** filters sites and detected apps
-running in Docker or directly on the host.
-
-Open a site to **restart, stop or start** its service (a systemd unit or PM2 app) and to read
-its **logs** (200 lines of the journal or PM2). Its **History** lists earlier deploys, and **Deploy
-again** puts an earlier commit back. A push to the branch deploys it through the webhook.
-
-In the site's settings, **Environment variables** (`NAME=value` per line) are written to a file only root
-can read and loaded by the service at the next deploy; PM2 services are not covered. The
-**health check address** is asked every minute: two misses in a row raise a notification, and
-the first answer afterwards ends it.
-
-### Sites that already run
-
-An app detected under systemd or PM2 keeps its service: **Existing service** holds the
-unit, or `pm2:<name>`, and a deploy restarts that instead of creating a second service
-on the same port. PM2 must be in the login `PATH` of the run user. Leave the field empty
-to move the site to a Nyx service; stop the old one first.
-
-### HTTP cache between deploys
-
-**HTTP cache** sets the `Cache-Control` header of a site's pages, so that visitors get the
-new version after a deploy instead of a stale copy. **Always revalidate** (`no-cache`) is
-the safe choice: browsers ask again on each visit and get a cheap `304` when nothing
-changed. It is the default for new sites. A number of seconds gives `public, max-age=N`.
-Choose **The app's own** to keep the headers the app sets.
-
-The agent preloads a small module (`/usr/local/lib/nyx-agent/cache.js`, through
-`NODE_OPTIONS`) on the next deploy. Hashed assets marked `immutable`, and `private` or
-`no-store` answers, keep their header. For an existing systemd service the setting goes in
-a drop-in, `/etc/systemd/system/<unit>.d/nyx-cache.conf`, and replaces any `NODE_OPTIONS`
-the unit sets. PM2 services are not covered: set the header in the app. A CDN or reverse
-proxy with its own cache must still be purged separately. See
-[Site cache behind a reverse proxy](reverse-proxy-cache.md) for Nginx, Nginx Proxy
-Manager, Caddy, Traefik, Zoraxy, Pangolin, NetBird and CDNs.
-
-A deploy resets tracked files to the branch, so commit local changes first. Ignored
-files, such as `.env`, stay. Apps in Docker are listed but cannot be deployed: Nyx
-deploys on the host, not inside containers.
-
-Detection goes by the `node` binary, so it finds apps run through nvm, PM2 or Next.js,
-which rename their process. An app's folder comes from its script, then from its working
-directory, up to the nearest `package.json`. Tools in hidden folders, such as VS Code
-Server, are left out. On a Proxmox node, apps inside containers are only found by an
-agent in that container: watching containers from the node does not show them.
-
-GitHub, Gitea and Forgejo sign webhooks with `X-Hub-Signature-256`, and GitLab sends
-`X-Gitlab-Token`. Both are supported.
-
-## Tasks
+### Tasks
 
 Tasks can stand alone or sync with Nextcloud: see
-[integrations.md](integrations.md#nextcloud). A task is to do, in progress, done or
-cancelled; a cancelled task gets no reminder. Calendar events only appear in the list.
-A reminder goes out a day before a task is due. Change the delay, and how early ending
-warranties appear on the overview, in **Settings, General, Reminders**.
+[integrations.md](integrations.md#nextcloud). **Sync** fetches the changes at once. A task
+is to do, in progress, done or cancelled; a cancelled task gets no reminder. Calendar
+events only appear in the table, until their day has passed. A reminder goes out a day
+before a task is due. Change the delay, and how early ending warranties appear on the
+overview, in **Settings, General, Reminders**.
 
-Type a title in the field above the board and press Enter to add a task at once; open it
-later for the rest. A task can hold a **Checklist** of steps: tick them as you go, and
-its card shows a bar with the steps done. Press Enter in a step to add the next one. The
-steps are kept in the description as a Markdown checklist (`- [ ] step`, `- [x] step`),
-so Nextcloud shows them too and ticks made there come back. Nyx also sends the share of
-steps done to Nextcloud as the task's percent complete.
+A task can hold a **Checklist** of steps: tick them as you go, and its row shows a bar with
+the steps done. Press Enter in a step to add the next one. The steps are kept in the
+description as a Markdown checklist (`- [ ] step`, `- [x] step`), so Nextcloud shows them
+too and ticks made there come back. Nyx also sends the share of steps done to Nextcloud as
+the task's percent complete.
 
-**Progress**, beside the board, sums up where everything stands:
+### Interventions
 
-- the overall share of work done. A closed task counts whole, an open one by its ticked
+An intervention is work on a device, after GLPI's: a **repair**, a part replaced, an
+**upgrade**, a **maintenance** such as a UPS battery, an **installation** or a **check**.
+It names a device or virtual asset of the inventory, is planned for a day, then moves to
+in progress and done, with who did it and a **report**: what was found and done, the parts
+used, the time spent. A reminder goes out ahead of the planned day, as for tasks.
+
+Each hardware and virtual page has an **Interventions** tab: the history of that device,
+newest first, where **Add intervention** plans one already aimed at it.
+
+### Deployments
+
+A log of what was deployed where, with its version and due date. Planned deployments
+trigger a reminder ahead of time, a day by default. Node.js sites deployed by Nyx 1.0
+appear here tagged `nodejs`, with how each one runs: see
+[sites deployed by Nyx 1.0](agent.md#sites-deployed-by-nyx-10).
+
+### Progress
+
+The **Progress** panel of the [overview](#overview) sums up where everything stands:
+
+- the overall share of tasks done. A closed task counts whole, an open one by its ticked
   steps, and one in progress without steps counts half. Cancelled tasks and calendar
   events do not count.
 - tasks done out of the total, those in progress and those late
 - one bar per tag, so a tag such as `rack-2026` reads as a project
 - deployments that succeeded out of all of them, with those running or failed
-
-## Boards and lists
-
-Tasks and deployments show as a **Board**, one column per state, or as a **List**. The
-choice is remembered on this device.
-
-- Drag a card to another column to change its state, or use the menu on the card, which
-  also works from the keyboard and on a phone. In the list, the same menu is on each row.
-- Tags are typed separated by commas. Click one to show only that tag, or use **Tag**.
-- A past due date on something still open shows as late.
-- In the list, click a column header to sort on it.
-
-A deployment moved to succeeded or failed gets today as its done date, unless it has one.

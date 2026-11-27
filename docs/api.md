@@ -12,7 +12,6 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | Session | Signed-in session cookie |
 | Agent | Signed by the host's key: see [security.md](security.md#agent-traffic) |
 | Link | `Authorization: Bearer <link token>` |
-| Signature | Forge webhook signature |
 | Token | MCP token |
 | Key | Published, with an `X-Nyx-Page-Key` header for wall displays |
 
@@ -33,7 +32,7 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | GET, POST | `/api/c/{coll}` | Session | List or create records |
 | GET, PATCH, DELETE | `/api/c/{coll}/{id}` | Session | Read, change or delete a record |
 | GET | `/api/c/{coll}/{id}/history` | Session | Changes of a record, newest first (hardware and virtual assets) |
-| GET, PUT | `/api/settings/{key}` | Session | Read or write an allowed setting |
+| GET, PUT | `/api/settings/{key}` | Session | Read or write an allowed setting. The overview's tabs and cards are kept as `{"tabs": [{"id", "name", "icon"}], "widgets": [{"id", "type", "title", "tab", "chart"}]}`, under `dashboard` on the manager and `monitor_dashboard` on the monitor, since both can share one database |
 | POST | `/api/notify/preview` | Session | Render sample events: `{"design"}` (a visual layout) or `{"title_tpl", "body_tpl"}`, with `"html"` and `"lang"` (`en` or `fr`). Returns the `title`, the `head`, `cards` and `tail` of the body, its `plain` text, the HTML `email` when `html` is set, and the `title_tpl` and `body_tpl` used |
 | POST | `/api/notify/test/{id}` | Session | Send a test through a channel |
 | GET | `/api/system/version` | Session | Version and install type |
@@ -57,7 +56,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/overview` | Session | Fleet summary |
 | GET, POST | `/api/hosts` | Session | List hosts, or add one. `parent` must be a physical or Proxmox host, and a name can only be used once. Each host carries its `vpn` tunnels |
 | GET, DELETE | `/api/hosts/{id}` | Session | Host details, or delete it. Its LXC containers go with it, other children stay at the top level |
-| PATCH | `/api/hosts/{id}` | Session | `{"name": "NAS"}` renames the host in Nyx, not on the machine; names are unique, ignoring case. `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back. `{"tags": ["lab", "prod"]}` replaces its tags. Any field can be left out |
+| PATCH | `/api/hosts/{id}` | Session | `{"name": "NAS"}` renames the host in Nyx, not on the machine; names are unique, ignoring case. `{"muted": true}` keeps the host out of alerts and notifications and closes its open alerts quietly, `false` brings it back. `{"tags": ["lab", "prod"]}` replaces its tags. `{"mcp_hidden": true}` leaves it out of the MCP server's answers. `{"alerting": {"checks": ["offline", "cpu", "disk"], "warn": 85, "crit": 95, "temp_warn": 0, "temp_crit": 0, "offline_min": 10, "ignore": ["/boot/efi"]}}` sets what it alerts on: `checks` among `offline`, `cpu`, `mem`, `swap`, `disk`, `temp`, `smart`, `services`, `containers`, `vpn`, `updates` and `reboot` (left out, the defaults: all but `cpu`, `swap` and `reboot`), thresholds at 0 keep the global ones, `offline_min` delays the offline alert and `ignore` names mount points, disks, services, containers or VPN interfaces never alerted on. Alerts it no longer wants close quietly. Any field can be left out |
 | GET | `/api/hosts/{id}/install` | Session | Generated install line and Ansible variables. `?url=` sets the address the host reaches the monitor at, by default `NYX_PUBLIC_URL` |
 | POST | `/api/hosts/{id}/command` | Session | Queue a command for the agent. `{"action": "service", "op": "start\|stop\|restart\|logs\|status\|cat", "name": "nginx"}` acts on a systemd service; the agent refuses to stop itself |
 | GET | `/api/results` | Session | The latest 200 command results of every host |
@@ -68,7 +67,7 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/services` | Session | systemd services across hosts, each with `host` and `host_id` |
 | GET | `/api/storage` | Session | Disks and SMART across hosts |
 | GET | `/api/logs` | Session | Recent log lines, `?host=&q=`. A line reads `<epoch> <<priority>> <service>: <message>` |
-| GET | `/api/probes` | Session | Probes and latest results |
+| GET | `/api/probes` | Session | Probes and latest results, with `uptime_90d`, `muted` and `mcp_hidden`. A probe record's `muted` keeps it out of alerts while it runs; `mcp_hidden` keeps it out of the MCP server's answers |
 | POST | `/api/probes/reload` | Session | Apply probe changes now |
 | GET | `/api/pipelines` | Session | Followed pipelines and the state of their latest run |
 | POST | `/api/pipelines/refresh` | Session | Ask the forges now (after adding or editing a pipeline) |
@@ -95,7 +94,6 @@ Settings: `thresholds`, `maintenance` (with `retention_days` and `agent_beta`), 
 | GET | `/api/link/overview` | Link | Fleet health for the manager's dashboard |
 | GET | `/api/link/tempo` | Link | EDF Tempo summary for the manager's dashboard |
 | GET | `/api/link/pipelines` | Link | CI/CD pipelines for the manager's dashboard |
-| POST | `/api/link/hosts/{id}/deploy` | Link | Queue a deploy |
 | GET | `/api/link/results/{id}` | Link | Result of a command |
 | GET | `/install.sh` | Public | Agent installer |
 | GET | `/agent/v1/binary/{name}` | Public | Agent binary. Signed for agents |
@@ -140,12 +138,7 @@ Each host in `/api/hosts` carries `reboot_required`, and `update` once one was s
 | GET | `/api/ipam/calc?cidr=` | Session | Subnet calculator for any prefix |
 | GET | `/api/monitor/overview`, `/api/monitor/tempo`, `/api/monitor/pipelines` | Session | Fleet health, EDF Tempo or CI/CD pipelines from the linked monitor, `null` without a link |
 | GET | `/api/map/export/{format}` | Session | `svg`, `drawio`, `mermaid`, `dot` or `json` |
-| POST | `/api/map/import` | Session | Add monitored hosts to the map |
+| POST | `/api/map/import` | Session | Add the inventory's devices and guests to the map, guests linked to what they run on |
 | GET, POST | `/api/tasks` | Session | List tasks, or create one |
 | PATCH, DELETE | `/api/tasks/{id}` | Session | Change or delete a task. `status` is `todo`, `doing`, `done` or `cancelled`, `tags` is comma separated. Syncs to Nextcloud |
-| POST | `/api/sync` | Session | Sync Nextcloud and the monitor now |
-| GET | `/api/monitor/hosts` | Session | Hosts from the linked monitor |
-| POST | `/api/sites` | Session | Create a site and its deploy key |
-| POST | `/api/sites/{id}/deploy` | Session | Deploy now |
-| GET | `/api/sites/{id}/details` | Session | Public key, webhook URL and secret |
-| POST | `/hooks/git/{id}` | Signature | Git forge webhook |
+| POST | `/api/sync` | Session | Sync Nextcloud now |

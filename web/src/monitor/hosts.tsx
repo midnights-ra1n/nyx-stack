@@ -1,8 +1,8 @@
-import { ArrowPathIcon, ArrowUpIcon, BellIcon, BellSlashIcon, ChevronRightIcon, ClockIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CpuChipIcon, QueueListIcon, CubeIcon, CubeTransparentIcon, ExclamationTriangleIcon, GlobeAltIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, ServerIcon, TrashIcon, XCircleIcon } from "@heroicons/react/24/outline"
+import { AdjustmentsHorizontalIcon, ArrowPathIcon, ArrowUpIcon, BellIcon, BellSlashIcon, EyeSlashIcon, ChevronRightIcon, ClockIcon, CloudIcon, CommandLineIcon, ComputerDesktopIcon, CpuChipIcon, QueueListIcon, CubeIcon, CubeTransparentIcon, ExclamationTriangleIcon, GlobeAltIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, ServerIcon, TrashIcon, XCircleIcon } from "@heroicons/react/24/outline"
 import { Fragment, useEffect, useRef, useState } from "react"
 import { Board, CustomizeButton } from "../ui/board"
 import { DistroIcon, distroName, distroOf, osName, ProxmoxIcon } from "../ui/brand-icons"
-import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Tabs, Td, TimeSeries, Variable, ask, tell, Skeleton, PageSkeleton } from "../ui/components"
+import { Button, Check, Copy, Empty, ErrorNote, Gauge, type Icon, Input, Meter, Modal, Mono, Panel, Progress, RangeSelect, Select, Stat, StateCell, Status, Table, Tabs, Td, TextArea, TimeSeries, Variable, ask, tell, Skeleton, PageSkeleton } from "../ui/components"
 import { api, fmt, type Level, levelBg, levelOf, levelSoft, levelText, useApi, useStored } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
 import { DiskCards, FileSystems } from "./disks"
@@ -22,6 +22,71 @@ const WATCH_CTS_HINT = "Every container gets the agent, installed from this host
 // The path keeps working where sudo does not search /usr/local/bin, as on RHEL.
 const UNINSTALL = 'sudo "$(command -v nyx-agent)" uninstall'
 const kindLabel = (k: string) => KINDS.find((x) => x.value === k)?.label ?? k
+
+/** What a host can alert on, as the monitor names its checks. CPU, swap and restarts are off until picked. */
+export const CHECKS: [string, string][] = [
+  ["offline", "Not responding"], ["cpu", "CPU, averaged over 5 minutes"], ["mem", "Memory"], ["swap", "Swap"],
+  ["disk", "Disk space"], ["temp", "Temperature"], ["smart", "Disk health (SMART)"], ["services", "Failed services"],
+  ["containers", "Containers stopped with an error, restarting or unhealthy"], ["vpn", "VPN tunnels down"],
+  ["updates", "Updates available"], ["reboot", "Restart required"],
+]
+const DEFAULT_CHECKS = ["offline", "mem", "disk", "temp", "smart", "services", "containers", "vpn", "updates"]
+
+/** Alerts of one host: whether it alerts at all, on what, from which thresholds, and whether the MCP server tells about it. */
+function AlertSettings({ h, th, onClose, onSaved }: { h: any; th: any; onClose: () => void; onSaved: () => void }) {
+  const a = h.alerting ?? {}
+  const [muted, setMuted] = useState(!!h.muted)
+  const [hidden, setHidden] = useState(!!h.mcp_hidden)
+  const [checks, setChecks] = useState<string[]>(a.checks ?? DEFAULT_CHECKS)
+  const [num, setNum] = useState<Record<string, string>>(Object.fromEntries(["warn", "crit", "temp_warn", "temp_crit", "offline_min"].map((k) => [k, a[k] ? String(a[k]) : ""])))
+  const [ignore, setIgnore] = useState((a.ignore ?? []).join("\n"))
+  const [error, setError] = useState("")
+  const physical = h.kind === "physical" || h.kind === "proxmox"
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const n = (k: string) => Number(num[k]) || 0
+    const alerting = { checks, warn: n("warn"), crit: n("crit"), temp_warn: n("temp_warn"), temp_crit: n("temp_crit"), offline_min: n("offline_min"), ignore: ignore.split("\n").map((l: string) => l.trim()).filter(Boolean) }
+    try { await api(`/api/hosts/${h.id}`, { method: "PATCH", body: { muted, mcp_hidden: hidden, alerting } }); onSaved(); onClose() } catch (err) { setError((err as Error).message) }
+  }
+  const field = (k: string, label: string, global: number | undefined, unit: string) => (
+    <Input label={label} type="number" min={0} max={200} step="any" value={num[k]} placeholder={global != null ? `${global}` : ""} onChange={(e) => setNum({ ...num, [k]: e.target.value })} hint={t("Empty: {v} {unit}, as set in Settings.", { v: global ?? "—", unit })} />
+  )
+  return (
+    <Modal title={t("Alerts of {name}", { name: h.name })} onClose={onClose} wide>
+      <form onSubmit={save} className="flex flex-col gap-5">
+        <div className="grid grid-cols-2 gap-x-6 max-sm:grid-cols-1">
+          <Check label="Keep out of alerts" hint="Still measured and shown, with no alert and no notification. Pausing would stop measuring." checked={muted} onChange={(e) => setMuted(e.target.checked)} />
+          <Check label="Hide from the MCP server" hint="Assistants linked through MCP do not see this host, nor its alerts." checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
+        </div>
+        <fieldset disabled={muted} className="flex flex-col gap-5 disabled:opacity-50">
+          <div>
+            <legend className="mb-2 font-medium">{t("Alert on")}</legend>
+            <div className="grid grid-cols-2 gap-x-6 max-sm:grid-cols-1">
+              {CHECKS.filter(([k]) => k !== "smart" || physical).map(([k, label]) => (
+                <Check key={k} label={t(label)} checked={checks.includes(k)} onChange={(e) => setChecks(e.target.checked ? [...checks, k] : checks.filter((x) => x !== k))} />
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-4 max-lg:grid-cols-2 max-sm:grid-cols-1">
+            {field("warn", "Warning from (%)", th.warn, "%")}
+            {field("crit", "Critical from (%)", th.crit, "%")}
+            {field("temp_warn", "Hot from (°C)", th.temp_warn, "°C")}
+            {field("temp_crit", "Critical heat from (°C)", th.temp_crit, "°C")}
+          </div>
+          <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+            <Input label="Down after (minutes)" type="number" min={0} max={10080} value={num.offline_min} placeholder="0" onChange={(e) => setNum({ ...num, offline_min: e.target.value })} hint="0: after two missed reports, about a minute. More for a host that sleeps or reboots often." />
+            <TextArea label="Never alert on" rows={4} value={ignore} placeholder={"/boot/efi\nnginx.service\nwatchtower"} onChange={(e) => setIgnore(e.target.value)} hint="One per line, as named in Nyx: a mount point, a disk, a service, a container or a VPN interface." />
+          </div>
+        </fieldset>
+        <ErrorNote>{error}</ErrorNote>
+        <div className="flex gap-3 border-t border-line pt-4">
+          <Button variant="primary" type="submit">{t("Save")}</Button>
+          <Button type="button" onClick={onClose}>{t("Cancel")}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
 
 /** Older agents report containers as `vm`: their Proxmox parent or VMID tells them apart. */
 export function hostType(h: any, hosts: any[]): string {
@@ -328,6 +393,7 @@ function Flags({ h }: { h: any }) {
       {h.updates > 0 && <Chip level={h.security ? "crit" : "info"} icon={ArrowUpIcon} to="/updates" label={h.security ? t("{n} security fixes", { n: h.security }) : t("Pending updates")}>{h.updates}</Chip>}
       {h.reboot_required && <Chip level="warn" icon={ArrowPathIcon} label={t("Restart needed")} />}
       {h.muted && <BellSlashIcon className="size-4 text-fg3" aria-label={t("Excluded from alerts")} />}
+      {h.mcp_hidden && <EyeSlashIcon className="size-4 text-fg3" aria-label={t("Hidden from the MCP server")} />}
     </span>
   )
 }
@@ -689,6 +755,8 @@ export function HostDetail({ id }: { id: string }) {
   const [install, setInstall] = useState(false)
   const [note, setNote] = useState("")
   const [removing, setRemoving] = useState(false)
+  const [alerting, setAlerting] = useState(false)
+  const thresholds = { warn: 75, crit: 90, temp_warn: 80, temp_crit: 90, ...useApi("/api/settings/thresholds", { poll: false }).data }
   const updating = !!h?.update && !h.update.done
   useUpdatePolling(updating, reload)
   if (error) return <p role="alert" className="text-crit">{error}</p>
@@ -789,12 +857,6 @@ export function HostDetail({ id }: { id: string }) {
     { id: "firewall", title: "Firewall", absent: watched || !h.firewall, render: (edit: any) => (
       <Panel title={t("Firewall")} flush edit={edit}><FirewallPanel id={id} fw={h.firewall} name={h.name} onSent={reload} /></Panel>
     ) },
-    { id: "node", title: "Node.js", absent: !h.node?.version && !h.node?.apps.length, render: (edit: any) => (
-      <Panel title={t("Node.js")} edit={edit}>
-        {h.node?.version && <p className="text-fg2">Node.js <Mono>{h.node.version}</Mono></p>}
-        {h.node?.apps.map((a: any) => <p key={a.path} className="mt-2">{a.name} <Mono className="text-fg3">{a.path}</Mono>{a.manager && <span className="ml-2 text-fg3">{a.manager}</span>}</p>)}
-      </Panel>
-    ) },
     { id: "updates", title: "Updates", absent: watched, render: (edit: any) => (
       <Panel title={t("Updates")} edit={edit}>
         {updating && (
@@ -850,12 +912,15 @@ export function HostDetail({ id }: { id: string }) {
         actions={<>
           <IssuesBadge level={hostLevel(h.status)} issues={h.issues} />
           <Button aria-pressed={!!h.muted} onClick={mute}>{h.muted ? <><BellIcon className="size-5" aria-hidden />{t("Alert again")}</> : <><BellSlashIcon className="size-5" aria-hidden />{t("Exclude from alerts")}</>}</Button>
+          <Button onClick={() => setAlerting(true)}><AdjustmentsHorizontalIcon className="size-5" aria-hidden />{t("Alert settings")}</Button>
           {consoleLink && <a href={consoleLink} target="_blank" rel="noreferrer"><Button><CommandLineIcon className="size-5" aria-hidden />{t("Console")}</Button></a>}
           <CustomizeButton />
           <RangeSelect value={range} onChange={setRange} />
         </>}
       />
       {h.muted && <p role="note" className="mb-4 flex items-center gap-2 rounded-panel bg-raised px-4 py-2.5 text-fg2"><BellSlashIcon className="size-5 shrink-0" aria-hidden />{t("Excluded from alerts: nothing about this host opens an alert or sends a notification.")}</p>}
+      {h.mcp_hidden && <p role="note" className="mb-4 flex items-center gap-2 rounded-panel bg-raised px-4 py-2.5 text-fg2"><EyeSlashIcon className="size-5 shrink-0" aria-hidden />{t("Hidden from the MCP server: assistants do not see this host.")}</p>}
+      {alerting && <AlertSettings h={h} th={thresholds} onClose={() => setAlerting(false)} onSaved={reload} />}
       {watched && <p role="note" className="mb-4 rounded-panel bg-raised px-4 py-2.5 text-fg2">{t("Measured by its Proxmox host, with no agent inside. Logs, updates and Docker state need an agent.")}</p>}
       {h.oci && !watched && <p role="note" className="mb-4 rounded-panel bg-warn-soft px-4 py-2.5 text-warn">{t("This container runs an OCI image: logs, updates and Docker state stay empty when the image lacks journald, a package manager or Docker.")}</p>}
       <Board id="host" panels={panels}

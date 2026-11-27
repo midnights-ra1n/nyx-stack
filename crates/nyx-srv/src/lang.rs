@@ -9,6 +9,9 @@ const FR: &[(&str, &str)] = &[
     ("{host}: {n} updates available", "{host} : {n} mises à jour disponibles"),
     ("{n} security updates", "{n} mises à jour de sécurité"),
     ("{host}: memory at {p}%", "{host} : mémoire à {p} %"),
+    ("{host}: CPU at {p}% for 5 minutes", "{host} : CPU à {p} % depuis 5 minutes"),
+    ("{host}: swap at {p}%", "{host} : swap à {p} %"),
+    ("{host}: restart required", "{host} : redémarrage requis"),
     ("{host}: VPN {iface} ({kind}) is down", "{host} : VPN {iface} ({kind}) coupé"),
     ("{host}: container {name} uses {p}% of its memory limit", "{host} : le conteneur {name} utilise {p} % de sa limite mémoire"),
     ("{host}: container {name} {what}", "{host} : le conteneur {name} {what}"),
@@ -29,12 +32,9 @@ const FR: &[(&str, &str)] = &[
     ("⚪️ White", "⚪️ Blanc"),
     ("🔴 Red", "🔴 Rouge"),
     ("Days left: {blue} blue, {white} white, {red} red", "Jours restants : {blue} bleus, {white} blancs, {red} rouges"),
-    ("Site {name} is down", "Le site {name} est hors service"),
-    ("Site {name} is back", "Le site {name} est rétabli"),
-    ("Deploy of {name} succeeded", "Déploiement de {name} réussi"),
-    ("Deploy of {name} failed", "Échec du déploiement de {name}"),
     ("Task due: {title}", "Tâche à faire : {title}"),
     ("Deployment planned: {name}", "Déploiement prévu : {name}"),
+    ("Intervention planned: {name}", "Intervention prévue : {name}"),
     ("no answer from the agent", "pas de réponse de l'agent"),
     // Loose shapes last: they would take the ones above.
     ("{name}: {label} is {value}", "{name} : {label} = {value}"),
@@ -117,6 +117,8 @@ mod tests {
         assert_eq!(tr("fr", "nas-01: /dev/sdb 8 bad sectors"), "nas-01 : /dev/sdb 8 secteurs défectueux");
         assert_eq!(tr("fr", "Resolved: web: container nginx keeps restarting"), "Résolu : web : le conteneur nginx redémarre en boucle");
         assert_eq!(tr("fr", "web: memory at 91%"), "web : mémoire à 91 %");
+        assert_eq!(tr("fr", "web: CPU at 97% for 5 minutes"), "web : CPU à 97 % depuis 5 minutes");
+        assert_eq!(tr("fr", "web: restart required"), "web : redémarrage requis");
         assert_eq!(tr("fr", "nas: /srv/data at 87%"), "nas : /srv/data à 87 %");
         assert_eq!(tr("fr", "docker-01: 12 updates available"), "docker-01 : 12 mises à jour disponibles");
         assert_eq!(tr("fr", "EDF Tempo tomorrow: 🔴 Red"), "EDF Tempo demain : 🔴 Rouge");

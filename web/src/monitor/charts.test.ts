@@ -1,31 +1,56 @@
 import { describe, expect, it } from "vitest"
-import { type ChartCfg, chartHosts, chartTitle } from "./charts"
+import { upgradeChart } from "./charts"
+import { ALL, chartLines, fromChart, toChart } from "./metric-chart"
 import { axis, combine, pointsOf } from "./metrics"
 import { updateRank } from "./updates"
 import { filterHosts } from "./hosts"
 import { splitTags } from "../ui/tags"
-import { findHost } from "../manager/live"
 
 const hosts = [
   { id: "a", name: "pve", tags: ["lab", "prod"], status: "ok" },
   { id: "b", name: "web", tags: ["prod"], status: "ok" },
   { id: "c", name: "nas", tags: [], status: "ok" },
 ]
-const chart = (o: Partial<ChartCfg>): ChartCfg => ({ id: "x", title: "", metric: "cpu", source: "all", show: "each", look: "line", ...o })
-const vars = { host: "", tag: "", range: "24h" }
 const ids = (l: any[]) => l.map((h) => h.id)
 
-describe("custom charts", () => {
-  it("takes the hosts of a source, filling in the variables", () => {
-    expect(ids(chartHosts(chart({}), hosts, vars))).toEqual(["a", "b", "c"])
-    expect(ids(chartHosts(chart({ source: "tag", tag: "prod" }), hosts, vars))).toEqual(["a", "b"])
-    expect(ids(chartHosts(chart({ source: "$tag" }), hosts, { ...vars, tag: "lab" }))).toEqual(["a"])
-    expect(ids(chartHosts(chart({ source: "$tag" }), hosts, vars))).toEqual(["a", "b", "c"]) // empty variable: all
-    expect(ids(chartHosts(chart({ source: "$host" }), hosts, { ...vars, host: "c" }))).toEqual(["c"])
-    expect(ids(chartHosts(chart({ source: "hosts", hosts: ["b"] }), hosts, vars))).toEqual(["b"])
+describe("metric charts", () => {
+  const fleet = [
+    { id: "a", name: "pve", tags: ["metal"], installed: true },
+    { id: "b", name: "nas", tags: ["metal"], installed: true },
+    { id: "c", name: "web", tags: ["vms"], installed: true },
+  ]
+  const series = {
+    a: [{ t: 0, cpu: 10, temp: 50 }, { t: 60, cpu: 20, temp: 60 }],
+    b: [{ t: 0, cpu: 30, temp: 40 }, { t: 60, cpu: 40, temp: 40 }],
+    c: [{ t: 0, cpu: 50, temp: 0 }, { t: 60, cpu: 60 }],
+  }
+  const names = (c: Parameters<typeof chartLines>[0]) => chartLines(c, fleet, series).lines.map((l) => l.name)
+  it("draws a line per group, named by the group, and leaves out groups without data", () => {
+    const r = chartLines({ groups: ["metal", "vms"], metrics: ["cpu", "temp"], combine: "avg" }, fleet, series)
+    expect(r.lines.map((l) => [l.name, l.values.map((p) => p.v)])).toEqual([["metal", [20, 30]], ["vms", [50, 60]], ["metal", [45, 50]]])
+    expect(r.empty).toEqual(["vms · Temperature"])
   })
-  it("reads variables in titles", () => {
-    expect(chartTitle(chart({ title: "CPU of $host in $tag" }), hosts, { ...vars, host: "b", tag: "prod" })).toBe("CPU of web in prod")
+  it("names the metric when several share an axis, and the group only when there are several", () => {
+    expect(names({ groups: ["metal"], metrics: ["cpu", "mem", "temp"], combine: "max" })).toEqual(["CPU", "metal"])
+    expect(names({ groups: ["metal", "vms"], metrics: ["cpu", "mem"], combine: "max" })).toEqual(["metal · CPU", "vms · CPU"])
+  })
+  it("draws each host once, even in two groups", () => {
+    expect(names({ groups: ["metal", ALL], metrics: ["cpu"], combine: "each" })).toEqual(["pve", "nas", "web"])
+  })
+  it("brings older charts to groups and metrics", () => {
+    expect(upgradeChart({ id: "x", title: "CPU of $tag", metric: "cpu", source: "tag", tag: "prod", show: "avg", look: "bars" }))
+      .toEqual({ id: "x", wide: undefined, type: "metrics", title: "CPU of prod", groups: ["prod"], metrics: ["cpu"], combine: "avg", look: "line" })
+    expect(upgradeChart({ id: "y", groups: [ALL], metrics: ["mem"], combine: "max" })).toMatchObject({ type: "metrics" })
+  })
+  it("opens a simple chart in the full editor and back, keeping what it shows", () => {
+    const simple = { id: "s", type: "metrics", title: "", groups: ["metal", "vms"], metrics: ["cpu", "temp"], combine: "max", look: "area" }
+    const chart = toChart(simple)
+    expect(chart.query).toMatchObject({ dataset: "metrics", group: "t", split: "tags", where: [{ field: "tags", op: "is", value: "metal, vms" }] })
+    expect(chart.query.measures.map((m) => [m.fn, m.field])).toEqual([["max", "cpu"], ["max", "temp"]])
+    expect(chart.look.type).toBe("area")
+    expect(toChart({ ...simple, groups: [ALL], combine: "each" }).query).toMatchObject({ split: "host", where: [] })
+    expect(fromChart({ id: "c", type: "chart", title: "", chart })).toEqual({ groups: [ALL], metrics: ["cpu", "temp"], combine: "max", look: "area", range: undefined })
+    expect(fromChart({ id: "o", type: "chart", title: "", chart: { query: { dataset: "alerts", measures: [] }, look: { type: "pie" } } })).toEqual({})
   })
   it("folds hosts into their average or maximum per slot", () => {
     const lines = [[{ t: 0, v: 10 }, { t: 60, v: 20 }], [{ t: 5, v: 30 }, { t: 58, v: 40 }]]
@@ -52,12 +77,5 @@ describe("tags and hosts", () => {
   it("puts security fixes first, then restarts", () => {
     const order = [{ updates: 3 }, { agent_outdated: true }, { reboot_required: true }, { updates: 1, security: 1 }, {}].sort((x, y) => updateRank(x) - updateRank(y))
     expect(order.map(updateRank)).toEqual([0, 1, 2, 3, 4])
-  })
-  it("matches an inventory record to a monitored host by name or address", () => {
-    const live = [{ name: "PVE", hostname: "pve.lan", ip: "10.0.0.2" }]
-    expect(findHost(live, { name: "pve" })).toBe(live[0])
-    expect(findHost(live, { name: "x", ip: "10.0.0.2" })).toBe(live[0])
-    expect(findHost(live, { name: "x", ip: "" })).toBeUndefined()
-    expect(findHost(null, { name: "pve" })).toBeUndefined()
   })
 })

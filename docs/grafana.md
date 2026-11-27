@@ -271,7 +271,6 @@ Every host metric carries `host` (name) and `host_id`. States use one scale:
 | `nyx_guest_uptime_seconds`, `nyx_guest_cpu_usage_percent`, `nyx_guest_memory_used_bytes`, `nyx_guest_memory_total_bytes`, `nyx_guest_disk_used_bytes`, `nyx_guest_disk_total_bytes`, `nyx_guest_network_receive_bytes_per_second`, `nyx_guest_network_transmit_bytes_per_second` | same | Guest usage |
 | `nyx_guest_network_receive_bytes_total`, `nyx_guest_network_transmit_bytes_total` | same | Counters since the guest started |
 | `nyx_vpn_up`, `nyx_vpn_receive_bytes_per_second`, `nyx_vpn_transmit_bytes_per_second` | `iface`, `type`, `ip` | VPN links |
-| `nyx_node_app_cpu_usage_percent`, `nyx_node_app_memory_bytes`, `nyx_node_app_uptime_seconds` | `app`, `path`, `version`, `manager` | Node.js apps |
 | `nyx_firewall_active`, `nyx_firewall_rules` | `backend` | Host firewall |
 | `nyx_listening_ports` | | Ports the host listens on |
 | `nyx_probe_up`, `nyx_probe_latency_seconds`, `nyx_probe_success_ratio` | `probe`, `probe_id`, `type`, `target` (no host) | Ping, HTTP, DNS, certificate and SNMP probes |

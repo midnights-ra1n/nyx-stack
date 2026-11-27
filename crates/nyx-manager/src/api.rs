@@ -134,24 +134,23 @@ async fn map_export(_: Session, State(app): State<Arc<App>>, Path(format): Path<
     Ok(([(header::CONTENT_TYPE, mime.to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"nyx-network.{ext}\""))], body))
 }
 
-/// Add monitored hosts to the map, linking guests to their parent.
+/// Add the inventory's devices and guests to the map, linking guests to what they run on.
 async fn map_import(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
-    let hosts = link::hosts(&app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?.ok_or_else(|| ApiError::bad_request("no monitor linked"))?;
     let pb = &app.core.pb;
+    let devices = map::from_inventory(&pb.list("hardware", "", "name").await?, &pb.list("virtual_assets", "", "name").await?);
     let mut known = pb.list("map_nodes", "", "").await?;
     let mut added = 0;
-    for (i, h) in hosts.iter().enumerate() {
-        if !known.iter().any(|n| n["name"] == h["name"]) {
+    for (i, (name, kind, ip, _)) in devices.iter().enumerate() {
+        if !known.iter().any(|n| n["name"] == name.as_str()) {
             let (x, y) = (20 + (i % 5) * 180, 20 + (i / 5) * 120);
-            known.push(pb.create("map_nodes", &json!({"name": h["name"], "ip": h["ip"], "type": h["kind"], "x": x, "y": y})).await?);
+            known.push(pb.create("map_nodes", &json!({"name": name, "ip": ip, "type": kind, "x": x, "y": y})).await?);
             added += 1;
         }
     }
-    let id_of = |name: &Value| known.iter().find(|n| n["name"] == *name).and_then(|n| n["id"].as_str());
+    let id_of = |name: &str| known.iter().find(|n| n["name"] == name).and_then(|n| n["id"].as_str());
     let links = pb.list("map_links", "", "").await?;
-    for h in hosts.iter().filter(|h| h["parent"].as_str().is_some_and(|p| !p.is_empty())) {
-        let parent = hosts.iter().find(|p| p["id"] == h["parent"]);
-        if let (Some(a), Some(b)) = (id_of(&h["name"]), parent.and_then(|p| id_of(&p["name"]))) {
+    for (name, _, _, parent) in devices.iter().filter(|d| !d.3.is_empty()) {
+        if let (Some(a), Some(b)) = (id_of(name), id_of(parent)) {
             if !links.iter().any(|l| l["source"] == a && l["target"] == b) {
                 pb.create("map_links", &json!({"source": a, "target": b})).await?;
             }
@@ -178,8 +177,8 @@ async fn overview(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Val
     Ok(Json(json!({
         "categories": categories.into_iter().map(|(name, (total, active))| json!({"name": name, "total": total, "in_service": active})).collect::<Vec<_>>(),
         "addresses": addresses.len(), "vlans": count("vlans", "").await?, "running_deploys": count("deployments", "status = 'running'").await?,
-        "hardware": count("hardware", "").await?, "virtual": count("virtual_assets", "").await?, "sites": count("sites", "").await?,
-        "open_tasks": count("tasks", "done = false").await?,
+        "hardware": count("hardware", "").await?, "virtual": count("virtual_assets", "").await?,
+        "open_tasks": count("tasks", "done = false").await?, "open_interventions": count("interventions", OPEN_INTERVENTION).await?,
         "subnets": report["subnets"], "conflicts": report["conflicts"], "tasks": tasks["items"], "deployments": deployments["items"], "warranty": warranty["items"],
         "linked": link::config(&app).await?.is_some(),
     })))
@@ -257,12 +256,7 @@ async fn delete_task(_: Session, State(app): State<Arc<App>>, Path(id): Path<Str
 
 async fn sync_now(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
     nextcloud::sync(&app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    link::sync(&app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(Value::Null))
-}
-
-async fn monitor_hosts(_: Session, State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
-    Ok(Json(json!(link::hosts(&app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?)))
 }
 
 async fn get_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<String>) -> ApiResult<Json<Value>> {
@@ -280,7 +274,9 @@ async fn put_setting(_: Session, State(app): State<Arc<App>>, Path(key): Path<St
     Ok(Json(Value::Null))
 }
 
-/// One reminder ahead of time, for tasks and planned deployments.
+const OPEN_INTERVENTION: &str = "status != 'done' && status != 'cancelled'";
+
+/// One reminder ahead of time, for tasks, interventions and planned deployments.
 pub async fn reminders(app: &App) -> anyhow::Result<()> {
     let pb = &app.core.pb;
     let now = pb_date(Utc::now());
@@ -292,6 +288,10 @@ pub async fn reminders(app: &App) -> anyhow::Result<()> {
     for d in pb.list("deployments", &format!("status = 'planned' && scheduled_at != '' && scheduled_at <= {soon} && reminded_at = ''"), "").await? {
         notify::emit(&app.core, "task", "info", &format!("Deployment planned: {}", d["name"].as_str().unwrap_or_default()), d["scheduled_at"].as_str().unwrap_or_default(), d["target"].as_str().unwrap_or_default()).await;
         pb.update("deployments", d["id"].as_str().unwrap_or_default(), &json!({"reminded_at": now})).await?;
+    }
+    for i in pb.list("interventions", &format!("{OPEN_INTERVENTION} && scheduled_at != '' && scheduled_at <= {soon} && reminded_at = ''"), "").await? {
+        notify::emit(&app.core, "task", "info", &format!("Intervention planned: {}", i["title"].as_str().unwrap_or_default()), i["scheduled_at"].as_str().unwrap_or_default(), i["asset"].as_str().unwrap_or_default()).await;
+        pb.update("interventions", i["id"].as_str().unwrap_or_default(), &json!({"reminded_at": now})).await?;
     }
     Ok(())
 }
@@ -312,7 +312,6 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/tasks", get(tasks).post(create_task))
         .route("/api/tasks/{id}", patch(update_task).delete(delete_task))
         .route("/api/sync", post(sync_now))
-        .route("/api/monitor/hosts", get(monitor_hosts))
         .route("/api/settings/{key}", get(get_setting).put(put_setting))
         .with_state(app)
 }
@@ -326,6 +325,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
             ("ipam_report", "Subnet usage and addressing conflicts.", empty.clone()),
             ("list_deployments", "Recent and planned deployments.", empty.clone()),
             ("list_tasks", "Open tasks and upcoming events.", empty.clone()),
+            ("list_interventions", "Open interventions on inventory devices: repairs, upgrades, checks.", empty.clone()),
             ("list_vpn_links", "VPN links between sites and devices.", empty.clone()),
             ("trace_route", "Simulate a ping between two devices or IP addresses: the path there and back, hop by hop, and what stops it.", json!({"type": "object", "properties": {"from": {"type": "string"}, "destination": {"type": "string"}}, "required": ["from", "destination"]})),
         ],
@@ -339,6 +339,7 @@ pub fn mcp_tools(app: Arc<App>) -> mcp::Tools {
                     "ipam_report" => { let (s, a, _) = ipam_data(&app).await?; Ok(ipam::report(&s, &a)) }
                     "list_deployments" => Ok(pb.list_page("deployments", &[("sort", "-created"), ("perPage", "50")]).await?["items"].clone()),
                     "list_tasks" => Ok(json!(pb.list("tasks", "done = false", "due").await?)),
+                    "list_interventions" => Ok(json!(pb.list("interventions", OPEN_INTERVENTION, "scheduled_at").await?)),
                     "list_vpn_links" => Ok(json!(pb.list("vpn_links", "", "name").await?)),
                     "trace_route" => {
                         let (s, a, r) = ipam_data(&app).await?;

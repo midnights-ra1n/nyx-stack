@@ -1,10 +1,17 @@
+import { RectangleGroupIcon } from "@heroicons/react/24/outline"
 import { useState } from "react"
-import { Board, CustomizeButton } from "../ui/board"
-import { Empty, ErrorNote, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
-import { fmt, type Level, levelSoft, useApi } from "../ui/lib"
-import { Link, navigate, PageHeader } from "../ui/shell"
+import { Button, Empty, ErrorNote, Gauge, Panel, RangeSelect, Stat, StateCell, Status, Table, Td, TimeSeries, Variable, Mono } from "../ui/components"
+import { fmt, type Level, levelOf, levelSoft, levelText, useApi, useStored } from "../ui/lib"
+import { Link, navigate } from "../ui/shell"
+import { Dashboard } from "../ui/dashboard"
+import { BASIC_KINDS } from "../ui/widgets"
+import { DATASETS } from "./datasets"
+import { PRESETS } from "./presets"
+import { METRIC_KIND } from "./metric-chart"
 import { DiskHealth } from "./disks"
 import { HostIcon, hostType } from "./hosts"
+import { averages, GroupsModal, inScope, scopeOptions } from "./groups"
+import { combine, type Metric, pointsOf, slotFor } from "./metrics"
 import { RecentLogs } from "./logs"
 import { StoragePanel } from "./storage-tree"
 import { PipelineList } from "../ui/pipelines"
@@ -12,6 +19,7 @@ import { TempoTiles } from "../ui/tempo"
 import { NextDnsPanel } from "../ui/nextdns"
 import { t, tn } from "../ui/i18n"
 
+const KINDS = { metrics: METRIC_KIND, ...BASIC_KINDS }
 const sevLevel = (s: string): Level => (s === "crit" ? "crit" : s === "warn" ? "warn" : s === "info" ? "info" : "ok")
 export const hostLevel = (s: string): Level => (s === "off" ? "off" : (s as Level))
 
@@ -48,6 +56,29 @@ function HostList({ hosts, th }: { hosts: any[]; th: any }) {
   )
 }
 
+/** One line per type of host and per group with its averages: which part of the homelab works hard, or runs hot. */
+function ByGroup({ hosts, scope, onPick, th, edit }: { hosts: any[]; scope: string; onPick: (scope: string) => void; th: any; edit: any }) {
+  const rows = scopeOptions(hosts, false).filter((o) => o.value).map((o) => ({ ...o, a: averages(hosts.filter((h) => inScope(h, o.value, hosts))) }))
+  const cell = (v: number | null, warn: number, crit: number, unit = " %") => <Td className={v == null ? "text-fg3" : v >= warn ? levelText[levelOf(v, warn, crit)] : "text-fg2"}>{v == null ? "—" : `${v.toFixed(0)}${unit}`}</Td>
+  return (
+    <Panel title={t("By group")} edit={edit} flush help="Averages of the online hosts of each type and group. The temperature only counts hosts with a sensor, so physical ones.">
+      {rows.length ? (
+        <Table head={["Group", "Hosts", "CPU", "Mem.", "Temp."]}>
+          {rows.map((r) => (
+            <tr key={r.value} aria-selected={scope === r.value} className={`cursor-pointer hover:bg-raised ${scope === r.value ? "bg-accent-soft" : ""}`} onClick={() => onPick(scope === r.value ? "" : r.value)}>
+              <Td className="font-medium"><span className="flex items-center gap-2">{r.group === "Types" && <HostIcon type={r.value.slice(5)} />}{r.raw ? r.label : t(r.label)}</span></Td>
+              <Td className="text-fg2">{r.a.n}</Td>
+              {cell(r.a.cpu, th.warn, th.crit)}
+              {cell(r.a.mem, th.warn, th.crit)}
+              {cell(r.a.temp, th.temp_warn ?? 80, th.temp_crit ?? 90, " °C")}
+            </tr>
+          ))}
+        </Table>
+      ) : <div className="px-4 pb-4"><Empty>{t("No host yet.")}</Empty></div>}
+    </Panel>
+  )
+}
+
 /** Block of the overview. It fetches its own data, so that it costs nothing while hidden. */
 function Probes({ edit }: { edit: any }) {
   const { data } = useApi<any[]>("/api/probes")
@@ -79,21 +110,31 @@ function StoppedContainers({ edit }: { edit: any }) {
 
 export function Overview() {
   const [range, setRange] = useState("24h")
-  const [host, setHost] = useState("")
+  const [stored, setScope] = useStored("nyx.overview.scope", "")
+  const [grouping, setGrouping] = useState(false)
   const over = useApi("/api/overview")
   const hosts = useApi<any[]>("/api/hosts")
-  const series = useApi<any[]>(`/api/series?range=${range}&host=${host}`)
+  const all = hosts.data ?? []
+  const scopes = scopeOptions(all)
+  // A group or host deleted since reads as every host.
+  const scope = scopes.some((o) => o.value === stored) ? stored : ""
+  const visible = all.filter((h) => inScope(h, scope, all))
+  // shortcut: a scope of more than 24 hosts charts the first 24 (the server's cap); fetch in pages if a homelab gets there.
+  const ids = visible.slice(0, 24).map((h) => h.id)
+  const series = useApi<any>(!scope ? `/api/series?range=${range}` : ids.length ? `/api/series?range=${range}&hosts=${ids.join(",")}` : null)
   const alerts = useApi("/api/c/alerts?filter=open%3Dtrue&sort=-created&perPage=5")
   const power = useApi("/api/integrations/power")
   const tempo = useApi("/api/integrations/tempo", { poll: false })
   const o = over.data
   const th = o?.thresholds ?? { warn: 75, crit: 90 }
   const reload = () => { over.reload(); hosts.reload(); series.reload(); alerts.reload() }
-  const points = series.data ?? []
-  const visible = (hosts.data ?? []).filter((h) => !host || h.id === host)
-  const selected = host ? hosts.data?.find((h) => h.id === host) : undefined
-  const cpu = selected ? selected.cpu ?? 0 : o?.cpu ?? 0
-  const mem = selected ? selected.mem ?? 0 : o?.mem ?? 0
+  // The whole fleet comes as one line from the server; a scope is the average of its hosts.
+  const line = (m: Metric) => {
+    if (!scope) return pointsOf(series.data, m)
+    const lines = ids.map((id) => pointsOf(series.data?.[id], m)).filter((l) => l.length)
+    return combine(lines, "avg", slotFor(lines))
+  }
+  const avg = averages(visible)
   const offline = o ? o.hosts_total - o.hosts_online : 0
   const stopped = o ? o.containers_total - o.containers_running : 0
   const pending = (hosts.data ?? []).filter((h) => h.updates > 0)
@@ -110,15 +151,19 @@ export function Overview() {
       </Panel>
     ) },
     { id: "usage", title: "Average usage", render: (edit: any) => (
-      <Panel title={t("Average usage")} edit={edit}>
-        <div className="flex justify-around gap-4"><Gauge label="CPU" value={cpu} warn={th.warn} crit={th.crit} /><Gauge label="Memory" value={mem} warn={th.warn} crit={th.crit} /></div>
+      <Panel title={t("Average usage")} edit={edit} footer={avg.n ? t("Across {n} online hosts", { n: avg.n }) + (avg.sensors ? ` · ${t("temperature from the {n} with a sensor", { n: avg.sensors })}` : "") : undefined}>
+        <div className="flex flex-wrap justify-around gap-4">
+          <Gauge label="CPU" value={avg.cpu ?? 0} warn={th.warn} crit={th.crit} />
+          <Gauge label="Memory" value={avg.mem ?? 0} warn={th.warn} crit={th.crit} />
+          {avg.temp != null && <Gauge label="Temperature" value={avg.temp} unit=" °C" warn={th.temp_warn ?? 80} crit={th.temp_crit ?? 90} />}
+        </div>
       </Panel>
     ) },
     { id: "load", title: "Load", render: (edit: any) => (
       <Panel title={t("Load over {range}", { range })} edit={edit}>
         <TimeSeries series={[
-          { name: "CPU", color: "var(--color-s1)", values: points.map((p) => ({ t: p.t, v: p.cpu })) },
-          { name: t("Memory"), color: "var(--color-s2)", values: points.map((p) => ({ t: p.t, v: p.mem })) },
+          { name: "CPU", color: "var(--color-s1)", values: line("cpu") },
+          { name: t("Memory"), color: "var(--color-s2)", values: line("mem") },
         ]} />
       </Panel>
     ) },
@@ -139,6 +184,7 @@ export function Overview() {
     { id: "hosts", title: "Hosts", render: (edit: any) => (
       <Panel title={t("Hosts")} edit={edit} flush actions={[{ label: "All hosts", onClick: () => navigate("/hosts") }]}><HostList hosts={visible} th={th} /></Panel>
     ) },
+    { id: "groups", title: "By group", render: (edit: any) => <ByGroup hosts={all} scope={scope} onPick={setScope} th={th} edit={edit} /> },
     { id: "storage", title: "Storage", render: (edit: any) => <StoragePanel edit={edit} hosts={visible} allHosts={hosts.data ?? []} storage={o?.storage ?? []} th={th} /> },
     { id: "power", title: "Power", render: (edit: any) => (
       <Panel title={t("Power")} edit={edit}>
@@ -160,22 +206,23 @@ export function Overview() {
   ]
 
   return (
-    <>
-      <PageHeader
-        title={t("Overview")}
-        crumbs={[{ label: "Dashboards" }, { label: "Homelab" }]}
-        subtitle={t("Updated at {v0}", { v0: fmt.time(over.updated) })}
-        onRefresh={reload}
-        actions={<><CustomizeButton /><RangeSelect value={range} onChange={setRange} /></>}
-        variables={<Variable label="Host" value={host} onChange={setHost} options={[{ value: "", label: "All" }, ...(hosts.data ?? []).map((h) => ({ value: h.id, label: h.name }))]} />}
-      />
-      <Board
-        id="overview"
-        panels={panels}
-        desktop={{ cols: [["summary", "load", "alerts"], ["usage", "hosts", "storage"]], hidden: ["power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
-        phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "storage", "power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
-      />
-    </>
+    <Dashboard id="overview" setting="/api/settings/monitor_dashboard" datasets={DATASETS} kinds={KINDS} range={range} presets={PRESETS}
+      header={{
+        title: "Overview",
+        crumbs: [{ label: "Dashboards" }, { label: "Homelab" }],
+        subtitle: t("Updated at {v0}", { v0: fmt.time(over.updated) }),
+        onRefresh: reload,
+        actions: <RangeSelect value={range} onChange={setRange} />,
+        variables: <>
+          <Variable label="Show" value={scope} onChange={setScope} options={scopes} />
+          <Button onClick={() => setGrouping(true)}><RectangleGroupIcon className="size-5" aria-hidden />{t("Groups")}</Button>
+          {grouping && <GroupsModal hosts={all} onClose={() => setGrouping(false)} onSaved={hosts.reload} />}
+        </>,
+      }}
+      builtins={panels}
+      desktop={{ cols: [["summary", "load", "alerts"], ["usage", "groups", "hosts", "storage"]], hidden: ["power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
+      phone={{ cols: [["summary", "usage", "alerts", "hosts"]], hidden: ["load", "groups", "storage", "power", "tempo", "nextdns", "disks", "logs", "probes", "pipelines", "containers", "updates"] }}
+    />
   )
 }
 

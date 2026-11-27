@@ -63,23 +63,9 @@ Disks behind a RAID controller or some USB bridges do not expose SMART.
 The rule shows **Failing** with the error. Use **Test** on the channel. With packages
 `NYX_NOTIFIER_BIN` is set for you; elsewhere `nyx-notify` must be on the `PATH`.
 
-## A deploy fails
-
-Open the site to read the output.
-
-- `unknown user`: the run user does not exist on that host.
-- `Permission denied (publickey)`: the deploy key is not on the repository.
-- `no monitor linked`: set up the link in the manager's settings.
-- `no answer from the agent`: the agent was offline for 30 minutes.
-
-## A webhook answers 401
-
-The secret differs, or the forge sent another content type. Use JSON. Pings are
-answered with `ignored` because they name no branch.
-
 ## Nextcloud does not sync
 
-Press **Sync** on the tasks page to see the error at once. The calendar field is the
+Press **Sync** on the **Work** page to see the error at once. The calendar field is the
 name in the calendar's link, not its display name.
 
 ## A status page or wall display says it does not exist

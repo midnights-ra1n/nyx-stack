@@ -1,5 +1,5 @@
-//! nyx-manager: inventory, IPAM, network map, deployments and Node.js sites.
-//! Works alone; linking a nyx-monitor adds discovery and agent-driven deploys.
+//! nyx-manager: inventory, IPAM, network map, and the work to do on them.
+//! Works alone; linking a nyx-monitor adds its panels to the overview, never its hosts.
 
 mod api;
 mod ipam;
@@ -7,7 +7,6 @@ mod link;
 mod map;
 mod nextcloud;
 mod sim;
-mod sites;
 
 use axum::{middleware::from_fn_with_state, routing::get, Router};
 use nyx_srv::{auth, backup, crud, mcp, notify, system, web, Core, Env};
@@ -28,13 +27,13 @@ const COLLECTIONS: &[crud::Spec] = &[
     crud::Spec { name: "vlans", hidden: &[], history: false },
     crud::Spec { name: "vrfs", hidden: &[], history: false },
     crud::Spec { name: "deployments", hidden: &[], history: false },
+    crud::Spec { name: "interventions", hidden: &[], history: false },
     crud::Spec { name: "ports", hidden: &[], history: false },
     crud::Spec { name: "racks", hidden: &[], history: false },
     crud::Spec { name: "map_nodes", hidden: &[], history: false },
     crud::Spec { name: "map_links", hidden: &[], history: false },
     crud::Spec { name: "map_zones", hidden: &[], history: false },
     crud::Spec { name: "vpn_links", hidden: &[], history: false },
-    crud::Spec { name: "sites", hidden: &["ssh_private_key", "webhook_secret"], history: false },
     crud::Spec { name: "mcp_tokens", hidden: &["token_hash"], history: false },
     crud::Spec { name: "notif_channels", hidden: &[], history: false },
     crud::Spec { name: "notif_rules", hidden: &[], history: false },
@@ -61,7 +60,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/health", get(|| async { "ok" }))
         .merge(shared)
         .merge(api::router(app.clone()))
-        .merge(sites::router(app.clone()))
         .merge(mcp::router(core.clone(), api::mcp_tools(app.clone())))
         .fallback(web::spa::<Ui>)
         .layer(from_fn_with_state(core.clone(), auth::inject));
@@ -81,9 +79,6 @@ fn spawn_loops(app: Arc<App>) {
             });
         }};
     }
-    task!(15, "deploy results", sites::poll_results);
-    task!(60, "site health", sites::check_health);
-    task!(300, "inventory sync", link::sync);
     task!(300, "reminders", api::reminders);
     task!(30, "nextcloud sync", nextcloud::sync);
 }

@@ -86,7 +86,7 @@ NYX_PB_BIN=$(command -v pocketbase) cargo run -p nyx-monitor   # data in ./nyx-d
 | `crates/nyx-monitor/src/probes.rs`, `snmp.rs` | Active checks |
 | `crates/nyx-monitor/src/pages.rs` | Status pages and wall displays |
 | `crates/nyx-manager/src/ipam.rs`, `map.rs` | Pure logic, with most of the tests |
-| `crates/nyx-manager/src/sites.rs`, `nextcloud.rs` | Deploys and CalDAV |
+| `crates/nyx-manager/src/nextcloud.rs` | CalDAV |
 | `crates/nyx-srv/src/` | Auth, CRUD, notifications, MCP, updates, database choice |
 | `crates/nyx-db/src/` | PocketBase embedding, and the `nyx-db` program |
 | `web/src/ui/` | Shared components, shell, settings |

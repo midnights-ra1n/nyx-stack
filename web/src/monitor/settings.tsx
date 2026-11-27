@@ -92,7 +92,7 @@ function ManagerLink() {
   return (
     <Panel title={t("Manager link")}>
       <div className="flex flex-col gap-3">
-        <p className="text-fg2">{t("Optional. Lets a Nyx Manager read the fleet and deploy Node.js sites through agents. Creating a token replaces the previous one.")}</p>
+        <p className="text-fg2">{t("Optional. Lets a Nyx Manager show the fleet's health, EDF Tempo and the pipelines on its overview. It reads only. Creating a token replaces the previous one.")}</p>
         <div><Button onClick={async () => setToken((await api("/api/link/token", { method: "POST" })).token)}>{t("Create link token")}</Button></div>
         {token && <Copy text={token} />}
       </div>
@@ -134,7 +134,7 @@ export function Settings() {
           { key: "check_hour", label: "Update check hour", type: "number", hint: "Agents look for system updates once a day at this hour." },
           { key: "agent_auto_update", label: "Update agents automatically", type: "checkbox" },
           { key: "agent_beta", label: "Use beta agents", type: "checkbox", hint: "Agents take the newest release from GitHub rather than the version this server ships." },
-          { key: "retention_days", label: "Keep history for (days)", type: "number", hint: "From 30 to 365. Past 7 days, history is stored hour by hour, so a year takes about 3 MB per host." }]} />
+          { key: "retention_days", label: "Keep history for (days)", type: "number", hint: "From 30 to 365. Past 7 days, history is stored hour by hour, so a year takes about 3 MB per host. Resolved alerts stay at least 90 days." }]} />
         <SettingForm title={t("DNS for probes")} setting="probe_dns" fields={[
           { key: "servers", label: "DNS servers", hint: "IP addresses separated by commas, for example 1.1.1.1, 9.9.9.9. Ping, website, certificate and DNS probes resolve names through them, which keeps them out of a local NextDNS or Pi-hole log. A probe's own DNS server still wins. Empty uses this server's resolver." }]} />
       </> },

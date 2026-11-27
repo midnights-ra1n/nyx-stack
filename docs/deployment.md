@@ -216,9 +216,12 @@ Only the manager needs to reach the monitor. The monitor never calls the manager
 a manager behind a home connection works with a monitor on a VPS. Use an HTTPS URL
 when the link leaves your network, because the token travels with every request.
 
-If the link goes down, each side keeps working. The manager keeps its inventory and
-only stops refreshing it, and site deployments wait until the monitor is reachable
-again. The monitor does not depend on the manager at all.
+The link never copies the monitor's hosts into the manager: the manager's inventory is
+kept by hand. The link only reads, for the overview's EDF Tempo, Pipelines and Monitoring
+panels.
+
+If the link goes down, each side keeps working: those panels say the monitor cannot be
+reached. The monitor does not depend on the manager at all.
 
 ## Packages
 
@@ -414,7 +417,7 @@ Creating a new token replaces the old one.
 
 **Settings, Backup, Download backup** saves one JSON file with every record of the
 server's database: hosts with their agent tokens and keys, probes, integrations,
-notification channels and rules, status pages, IPAM, inventory, sites and settings.
+notification channels and rules, status pages, IPAM, inventory, work and settings.
 Tick **Include metrics history** to keep charts, uptime and past events too; it makes
 the file much larger. On a [shared database](#choosing-a-database) the file holds the
 data of both servers.
@@ -433,7 +436,7 @@ Accounts are not in the file, as PocketBase never hands out password hashes, and
 is the secret that signs sessions. Restoring is only offered while the server has no
 account: to restore over an install in use, start from an empty data directory.
 
-The file holds secrets in clear: agent keys, SSH private keys of sites, integration and
+The file holds secrets in clear: agent keys, integration and
 notification passwords. Store it like a password vault export.
 
 ### Copying the data directory
@@ -473,7 +476,7 @@ docker compose up -d --remove-orphans
 | Port | Service | Reachable from |
 | --- | --- | --- |
 | 8081 | Monitor | Users and agents |
-| 8082 | Manager | Users, and Git forges for webhooks |
+| 8082 | Manager | Users |
 | Random, loopback only | Local database | Its own server |
 | 8090 | `nyx-db` | The servers only. Private network or HTTPS |
 | 3000 | Grafana (`grafana` profile) | Users |

@@ -12,11 +12,12 @@ Nyx has three parts. Each one works without the others.
 | Part | What it does | Port |
 | --- | --- | --- |
 | **Monitor** | Dashboards, hosts, containers, SMART, alerts, logs, status pages, wall displays, and ICMP, HTTP, DNS, certificate and SNMP probes | 8081 |
-| **Manager** | Hardware and virtual inventory, IPAM (nested subnets, VLANs, VRFs, address map, ping scan, conflict detection), routing simulation, dashboard widgets, network map, deployments, Node.js sites, tasks | 8082 |
+| **Manager** | Hardware and virtual inventory, IPAM (nested subnets, VLANs, VRFs, address map, ping scan, conflict detection), routing simulation, dashboard widgets, network map, and the work to do: tasks, interventions, deployments | 8082 |
 | **Agent** | One small Rust binary on each host. It opens no port and only calls the monitor | none |
 
-Run the manager alone, the monitor with its agents alone, or link them. When linked,
-the manager fills its inventory from the agents and deploys sites through them.
+Run the manager alone, the monitor with its agents alone, or link them. The manager keeps
+an inventory of its own, typed by you; when linked, its overview also shows the monitor's
+health, EDF Tempo and pipelines.
 
 ## Project status
 
@@ -49,12 +50,11 @@ and report what breaks. You can also [build it from source](docs/development.md)
 - **Notifications:** email, Discord, Matrix, Slack, Gotify, Ntfy, Telegram, Teams and
   more through Shoutrrr. Custom templates with emojis, a live preview that looks like
   the app receiving them, and grouping into daily, weekly or monthly digests.
-- **Node.js platform:** detects running apps and how they run, adopts them or deploys
-  from Git with a deploy key, and redeploys on push through a signed webhook.
 - **VPN links:** agents report Tailscale, NetBird, WireGuard and other tunnels and alert
   when one drops. The manager keeps them on their page and on the network map.
-- **Tasks and deployments:** Kanban board or list, with states, tags, due dates,
-  checklists synced with Nextcloud, and progress overall and per tag.
+- **Work:** tasks, interventions on devices and deployments in one table, or as a
+  board, with states, tags, due dates, checklists synced with Nextcloud, and progress
+  overall and per tag.
 - **Places and network map:** drag devices into racks, onto shelving units or desks,
   side by side, plug cables between ports, and draw your infrastructure (Internet,
   routers, switches, servers, VMs, VPS, cloud) with typed links (Ethernet, fibre, Wi-Fi,
@@ -121,8 +121,6 @@ Each channel has its own title and body template, with a live preview. See
 | <a href="docs/images/manager-overview.png"><img src="docs/images/manager-overview.png" alt="Manager overview"></a> | <a href="docs/images/ipam.png"><img src="docs/images/ipam.png" alt="IPAM page"></a> |
 | **Network map** | **Hardware inventory** |
 | <a href="docs/images/network-map.png"><img src="docs/images/network-map.png" alt="Network map and export formats"></a> | <a href="docs/images/hardware.png"><img src="docs/images/hardware.png" alt="Hardware inventory"></a> |
-| **Deployments** | **Node.js sites** |
-| <a href="docs/images/deployments.png"><img src="docs/images/deployments.png" alt="Deployment tracking"></a> | <a href="docs/images/sites.png"><img src="docs/images/sites.png" alt="Sites and detected Node.js apps"></a> |
 
 ### On a phone
 
@@ -159,8 +157,7 @@ Each step, packages for Debian and RHEL, HTTPS, backups, updates and removal are
 - [Agent](docs/agent.md): install methods, host types, Ansible, what is collected
 - [Monitoring](docs/monitoring.md): probes, SNMP, alerts
 - [Status pages](docs/status-pages.md): public pages and wall displays
-- [Manager](docs/manager.md): inventory, IPAM, map, Node.js sites, tasks
-- [Site cache behind a reverse proxy](docs/reverse-proxy-cache.md): no forced refresh after a deploy
+- [Manager](docs/manager.md): inventory, IPAM, map, work
 - [Notifications](docs/notifications.md): channels, rules, templates
 - [Integrations](docs/integrations.md): Nextcloud, Tempo, Proxmox, Meross, MCP, passkeys
 - [Grafana](docs/grafana.md): dashboards in five minutes, and every metric Nyx exposes

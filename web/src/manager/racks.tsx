@@ -5,8 +5,7 @@ import { type Col, RecordForm } from "../ui/crud"
 import { t } from "../ui/i18n"
 import { api, type Level, sortRows, useApi } from "../ui/lib"
 import { Link, navigate, PageHeader } from "../ui/shell"
-import { adoptHost, CATEGORIES, HARDWARE, HW_DEFAULTS, peerOf } from "./inventory"
-import { findHost, liveLevel, useLiveHosts } from "./live"
+import { CATEGORIES, HARDWARE, HW_DEFAULTS, peerOf, STATUS_LEVEL } from "./inventory"
 
 const icon = (body: React.ReactNode): Icon => (({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>{body}</svg>
@@ -115,7 +114,7 @@ const FACE_W: Record<string, (w: number) => number> = {
 }
 const fit = (s: string, px: number) => { const n = Math.max(0, Math.floor(px / 7)); return s.length > n ? (n > 1 ? `${s.slice(0, n - 1)}…` : "") : s }
 
-/** One device seen from the front: its state on the left edge, its icon, its name, and marks of its kind. */
+/** One device seen from the front: a status other than in service on the left edge, its icon, its name, and marks of its kind. */
 function Front({ d, b, state, selected, bad }: { d: any; b: { w: number; h: number }; state?: Level; selected: boolean; bad: boolean }) {
   const I = CATEGORIES[d.category] ?? CATEGORIES.Other
   const big = b.h >= 40
@@ -236,7 +235,6 @@ export function Racks() {
   const racks = useApi("/api/c/racks?sort=name&perPage=200", { poll: false })
   const hardware = useApi("/api/c/hardware?sort=name&perPage=500", { poll: false })
   const ports = useApi("/api/c/ports?perPage=1000", { poll: false })
-  const live = useLiveHosts()
   const [edit, setEdit] = useState<any | null | undefined>()
   const [adding, setAdding] = useState<any>()
   const [selected, setSelected] = useState<string>()
@@ -253,9 +251,8 @@ export function Racks() {
   const inPlace = (p: any) => all.filter((h) => h.rack === p.id && h.rack_u > 0)
   const loose = all.filter((h) => !placeOf(h))
   const sel = all.find((h) => h.id === selected)
-  const stateOf = (d: any): Level | undefined => { const h = findHost(live, d); return h ? liveLevel(h) : undefined }
-  // Physical machines the monitor knows that the inventory does not have yet.
-  const unknown = (live ?? []).filter((h: any) => (h.kind === "physical" || h.kind === "proxmox") && !all.some((d) => findHost([h], d)))
+  // A spare, broken or retired device stands out; one in service needs no mark.
+  const stateOf = (d: any): Level | undefined => (d.status && d.status !== "In service" ? STATUS_LEVEL[d.status] ?? "off" : undefined)
 
   const reload = async () => { await Promise.all([hardware.reload(), ports.reload()]); setLocal({}) }
   const patch = async (id: string, body: any) => {
@@ -289,9 +286,6 @@ export function Racks() {
     await Promise.all(inPlace(p).map((h) => api(`/api/c/hardware/${h.id}`, { method: "PATCH", body: { rack: "", rack_u: 0 } })))
     await api(`/api/c/racks/${p.id}`, { method: "DELETE" })
     racks.reload(); reload()
-  }
-  const adopt = async (h: any) => {
-    try { await adoptHost(h); reload() } catch (e) { setNote((e as Error).message) }
   }
 
   /** The place, row and column under the pointer, wherever it is on the page. */
@@ -400,7 +394,7 @@ export function Racks() {
               <div className="mb-4 flex items-center gap-3">
                 <span className="flex size-11 shrink-0 items-center justify-center rounded-box bg-raised text-fg2"><SI className="size-6" aria-hidden /></span>
                 <span className="min-w-0 flex-1"><span className="block truncate text-fg2">{[sel.manufacturer, sel.model].filter(Boolean).join(" ") || t(sel.category || "Other")}</span><span className="block truncate text-xs text-fg3">{P ? `${P.name} · ${spot(P, sel)}` : t("Not placed")}</span></span>
-                {stateOf(sel) && <Status cell level={stateOf(sel)!} />}
+                {stateOf(sel) && <Status cell level={stateOf(sel)!} label={sel.status} />}
                 <IconButton label="Close" icon={XMarkIcon} onClick={() => setSelected(undefined)} />
               </div>
               <div className="mb-4 grid grid-cols-2 gap-3">
@@ -431,19 +425,6 @@ export function Racks() {
               </ul>
             )}
           </Panel>
-          {unknown.length > 0 && (
-            <Panel title={t("Seen by the monitor")} flush help="Physical machines the monitor watches that the hardware inventory does not list yet.">
-              <ul className="max-h-72 divide-y divide-line overflow-y-auto">
-                {unknown.map((h: any) => (
-                  <li key={h.id ?? h.name} className="flex items-center gap-3 px-4 py-1.5">
-                    <Status cell level={liveLevel(h)} label="" />
-                    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{h.name}</span><span className="block truncate font-mono text-xs text-fg3">{h.ip}</span></span>
-                    <Button onClick={() => adopt(h)}>{t("Add")}</Button>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
         </div>
       </div>
     </>

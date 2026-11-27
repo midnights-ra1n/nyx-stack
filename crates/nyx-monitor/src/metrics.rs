@@ -165,14 +165,6 @@ pub fn render(st: &Fleet, now: i64, monitor_uptime_s: u64) -> String {
             o.gauge("nyx_vpn_receive_bytes_per_second", "VPN inbound traffic.", &vl, v.rx_bps as f64);
             o.gauge("nyx_vpn_transmit_bytes_per_second", "VPN outbound traffic.", &vl, v.tx_bps as f64);
         }
-        if let Some(n) = &live.node {
-            for a in &n.apps {
-                let al = with(&base, &[("app", &a.name), ("path", &a.path), ("version", &a.version), ("manager", &a.manager)]);
-                o.gauge("nyx_node_app_cpu_usage_percent", "Node.js app CPU usage.", &al, a.cpu_pct as f64);
-                o.gauge("nyx_node_app_memory_bytes", "Node.js app memory.", &al, a.mem_bytes as f64);
-                o.gauge("nyx_node_app_uptime_seconds", "Node.js app uptime.", &al, a.uptime_s as f64);
-            }
-        }
         if let Some(f) = &live.firewall {
             let fl = with(&base, &[("backend", &f.backend)]);
             o.gauge("nyx_firewall_active", "1 when the host firewall is on.", &fl, b(f.active));

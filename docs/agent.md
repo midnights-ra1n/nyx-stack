@@ -130,7 +130,7 @@ the agent installs itself in the containers:
 - CPU is a share of the cores given to the container
 - a stopped container shows as stopped, and raises the same alert as a host going silent
 - a destroyed container leaves Nyx
-- logs, updates, Docker state and Node.js apps need an agent: OCI containers do not have them
+- logs, updates and Docker state need an agent: OCI containers do not have them
 
 With the option off, containers do not appear at all. Turning it off removes the hosts
 of watched containers and their history. VMs are always listed under their Proxmox host,
@@ -225,7 +225,6 @@ Caddy and Traefik pass WebSockets on as they are. Agent binary downloads still u
 | Temperature | Each report | Highest sensor |
 | Docker containers | When changed | Through `/var/run/docker.sock`, skipped if absent |
 | systemd services | Once a minute, when changed | Every loaded service: state, since when, main PID, memory, CPU share, restarts, start at boot, type, last result and unit file. Two `systemctl` calls, at most 400 services. Skipped without systemd |
-| Node.js apps and version | When changed, looked for every 5 min | From running processes: folder, Git origin and branch, user, what runs them. Credentials in a Git URL stay on the host, and the binaries found are never run |
 | VPN tunnels | Each report | Interface, type, address and traffic |
 | Pending system updates | Daily | At the hour set in the monitor |
 | SMART health and remaining life | Periodically | Physical hosts. Summarised as a simple state |
@@ -361,7 +360,7 @@ keys are not managed here, a new third-party source needs its key on the host.
 | --- | --- |
 | `/usr/local/bin/nyx-agent` | Binary (`/usr/bin` when installed from a package) |
 | `/etc/nyx/agent.conf` | Configuration, mode 0600 |
-| `/run/nyx-agent/` | tmpfs: journal cursors, temporary deploy keys |
+| `/run/nyx-agent/` | tmpfs: journal cursors |
 
 ## Removing
 
@@ -379,13 +378,36 @@ server on the same host still uses it. It works without the monitor. The dialog 
 Then delete the host in the monitor, where deleting alone only stops accepting the
 agent: it would keep running and being refused. Its history ages out with the retention.
 
-Left in place on purpose: smartmontools, which other tools may use, and any
-`nyx-site-*` service deployed by the manager, as those are your applications.
+Left in place on purpose: smartmontools, which other tools may use, and the Node.js
+sites Nyx 1.0 deployed, as those are your applications (see below).
 
 On a Proxmox host this also removes any agent left inside its running containers. A
 stopped container keeps its agent, so start it first or run the command there later. Then
 delete the host in the monitor: its LXC containers go with it, while VMs stay as hosts of
 their own, each with its own agent to remove. With Docker, use `docker compose --profile agent down`.
+
+### Sites deployed by Nyx 1.0
+
+Nyx 1.0 could deploy Node.js sites; later versions no longer do. Nothing removes the sites
+already deployed: they keep running and restart at boot as before. Each one is plain
+systemd and files you own:
+
+| What | Where |
+| --- | --- |
+| The service, unless the site used one of its own | `/etc/systemd/system/nyx-site-<name>.service` |
+| Its environment variables | `/etc/nyx/env/<name>.env`, read by systemd |
+| The HTTP cache header, if it was set | `/usr/local/lib/nyx-agent/cache.js`, loaded through `NODE_OPTIONS` |
+| Settings added to a service of your own | `nyx-env.conf` and `nyx-cache.conf` in `/etc/systemd/system/<service>.d/` |
+
+Keep these files while the site runs: removing `cache.js` or an env file makes its service
+fail to start. The monitor's **Services** page still shows each site's state and logs,
+alerts when it fails, and starts, stops or restarts it. To ship a new version, update the
+folder by hand (`git pull`, then the install and build commands) and restart the service.
+The manager keeps a record of each site under **Work**, **Deployments**, tagged `nodejs`.
+
+An agent 1.0 keeps working with a newer monitor, which ignores the Node.js apps it still
+reports. It keeps looking for them every 5 minutes until it is updated: the **Updates** page
+marks it **Old**, and **Update agents automatically** in Settings updates it overnight.
 
 ## Updates
 

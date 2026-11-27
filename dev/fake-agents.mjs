@@ -21,7 +21,7 @@ const FLEET = [
   { name: "nextcloud", kind: "vm", parent: "pve-atlas", ip: "10.0.10.20", mem: 8, updates: 4, reboot: true, docker: ["nextcloud", "nextcloud-db", "redis"], os: "Ubuntu 24.04.3 LTS" },
   // Named differently in Proxmox, as happens: the monitor ties them by address.
   { name: "gitea", kind: "vm", parent: "pve-atlas", ip: "10.0.10.21", mem: 4, pve: "forge-vm" },
-  { name: "web-portfolio", kind: "vm", parent: "pve-atlas", ip: "10.0.10.22", mem: 2, os: "AlmaLinux 10.1", node: true, reboot: true },
+  { name: "web-portfolio", kind: "vm", parent: "pve-atlas", ip: "10.0.10.22", mem: 2, os: "AlmaLinux 10.1", reboot: true },
   { name: "pihole", kind: "lxc", parent: "pve-atlas", ip: "10.0.10.30", mem: 1 },
   { name: "vaultwarden", kind: "lxc", parent: "pve-atlas", ip: "10.0.10.31", mem: 1, docker: ["vaultwarden"], os: "Alpine Linux v3.22" },
   { name: "home-assistant", kind: "lxc", parent: "pve-atlas", ip: "10.0.10.32", mem: 2, failed: "zigbee2mqtt" },
@@ -111,7 +111,6 @@ function makeAgent(spec, creds) {
       containers: spec.docker?.map((c, i) => ({ name: c, image: `${c}:latest`, state: c === spec.stopped ? "exited" : "running", status: c === spec.stopped ? "Exited (1) 3 hours ago" : "Up 4 days", id: `a1b2c3d4e5f${i}`, cpu_pct: rnd(0, 20), mem_used: Math.round(rnd(50, 900)) * 1024 ** 2, mem_limit: memTotal })) ?? null,
       smart: first ? smart || null : null,
       updates: first ? updates : null,
-      node: spec.node ? { version: "v22.21.0", apps: [{ name: "portfolio", path: "/srv/portfolio", pid: 4242, version: "v22.21.0", repo: "https://git.example.org/me/portfolio.git", branch: "main", user: "www-data", manager: "systemd", service: "portfolio.service", install_cmd: "npm ci", build_cmd: "npm run build", start_cmd: "npm start", cpu_pct: rnd(0, 4), mem_bytes: 180 * 1024 ** 2, uptime_s: 86400 * 3 }] } : null,
       guests: guests.length ? guests.map((g) => g.status === "running" ? { ...g, uptime_s: Math.round(now - started), cpu_pct: rnd(0, 6), mem_used: Math.round(rnd(0.2, 0.7) * g.mem_total), rx_bps: Math.round(rnd(1e3, 2e5)), tx_bps: Math.round(rnd(1e3, 1e5)) } : g) : null,
       logs: reports % 4 === 0 ? [`${now} <6> sshd: Accepted publickey for admin from 10.0.10.100`, ...(spec.failed ? [`${now} <3> ${spec.failed}: Error: serial port /dev/ttyACM0 not found`] : [])] : [],
       results: [], progress: null, reboot_required: !!spec.reboot,

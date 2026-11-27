@@ -161,7 +161,7 @@ export function Logs() {
   const panels = [
     { id: "summary", title: "Summary", render: (edit: any) => (
       <Panel title={t("Summary")} edit={edit}>
-        <div className="grid grid-cols-4 gap-4 max-sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-4">
           <Stat label="Errors" value={sum("crit")} level={sum("crit") ? "crit" : "ok"} />
           <Stat label="Warnings" value={sum("warn")} level={sum("warn") ? "warn" : "ok"} />
           <Stat label="Services" value={services.length} />
@@ -202,9 +202,13 @@ export function Logs() {
             <input value={q} onChange={(e) => setQ(e.target.value)} className="w-56 min-w-0 flex-1 bg-surface px-3 text-fg outline-none" />
           </label>
         </>} />
-      <Board id="logs" panels={panels}
-        desktop={{ cols: [["summary", "services", "journal"]], hidden: ["hosts"] }}
-        phone={{ cols: [["summary", "journal"]], hidden: ["services", "hosts"] }} />
+      {/* Two bands: the short panels side by side, the journal across the page. */}
+      <Board id="logs.top" panels={panels.filter((p) => p.id !== "journal")}
+        desktop={{ cols: [["summary"], ["services"]], hidden: ["hosts"] }}
+        phone={{ cols: [["summary"]], hidden: ["services", "hosts"] }} />
+      <div className="mt-4">
+        <Board id="logs" panels={panels.filter((p) => p.id === "journal")} desktop={{ cols: [["journal"]], hidden: [] }} phone={{ cols: [["journal"]], hidden: [] }} />
+      </div>
     </>
   )
 }

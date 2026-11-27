@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Fills a running manager with a sample homelab to try its pages: hardware standing in a
-// rack, on a shelving unit and on a desk, a few cables, and a network map with zones.
-// Run it after dev/fake-agents.mjs, which links the monitor whose hosts the map imports.
+// rack, on a shelving unit and on a desk, what runs on it, a few cables, a network map with
+// zones, and work to do. It needs no monitor: the manager keeps an inventory of its own.
 //   node dev/seed-manager.mjs [manager URL]
 // Sign-in: NYX_SIM_EMAIL / NYX_SIM_PASSWORD (default admin@nyx.local / dev-password-123).
 // Records are found by name, so running it again adds nothing twice.
@@ -66,9 +66,20 @@ for (const [n, host, nic] of [["1", "pve-atlas", "eno1"], ["2", "nas-01", "eth0"
   if (!a.peer && !b.peer) await call(`/api/c/ports/${a.id}`, { peer: b.id }, "PATCH")
 }
 
-// The map: the monitored hosts, the network gear in front of them, then zones around both.
+// Virtual assets, kept by hand: the monitor's hosts stay in the monitor.
+const virtual = await list("virtual_assets")
+for (const [name, type, parent, ip, vcpu, ram_mb] of [
+  ["nextcloud", "vm", "pve-atlas", "10.0.10.20", 4, 8192], ["gitea", "vm", "pve-atlas", "10.0.10.21", 2, 4096],
+  ["web-portfolio", "vm", "pve-atlas", "10.0.10.22", 2, 2048], ["pihole", "container", "pve-atlas", "10.0.10.30", 1, 1024],
+  ["vaultwarden", "container", "pve-atlas", "10.0.10.31", 1, 1024], ["media", "container", "pve-atlas", "10.0.10.34", 4, 6144],
+  ["grafana", "container", "pve-orion", "10.0.20.30", 1, 1024], ["k3s-worker", "vm", "pve-orion", "10.0.20.20", 4, 8192],
+  ["vps-gateway", "vm", "", "203.0.113.10", 1, 1024],
+  ["nextcloud-app", "docker", "nextcloud", "", 0, 0], ["redis", "docker", "nextcloud", "", 0, 0], ["jellyfin", "docker", "media", "", 0, 0],
+]) await ensure("virtual_assets", virtual, { name, type, parent, ip, vcpu, ram_mb, status: "running" })
+
+// The map: the inventory, the network gear in front of it, then zones around both.
 const first = !(await list("map_zones")).length
-await call("/api/map/import", {}).catch((e) => console.warn(`No hosts imported (${e.message}): run dev/fake-agents.mjs first.`))
+await call("/api/map/import", {})
 const nodes = await list("map_nodes")
 const node = (name, type, ip) => ensure("map_nodes", nodes, { name, type, ip, x: 0, y: 0 })
 const gear = {
@@ -97,10 +108,10 @@ if (first) {
   }
   await around("Network", "blue", ["internet", "firewall", "router", "switch", "ap"])
   const parent = parents(nodes, links)
-  await around("Servers", "orange", nodes.filter((n) => ["proxmox", "physical"].includes(n.type) || parent[n.id]).map((n) => n.name))
-  await around("Cloud", "green", ["vps"])
+  await around("Servers", "orange", nodes.filter((n) => ["server", "nas"].includes(n.type) || parent[n.id]).map((n) => n.name))
+  await around("Cloud", "green", ["vps-gateway"])
 }
-// IPAM: the VLANs and subnets of the addresses the monitor reports.
+// IPAM: the VLANs and subnets of the inventory's addresses.
 const vlans = await list("vlans")
 for (const [number, name] of [[1, "Management"], [10, "Servers"], [20, "Lab"]]) await ensure("vlans", vlans, { number, name })
 const subnets = await list("subnets")
@@ -132,7 +143,7 @@ for (const c of [
   ...["A1", "A2", "B1", "B2"].map((slot) => ({ name: `pve-atlas RAM ${slot}`, type: "RAM", manufacturer: "Samsung", capacity: "32 GB DDR4-2400 ECC", device: hw["pve-atlas"].id, slot, status: "In service" })),
 ]) await ensure("components", parts, c)
 
-// Work: tasks in each state, and deployments.
+// Work: tasks in each state, interventions on the devices, and deployments.
 const tasks = await call("/api/tasks")
 for (const [title, status, due, tags, description] of [
   ["Replace the worn disk of nas-01", "todo", day(2), "hardware, urgent", "- [x] Order a WD Red Plus 8 TB\n- [ ] Swap the disk\n- [ ] Rebuild the array"],
@@ -149,5 +160,12 @@ for (const [name, target, version, status, tags] of [
   ["k3s 1.33 upgrade", "k3s-worker", "1.33.2", "planned", "cluster"],
   ["Pi-hole v6", "pihole", "6.1", "failed", "network"],
 ]) await ensure("deployments", deployments, { name, target, version, status, tags, scheduled_at: day(0) })
+const interventions = await list("interventions")
+for (const [title, type, asset, status, when, notes] of [
+  ["Replace disk 4", "Repair", "nas-01", "done", -40, "Reallocated sectors on the old IronWolf. Swapped for a WD Red Plus 8 TB, array rebuilt in 9 h."],
+  ["Add 64 GB of memory", "Upgrade", "pve-atlas", "doing", 1, ""],
+  ["Replace the UPS battery", "Maintenance", "UPS", "todo", 12, ""],
+  ["Check the fans and the dust", "Check", "pve-orion", "todo", -2, ""],
+]) if (!interventions.some((i) => i.title === title)) await call("/api/c/interventions", { title, type, asset, status, notes, tags: "hardware", scheduled_at: day(when), done_at: status === "done" ? day(when) : "" })
 
 console.log(`Seeded ${MANAGER}: ${places.length} places, ${hardware.length} devices, ${nodes.length} map devices.`)

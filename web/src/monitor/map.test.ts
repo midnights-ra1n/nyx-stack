@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { autoLayout, hubState, type MapNode, zoomed } from "./map"
+import { autoLayout, connector, hubState, type MapNode, zoomed } from "./map"
 
 const node = (parent: number | null = null, state: MapNode["state"] = "ok"): MapNode => ({ label: "n", state, type: "vm", parent })
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -21,6 +21,23 @@ describe("autoLayout", () => {
   })
   it("copes with an empty fleet", () => {
     expect(autoLayout([])).toEqual([])
+  })
+  it("shares the leaves between both sides of the hub", () => {
+    const at = autoLayout(Array.from({ length: 10 }, () => node()))
+    expect(at.filter((p) => p.x > 0)).toHaveLength(5)
+    expect(at.filter((p) => p.x < 0)).toHaveLength(5)
+  })
+  it("sits a parent level with the middle of its children", () => {
+    const at = autoLayout([node(), node(0), node(0), node(0)])
+    expect(at[0].y).toBe(at[2].y)
+    expect(at[1].y).toBeLessThan(at[3].y)
+  })
+})
+
+describe("connector", () => {
+  it("leaves and reaches the sides that face each other", () => {
+    expect(connector({ x: 0, y: 0 }, 20, { x: 100, y: 50 }, 40)).toMatchObject({ from: { x: 10, y: 0 }, to: { x: 80, y: 50 } })
+    expect(connector({ x: 0, y: 0 }, 20, { x: -100, y: 0 }, 40)).toMatchObject({ from: { x: -10, y: 0 }, to: { x: -80, y: 0 } })
   })
 })
 

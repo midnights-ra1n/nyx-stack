@@ -109,6 +109,10 @@ pub struct ProbeDef {
     /// An `https://` website probe also follows its certificate.
     pub watch_cert: bool,
     pub snmp: Option<Arc<snmp::Config>>,
+    /// Still checked, never alerted on.
+    pub muted: bool,
+    /// Left out of what the MCP server answers.
+    pub mcp_hidden: bool,
 }
 
 pub struct ProbeLive {
@@ -189,7 +193,7 @@ impl ProbeLive {
     pub fn to_json(&self) -> Value {
         json!({"id": self.def.id, "name": self.def.name, "type": self.def.kind, "target": self.def.target, "up": self.up,
             "latency_ms": self.latency_ms, "message": self.message, "cert_days": self.cert_days, "warn_days": self.def.warn_days,
-            "readings": self.readings, "history": self.history.iter().collect::<Vec<_>>()})
+            "readings": self.readings, "history": self.history.iter().collect::<Vec<_>>(), "muted": self.def.muted, "mcp_hidden": self.def.mcp_hidden})
     }
 }
 
@@ -215,23 +219,29 @@ fn parse_def(r: &Value) -> ProbeDef {
         expect_status: n("expect_status") as u16,
         watch_cert: s("target").starts_with("https://"),
         snmp: (r["type"] == "snmp").then(|| serde_json::from_value(r["snmp"].clone()).unwrap_or_default()).map(Arc::new),
+        muted: r["muted"].as_bool().unwrap_or(false),
+        mcp_hidden: r["mcp_hidden"].as_bool().unwrap_or(false),
     }
 }
 
-/// Sync the running set with the `probes` collection.
+/// Sync the running set with the `probes` collection. The alerts of probes kept out of
+/// them close without a notice.
 pub async fn reload(app: &App) -> anyhow::Result<()> {
     let defs: Vec<ProbeDef> = app.core.pb.list("probes", "enabled = true", "").await?.iter().map(parse_def).collect();
-    let mut st = app.lock();
-    st.probes.retain(|id, _| defs.iter().any(|d| d.id == *id));
-    for d in defs {
-        match st.probes.get_mut(&d.id) {
-            Some(p) => p.def = d,
-            None => {
-                st.probes.insert(d.id.clone(), ProbeLive::new(d));
+    let muted: Vec<String> = defs.iter().filter(|d| d.muted).map(|d| format!("probe:{}", d.id)).collect();
+    {
+        let mut st = app.lock();
+        st.probes.retain(|id, _| defs.iter().any(|d| d.id == *id));
+        for d in defs {
+            match st.probes.get_mut(&d.id) {
+                Some(p) => p.def = d,
+                None => {
+                    st.probes.insert(d.id.clone(), ProbeLive::new(d));
+                }
             }
         }
     }
-    Ok(())
+    app.close_quietly(|k| muted.iter().any(|m| k == m || k.strip_prefix(m.as_str()).is_some_and(|rest| rest.starts_with(':')))).await
 }
 
 /// Start every probe that is due; each runs detached so one slow target never
@@ -279,6 +289,9 @@ async fn conclude(app: &App, def: &ProbeDef, result: anyhow::Result<Outcome>) ->
 fn alerts_for(p: &ProbeLive) -> Vec<Wanted> {
     let d = &p.def;
     let mut out = vec![];
+    if d.muted {
+        return out;
+    }
     if p.fails >= FAILS_TO_ALERT {
         out.push(Wanted { key: format!("probe:{}", d.id), kind: "state", severity: "crit", message: format!("{} is down: {}", d.name, p.message), host: d.target.clone() });
     }
@@ -389,7 +402,7 @@ pub fn snapshot(app: &App) -> Vec<Value> {
     let today = chrono::Local::now().date_naive();
     v.iter().map(|p| {
         let mut j = p.to_json();
-        j["uptime_30d"] = json!(st.uptime.overall(&p.def.id, today, false));
+        j["uptime_90d"] = json!(st.uptime.overall(&p.def.id, today, false));
         j["days"] = json!(st.uptime.series(&p.def.id, today, false));
         j["interval_s"] = json!(p.def.interval_s);
         j
@@ -423,6 +436,15 @@ mod tests {
         p.record(Err(anyhow::anyhow!("x")));
         assert_eq!(alerts_for(&p)[0].severity, "crit");
         p.record(ok(None));
+        assert!(alerts_for(&p).is_empty());
+    }
+
+    #[test]
+    fn a_probe_kept_out_of_alerts_still_runs_but_never_alerts() {
+        let mut p = ProbeLive::new(parse_def(&json!({"id": "p", "name": "site", "type": "ping", "target": "x", "muted": true})));
+        p.record(Err(anyhow::anyhow!("x")));
+        p.record(Err(anyhow::anyhow!("x")));
+        assert_eq!((p.up, p.fails), (Some(false), 2));
         assert!(alerts_for(&p).is_empty());
     }
 

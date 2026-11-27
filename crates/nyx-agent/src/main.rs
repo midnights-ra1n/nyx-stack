@@ -8,7 +8,6 @@ mod dns;
 mod exec;
 mod firewall;
 mod metrics;
-mod node;
 mod packages;
 mod proxmox;
 mod repos;
