@@ -47,7 +47,7 @@ The folder name becomes the prefix of your volumes (`nyx_monitor-data`), so keep
 
 | Variable | Needed for | Meaning |
 | --- | --- | --- |
-| `NYX_VERSION` | All | `latest` by default, or `stable`, `beta`, or a fixed version such as `1.0.0` |
+| `NYX_VERSION` | All | `latest` by default, or `stable`, `beta`, or a fixed version such as `1.1.0` |
 | `NYX_MONITOR_URL` | Always | The URL users and agents reach the monitor on |
 | `NYX_MANAGER_URL` | Always | The URL users reach the manager on |
 | `NYX_DB_EMAIL` | `db` profile | Superuser of the shared database |
@@ -242,8 +242,8 @@ Files are named after the version and the architecture:
 
 | | x86_64 | arm64 |
 | --- | --- | --- |
-| Debian, Ubuntu | `nyx-monitor_1.0.0-1_amd64.deb` | `nyx-monitor_1.0.0-1_arm64.deb` |
-| RHEL, Fedora, Alma | `nyx-monitor-1.0.0-1.x86_64.rpm` | `nyx-monitor-1.0.0-1.aarch64.rpm` |
+| Debian, Ubuntu | `nyx-monitor_1.1.0-1_amd64.deb` | `nyx-monitor_1.1.0-1_arm64.deb` |
+| RHEL, Fedora, Alma | `nyx-monitor-1.1.0-1.x86_64.rpm` | `nyx-monitor-1.1.0-1.aarch64.rpm` |
 
 ### 1. Download and verify
 
@@ -251,7 +251,7 @@ Take the latest version from the releases page, and swap `nyx-monitor` for what 
 On Debian or Ubuntu:
 
 ```sh
-VERSION=1.0.0 ARCH=amd64    # or arm64
+VERSION=1.1.0 ARCH=amd64    # or arm64
 BASE=https://github.com/midnights-ra1n/nyx-stack/releases/download/v$VERSION
 for p in nyx-base nyx-monitor; do curl -fsSLO "$BASE/${p}_$VERSION-1_$ARCH.deb"; done
 curl -fsSLO "$BASE/SHA256SUMS"
@@ -261,7 +261,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 On RHEL, Fedora or Alma:
 
 ```sh
-VERSION=1.0.0 ARCH=x86_64   # or aarch64
+VERSION=1.1.0 ARCH=x86_64   # or aarch64
 BASE=https://github.com/midnights-ra1n/nyx-stack/releases/download/v$VERSION
 for p in nyx-base nyx-monitor; do curl -fsSLO "$BASE/$p-$VERSION-1.$ARCH.rpm"; done
 curl -fsSLO "$BASE/SHA256SUMS"

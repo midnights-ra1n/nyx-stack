@@ -21,7 +21,7 @@ health, EDF Tempo and pipelines.
 
 ## Project status
 
-Nyx 1.0.0 is the first stable release, with images and packages on the
+Nyx 1.1.0 is the current stable release, with images and packages on the
 [releases page](https://github.com/midnights-ra1n/nyx-stack/releases). It is a young
 project: its tests pass, but it has only seen light use on real systems, so keep backups
 and report what breaks. You can also [build it from source](docs/development.md).
