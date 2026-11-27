@@ -11,5 +11,6 @@ if [ ! -f /etc/nyx/db.env ]; then
   chmod 640 /etc/nyx/db.env
 fi
 systemctl daemon-reload
-systemctl enable --now nyx-db
-systemctl try-restart nyx-db
+systemctl enable nyx-db
+# One start, also after update.sh stopped it: a second one would cut its migrations short.
+systemctl restart nyx-db

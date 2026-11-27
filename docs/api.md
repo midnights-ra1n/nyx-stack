@@ -37,7 +37,8 @@ Answers are JSON. Errors look like `{"error": "message"}`.
 | POST | `/api/notify/test/{id}` | Session | Send a test through a channel |
 | GET | `/api/system/version` | Session | Version and install type |
 | POST | `/api/system/check` | Session | Ask GitHub for the latest release, on the chosen channel |
-| POST | `/api/system/update` | Session | Request a package upgrade |
+| POST | `/api/system/update` | Session | Request a package upgrade, once the database answers. Returns `requested`, the server time of the request |
+| GET | `/api/system/update` | Session | `version`, and the `steps` of the last upgrade: `time`, `state` (`run`, `ok`, `fail`), `text` |
 | GET | `/api/backup?history=true` | Session | Download a full backup, with the metrics history when asked |
 | POST | `/api/mcp/tokens` | Session | Create an MCP token |
 | POST | `/mcp`, `/mcp/{token}` | Token, HTTPS | MCP endpoint |

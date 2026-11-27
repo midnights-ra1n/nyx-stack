@@ -1,7 +1,8 @@
 //! Updates of servers installed from `.deb` or `.rpm` packages.
 //!
 //! The server runs unprivileged, so it only drops a request file. A root systemd
-//! path unit picks it up, see `packaging/update.sh`. GitHub is contacted only when
+//! path unit picks it up, see `packaging/update.sh`, which writes each step to
+//! [`LOG`] for the UI to follow. GitHub is contacted only when
 //! the user asks for a check, or turns on beta agents on the monitor. Docker installs
 //! update by pulling a new image.
 //!
@@ -17,6 +18,8 @@ use std::sync::Arc;
 const RELEASES: &str = "https://api.github.com/repos/midnights-ra1n/nyx-stack/releases";
 /// Beta releases follow each push, so the newest is always on the first page.
 const BETA_LOOKBACK: u32 = 30;
+/// Root-owned, rewritten by each update.
+const LOG: &str = "/var/log/nyx/update.log";
 
 fn update_dir() -> Option<String> {
     std::env::var("NYX_UPDATE_DIR").ok().filter(|d| !d.is_empty())
@@ -72,17 +75,42 @@ struct Update {
     tag: String,
 }
 
-async fn update(_: Session, Json(b): Json<Update>) -> ApiResult<Json<Value>> {
+/// Checks what only this server can see, then asks for the update. `update.sh`
+/// checks the rest and saves the databases before installing.
+async fn update(_: Session, State(core): State<Arc<Core>>, Json(b): Json<Update>) -> ApiResult<Json<Value>> {
     let dir = update_dir().ok_or_else(|| ApiError::bad_request("this install is not managed by packages"))?;
     if parse_version(&b.tag).is_none() {
         return Err(ApiError::bad_request("not a release tag"));
     }
-    tokio::fs::write(format!("{dir}/request"), b.tag).await.map_err(anyhow::Error::from)?;
-    Ok(Json(Value::Null))
+    let request = format!("{dir}/request");
+    if tokio::fs::try_exists(&request).await.unwrap_or(false) {
+        return Err(ApiError::bad_request("The last update request was never picked up. Check the updater with systemctl status nyx-update.path."));
+    }
+    if let Err(e) = core.pb.setting("updates").await {
+        return Err(ApiError::bad_request(format!("The database does not answer, so the update would not be safe: {e:#}")));
+    }
+    tokio::fs::write(request, b.tag).await.map_err(anyhow::Error::from)?;
+    // The clock update.sh stamps its steps with, so that the UI tells this update from the last.
+    Ok(Json(json!({"requested": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()})))
+}
+
+/// One step per line: time, `run`, `ok` or `fail`, text.
+fn steps(log: &str) -> Vec<Value> {
+    let step = |l: &str| {
+        let mut f = l.splitn(3, '\t');
+        Some(json!({"time": f.next()?, "state": f.next()?, "text": f.next()?}))
+    };
+    log.lines().filter_map(step).collect()
+}
+
+/// The last update, as far as it went. The version tells the UI when this server is back.
+async fn progress(_: Session) -> Json<Value> {
+    let log = tokio::fs::read_to_string(LOG).await.unwrap_or_default();
+    Json(json!({"version": env!("CARGO_PKG_VERSION"), "steps": steps(&log)}))
 }
 
 pub fn router() -> Router<Arc<Core>> {
-    Router::new().route("/api/system/version", get(version)).route("/api/system/check", post(check)).route("/api/system/update", post(update))
+    Router::new().route("/api/system/version", get(version)).route("/api/system/check", post(check)).route("/api/system/update", get(progress).post(update))
 }
 
 #[cfg(test)]
@@ -103,6 +131,19 @@ mod tests {
         assert!(is_newer("v0.2.0-beta.2", "0.2.0-beta.1") && is_newer("v0.2.0-beta.10", "0.2.0-beta.9"));
         assert!(is_newer("v0.2.0", "0.2.0-beta.9") && is_newer("v0.2.0-beta.1", "0.1.9"));
         assert!(!is_newer("v0.2.0-beta.1", "0.2.0") && !is_newer("v0.1.9", "0.2.0-beta.1"));
+    }
+
+    #[test]
+    fn update_steps_are_read_line_by_line_and_torn_lines_skipped() {
+        let log = "2026-11-27T10:00:00Z\trun\tUpdating to v1.2.0\n2026-11-27T10:01:00Z\tok\tUpdated to v1.2.0\tsee notes\n2026-11-27T10:01";
+        assert_eq!(
+            steps(log),
+            vec![
+                json!({"time": "2026-11-27T10:00:00Z", "state": "run", "text": "Updating to v1.2.0"}),
+                json!({"time": "2026-11-27T10:01:00Z", "state": "ok", "text": "Updated to v1.2.0\tsee notes"}),
+            ]
+        );
+        assert!(steps("").is_empty());
     }
 
     #[test]

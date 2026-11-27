@@ -15,6 +15,7 @@ test:
 	cd web && pnpm test
 	cd relay && pnpm install --frozen-lockfile && pnpm test && pnpm run check
 	sh packaging/next-version.test.sh
+	sh packaging/update.test.sh
 
 web:
 	cd web && pnpm install --frozen-lockfile && pnpm vite build --mode monitor && pnpm vite build --mode manager

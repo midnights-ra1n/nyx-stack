@@ -6,5 +6,6 @@ if [ -d /var/lib/nyx/pb ] && [ ! -e /var/lib/nyx/monitor/pb_data ]; then
   cp -a /var/lib/nyx/pb /var/lib/nyx/monitor/pb_data
 fi
 systemctl daemon-reload
-systemctl enable --now nyx-monitor
-systemctl try-restart nyx-monitor
+systemctl enable nyx-monitor
+# One start, also after update.sh stopped it: a second one would cut its migrations short.
+systemctl restart nyx-monitor

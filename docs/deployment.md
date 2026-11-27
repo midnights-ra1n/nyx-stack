@@ -330,6 +330,8 @@ sudo firewall-cmd --permanent --add-port=8081/tcp && sudo firewall-cmd --reload 
 | `/var/lib/nyx/monitor`, `manager`, `db` | Data. This is what you back up |
 | `/usr/share/nyx/agents` | Agent binaries the monitor hands out |
 | `/usr/libexec/nyx` | `nyx-notify` and the updater |
+| `/var/backups/nyx` | Databases saved by the updater, the last three per server, root only |
+| `/var/log/nyx/update.log` | Steps of the last update |
 
 | Service | Role |
 | --- | --- |
@@ -344,8 +346,38 @@ versions** to be offered betas as well, on each server you want them on. See
 [Release channels](#release-channels).
 
 The server is unprivileged, so it only leaves a request file. A root systemd unit,
-`nyx-update.path`, then downloads the packages, checks them against the release's
-`SHA256SUMS` and installs them. GitHub is contacted only when you press the button.
+`nyx-update.path`, then runs the update. GitHub is contacted only when you press the
+button. Nothing changes on the machine until every check has passed:
+
+| Step | What happens | If it fails |
+| --- | --- | --- |
+| Request | The server checks that its database answers and that no earlier request is stuck | Nothing is requested, the reason shows next to the button |
+| Disk space | Room to save the databases, plus 300 MB for the packages | Stops, nothing changed |
+| Download | Each package is checked against the release's `SHA256SUMS` | Stops, nothing changed |
+| Snapshot | The servers on this machine stop, and each database is saved to `/var/backups/nyx` | The servers start again on the version they had |
+| Install | The packages are installed, which starts the servers again | The servers start again, on whatever version is installed |
+| Restart | Each server must open its port within 3 minutes: it only does once its database has migrated and answers | Marked as failed, see below |
+
+The page shows each step as it happens, and keeps the last update under **Last update**.
+On the machine, the same steps are in `/var/log/nyx/update.log`, and the details in
+`journalctl -u nyx-update`. Updaters before 1.1.0 write no steps: the first update to
+1.1.0 or later still runs the old one.
+
+#### Going back after a failed update
+
+The snapshot is named after the package and the version it was taken from, for example
+`nyx-monitor-1.0.0-1-20261127-100000.tar.gz`. To put it back, install that version's
+packages again as in [Download and verify](#1-download-and-verify), then:
+
+```sh
+sudo systemctl stop nyx-monitor
+sudo mv /var/lib/nyx/monitor/pb_data /var/lib/nyx/monitor/pb_data.failed
+sudo tar -xzf /var/backups/nyx/nyx-monitor-1.0.0-1-20261127-100000.tar.gz -C /var/lib/nyx/monitor
+sudo systemctl start nyx-monitor
+```
+
+The same goes for `nyx-manager` and `nyx-db`, with their own directory. Remove
+`pb_data.failed` once everything works.
 
 To update by hand, download the new files as above and install them with the same
 command. Services restart by themselves, and your settings and data stay. Upgrade `nyx-db`

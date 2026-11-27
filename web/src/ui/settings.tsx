@@ -1,9 +1,9 @@
 import { TrashIcon } from "@heroicons/react/24/outline"
 import { type ReactNode, useState } from "react"
-import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Progress, Select, Status } from "./components"
+import { Button, Check, Copy, Empty, ErrorNote, type Icon, IconButton, Input, Mono, Panel, Select, Status } from "./components"
 import { api, download, fmt, REFRESH, setRefresh, useApi, useRefresh } from "./lib"
 import { PageHeader } from "./shell"
-import { t, tx } from "./i18n"
+import { t, tn, tx } from "./i18n"
 export { NotificationSettings } from "./notify"
 
 export function PasskeySettings() {
@@ -133,46 +133,79 @@ export function ProxmoxSettings() {
   )
 }
 
+type Step = { time: string; state: "run" | "ok" | "fail"; text: string }
+type UpdateLog = { version: string; steps: Step[] }
+
+/** What update.sh did, one line per step; the last one says how it ended. */
+function UpdateSteps({ steps }: { steps: Step[] }) {
+  return (
+    <ol className="flex flex-col gap-1 text-[13px]">
+      {steps.map((s, i) => (
+        <li key={i} className="flex gap-3">
+          <span className="shrink-0 text-fg3 tabular-nums">{new Date(s.time).toLocaleTimeString()}</span>
+          <span className={`min-w-0 break-words ${s.state === "fail" ? "text-crit" : s.state === "ok" ? "text-ok" : "text-fg2"}`}>{tn(s.text)}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 /** GitHub is only contacted when the user presses Check. */
 export function SystemUpdates({ agents }: { agents?: boolean }) {
   const { data } = useApi("/api/system/version", { poll: false })
   const { data: channel, reload } = useApi("/api/settings/updates", { poll: false })
+  const { data: last } = useApi<UpdateLog>(data?.managed ? "/api/system/update" : null, { poll: false })
   const [latest, setLatest] = useState<{ latest: string; available: boolean }>()
   const [note, setNote] = useState("")
-  const [stage, setStage] = useState<{ pct: number; text: string }>()
+  const [run, setRun] = useState<{ steps: Step[]; text: string }>()
   const setBeta = async (beta: boolean) => {
     try { await api("/api/settings/updates", { method: "PUT", body: { beta } }); setLatest(undefined); reload() } catch (e) { setNote((e as Error).message) }
   }
   const check = async () => { try { setLatest(await api("/api/system/check", { method: "POST" })); setNote("") } catch (e) { setNote((e as Error).message) } }
   const update = async () => {
-    try { await api("/api/system/update", { body: { tag: latest!.latest } }) } catch (e) { return setNote((e as Error).message) }
+    let requested: string
+    try { ({ requested } = await api("/api/system/update", { body: { tag: latest!.latest } })) } catch (e) { return setNote((e as Error).message) }
     setNote("")
-    setStage({ pct: 10, text: "Downloading and installing…" })
-    // The server does not tell how far it is, but its answers show the stage it reached.
-    for (let i = 0; i < 150; i++) {
+    let steps: Step[] = []
+    setRun({ steps, text: "Waiting for the updater…" })
+    for (let i = 0; i < 300; i++) {
       await new Promise((r) => setTimeout(r, 2000))
-      const now = await api("/api/system/version").catch(() => null)
-      if (!now) setStage({ pct: 60, text: "Restarting…" })
-      else if (now.version !== data?.version) {
-        setStage({ pct: 100, text: t("Updated to {version}. Reloading…", { version: now.version }) })
-        return setTimeout(() => location.reload(), 1500)
+      const now = await api<UpdateLog>("/api/system/update").catch(() => null)
+      // Steps of earlier updates are older than this request.
+      if (now) steps = now.steps.filter((s) => s.time >= requested)
+      const end = steps.at(-1)?.state
+      if (end === "fail") return setRun({ steps, text: "The update did not go through. The last step says why." })
+      // Updaters before 1.1.0 write no steps: the new version is all there is to see.
+      if (now && now.version !== data?.version && (end === "ok" || !steps.length)) {
+        setRun({ steps, text: t("Updated to {version}. Reloading…", { version: now.version }) })
+        return setTimeout(() => location.reload(), 3000)
       }
+      setRun({ steps, text: now ? "Updating…" : "Restarting…" })
     }
-    setStage(undefined)
+    setRun(undefined)
     setNote("The update did not finish. Run journalctl -u nyx-update on the server to see why.")
   }
+  const past = last?.steps ?? []
+  const end = past.at(-1)
   return (
     <Panel title={t("Software updates")}>
       <div className="flex flex-col gap-3">
         <p className="text-fg2">{t("Version {version}.", { version: data?.version ?? "—" })} {t(data?.managed ? "Installed from packages." : "Pull a new image to update a Docker install.")}</p>
         {data?.managed && <Check label="Include beta versions" checked={!!channel?.beta} onChange={(e) => setBeta(e.target.checked)} />}
         {data?.managed && agents && <p className="text-[13px] text-fg3">{t("Agents follow this server: they update to the version it ships.")}</p>}
+        {data?.managed && <p className="text-[13px] text-fg3">{t("Before installing, the updater checks the database and the free space, then saves each database to /var/backups/nyx.")}</p>}
         {latest && <p>{latest.available ? t("{version} is available.", { version: latest.latest }) : t("You are up to date.")}</p>}
-        {stage && <><Progress pct={stage.pct} label="Update progress" /><p role="status" className="text-fg2">{stage.text}</p></>}
+        {run && <div className="flex flex-col gap-2"><UpdateSteps steps={run.steps} /><p role="status" className="text-fg2">{t(run.text)}</p></div>}
+        {!run && end && (
+          <details>
+            <summary className="cursor-pointer text-[13px] text-fg2">{t("Last update, {when}: {what}", { when: new Date(end.time).toLocaleString(), what: tn(end.text) })}</summary>
+            <div className="mt-2"><UpdateSteps steps={past} /></div>
+          </details>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={check}>{t("Check on GitHub")}</Button>
-          {latest?.available && data?.managed && <Button variant="primary" disabled={!!stage} onClick={update}>{t("Update to {version}", { version: latest.latest })}</Button>}
-          <span className="text-[13px] text-fg2">{note}</span>
+          {latest?.available && data?.managed && <Button variant="primary" disabled={!!run} onClick={update}>{t("Update to {version}", { version: latest.latest })}</Button>}
+          <span className="text-[13px] text-fg2">{tn(note)}</span>
         </div>
       </div>
     </Panel>

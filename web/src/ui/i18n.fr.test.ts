@@ -19,6 +19,14 @@ describe("text built by the server, in French", () => {
   })
 })
 
+describe("update steps, in French", () => {
+  it("translates the steps update.sh writes, and the step a failure names", () => {
+    expect(tn("Saving the database of nyx-monitor to /var/backups/nyx/nyx-monitor-1.0.0-1-20261127-100000.tar.gz")).toBe("Sauvegarde de la base de données de nyx-monitor dans /var/backups/nyx/nyx-monitor-1.0.0-1-20261127-100000.tar.gz")
+    expect(tn("Failed: Installing the packages. Details: journalctl -u nyx-update")).toBe("Échec : Installation des paquets. Détails : journalctl -u nyx-update")
+    expect(tn("Not enough free space in /var/backups/nyx: 412 MB needed to save the databases")).toBe("Espace libre insuffisant dans /var/backups/nyx : 412 Mo nécessaires pour sauvegarder les bases de données")
+  })
+})
+
 describe("Docker states, in French", () => {
   it("translates the state and the duration in it", () => {
     expect(tn("Up 4 days")).toBe("Actif depuis 4 jours")

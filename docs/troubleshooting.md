@@ -102,6 +102,19 @@ repository is public, and it reports an error until a stable release exists. **I
 beta versions** only appears on package installs, as Docker installs pick their channel
 with `NYX_VERSION`.
 
+## An update failed or does not start
+
+Open **Settings, Updates, Last update**: the last step says where it stopped, and the
+same steps are in `/var/log/nyx/update.log`. Then:
+
+| Last step | What to do |
+| --- | --- |
+| The last update request was never picked up | `sudo systemctl enable --now nyx-update.path`, then try again |
+| Not enough free space | Free some, often old snapshots in `/var/backups/nyx`, then try again |
+| Downloading and verifying | `journalctl -u nyx-update` shows the download error. Nothing was changed |
+| Installing the packages | `journalctl -u nyx-update` shows the package manager's error. The servers were started again |
+| Did not answer within 3 minutes | `journalctl -u nyx-monitor` (or the server named) shows why. To go back, see [Going back after a failed update](deployment.md#going-back-after-a-failed-update) |
+
 ## The UI shows an old version
 
 The service worker caches assets. Reload twice, or clear the site's data.
